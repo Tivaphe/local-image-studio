@@ -1,0 +1,7 @@
+# Core - required for the app to start
+Flask>=3.0
+huggingface_hub>=0.24
+
+# Optional - for prompt enrichment & translation
+# If install fails (needs C++ build tools), the app still works without it.
+llama-cpp-python>=0.3.0

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Historique · Local Image Studio{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <div class="panel-head">
+    <h2>Historique</h2>
+    <div class="filters">
+      <a class="chip {% if not model_filter %}active{% endif %}" href="{{ url_for('history') }}">Tous</a>
+      {% for mid, m in models.items() %}
+      <a class="chip {% if model_filter==mid %}active{% endif %}" href="{{ url_for('history', model=mid) }}">{{ m.name }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  <p class="muted">{{ count }} image(s) au total · enregistrées dans <code>output/</code></p>
+
+  {% if images %}
+  <div class="gallery">
+    {% for im in images %}
+    <div class="card" data-id="{{ im.id }}">
+      <div class="thumb" style="background-image:url('{{ url_for('serve_output', filename=im.filename) }}')"></div>
+      <div class="card-body">
+        <div class="card-title">{{ im.model_name }} <span class="tag">{{ im.quant }}</span></div>
+        <p class="card-prompt" title="{{ im.prompt }}">{{ im.prompt }}</p>
+        <div class="card-meta">
+          {{ im.width }}×{{ im.height }} · {{ im.steps }}步 · cfg {{ im.cfg }} · seed {{ im.seed }}
+        </div>
+        <div class="card-actions">
+          <a class="link" href="{{ url_for('serve_output', filename=im.filename) }}" download>Télécharger</a>
+          <button class="link reuse" data-prompt="{{ im.prompt|e }}"
+                  data-neg="{{ im.negative|e }}" data-model="{{ im.model }}"
+                  data-w="{{ im.width }}" data-h="{{ im.height }}"
+                  data-steps="{{ im.steps }}" data-cfg="{{ im.cfg }}" data-seed="{{ im.seed }}">Réutiliser</a>
+          <button class="link danger del" data-id="{{ im.id }}">Supprimer</button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">
+    <p>Aucune image pour le moment.</p>
+    <a class="btn primary" href="{{ url_for('generate') }}">← Générer une image</a>
+  </div>
+  {% endif %}
+</section>
+
+<script>
+document.querySelectorAll('.del').forEach(b=>{
+  b.addEventListener('click', async ()=>{
+    if(!confirm('Supprimer cette image ?')) return;
+    await fetch('/api/delete-image',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:b.dataset.id})});
+    b.closest('.card').remove();
+  });
+});
+document.querySelectorAll('.reuse').forEach(b=>{
+  b.addEventListener('click', async ()=>{
+    const p = b.dataset;
+    sessionStorage.setItem('reuse', JSON.stringify(p));
+    window.location.href = "{{ url_for('generate') }}";
+  });
+});
+</script>
+{% endblock %}

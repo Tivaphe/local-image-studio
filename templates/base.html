@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Local Image Studio{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◆</span> Local Image Studio
+    </div>
+    <nav class="nav">
+      <a href="{{ url_for('generate') }}" class="{% if request.endpoint=='generate' %}active{% endif %}">Générer</a>
+      <a href="{{ url_for('history') }}" class="{% if request.endpoint=='history' %}active{% endif %}">Historique</a>
+      <a href="{{ url_for('stats_page') }}" class="{% if request.endpoint=='stats_page' %}active{% endif %}">Stats</a>
+      <a href="{{ url_for('models_page') }}" class="{% if request.endpoint=='models_page' %}active{% endif %}">Modèles</a>
+      <a href="{{ url_for('settings_page') }}" class="{% if request.endpoint=='settings_page' %}active{% endif %}">Paramètres</a>
+    </nav>
+    <div id="engine-badge" class="badge badge-warn" title="État du moteur sd-cli">moteur…</div>
+  </header>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

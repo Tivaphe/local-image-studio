@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Statistiques · Local Image Studio{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <h2>Statistiques</h2>
+  <div id="stats-loading" class="muted">Chargement…</div>
+  <div id="stats-content" hidden>
+
+    <!-- Cartes de resume -->
+    <div class="stat-cards">
+      <div class="stat-card">
+        <div class="sc-val" id="s-total-img">-</div>
+        <div class="sc-label">Images generees</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-val" id="s-total-gen">-</div>
+        <div class="sc-label">Generations</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-val" id="s-total-time">-</div>
+        <div class="sc-label">Temps total</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-val" id="s-avg-time">-</div>
+        <div class="sc-label">Temps moyen/image</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-val" id="s-fav-res">-</div>
+        <div class="sc-label">Resolution preferee</div>
+      </div>
+    </div>
+
+    <!-- Tableau par modele -->
+    <h3 style="margin-top:24px">Details par modele</h3>
+    <div class="table-wrap">
+      <table class="stats-table" id="model-table">
+        <thead>
+          <tr>
+            <th>Modele</th>
+            <th>Images</th>
+            <th>Generations</th>
+            <th>Temps moyen</th>
+            <th>Temps min</th>
+            <th>Temps max</th>
+            <th>Temps total</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- Mini graphique des dernieres generations -->
+    <h3 style="margin-top:24px">20 dernieres generations (temps)</h3>
+    <div id="chart" class="chart"></div>
+    <p class="muted small">Chaque barre = temps d'une generation. Survolez pour les details.</p>
+  </div>
+</section>
+
+<script>
+function fmtTime(s) {
+  if (!s || s <= 0) return '-';
+  if (s < 60) return s.toFixed(1) + 's';
+  return Math.floor(s/60) + 'min ' + Math.round(s%60) + 's';
+}
+
+async function loadStats() {
+  try {
+    const r = await fetch('/api/stats');
+    const d = await r.json();
+
+    document.getElementById('s-total-img').textContent = d.total_images;
+    document.getElementById('s-total-gen').textContent = d.total_generations;
+    document.getElementById('s-total-time').textContent = fmtTime(d.total_time_sec);
+    document.getElementById('s-avg-time').textContent = fmtTime(d.avg_time_sec);
+    document.getElementById('s-fav-res').textContent = d.fav_resolution;
+
+    // Tableau par modele
+    const tbody = document.querySelector('#model-table tbody');
+    tbody.innerHTML = '';
+    if (d.per_model.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9aa0ad">Aucune donnee pour le moment. Generez des images !</td></tr>';
+    } else {
+      d.per_model.forEach(m => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><strong>${m.model_name}</strong><br><span class="muted small">${m.model}</span></td>
+          <td>${m.img_count}</td>
+          <td>${m.gen_count}</td>
+          <td>${fmtTime(m.avg_time)}</td>
+          <td>${fmtTime(m.min_time)}</td>
+          <td>${fmtTime(m.max_time)}</td>
+          <td>${fmtTime(m.total_time)}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Mini graphique
+    const chart = document.getElementById('chart');
+    chart.innerHTML = '';
+    if (d.recent.length > 0) {
+      const maxTime = Math.max(...d.recent.map(r => r.gen_time), 1);
+      d.recent.slice().reverse().forEach(r => {
+        const bar = document.createElement('div');
+        bar.className = 'chart-bar';
+        const h = Math.max(2, (r.gen_time / maxTime) * 100);
+        bar.style.height = h + '%';
+        bar.title = `${r.model_name}: ${fmtTime(r.gen_time)}`;
+        // couleur selon le modele
+        const colors = ['#7c5cff','#36c98a','#f0a93b','#e0566b','#3a6ea5','#d8b56d','#b73a3a','#5ba37a'];
+        let hash = 0;
+        for (let i = 0; i < r.model.length; i++) hash = r.model.charCodeAt(i) + ((hash << 5) - hash);
+        bar.style.background = colors[Math.abs(hash) % colors.length];
+        chart.appendChild(bar);
+      });
+    }
+
+    document.getElementById('stats-loading').hidden = true;
+    document.getElementById('stats-content').hidden = false;
+  } catch (e) {
+    document.getElementById('stats-loading').textContent = 'Erreur: ' + e.message;
+  }
+}
+loadStats();
+</script>
+{% endblock %}

@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Générer · Local Image Studio{% endblock %}
+
+{% block content %}
+<div class="gen-grid">
+
+  <!-- Colonne réglages -->
+  <section class="panel form-panel">
+    <h2>Nouvelle image</h2>
+
+    <label class="field">
+      <span>Description (prompt)</span>
+      <textarea id="prompt" rows="4" placeholder="ex: a cyberpunk fox in a neon-lit alley, cinematic, highly detailed"></textarea>
+      <div class="prompt-tools">
+        <button id="enrich-btn" class="btn ghost small" title="Enrichir le prompt avec un LLM">✨ Enrichir</button>
+        <button id="rephrase-btn" class="btn ghost small" title="Reformuler differemment">🔄 Reformuler</button>
+        <button id="translate-btn" class="btn ghost small" title="Traduire en anglais">🌐 Traduire EN</button>
+        <span id="enrich-status" class="muted small"></span>
+      </div>
+    </label>
+
+    <label class="field">
+      <span>Prompt négatif <em>(optionnel)</em></span>
+      <textarea id="negative" rows="2" placeholder="ce qu'il faut éviter : blurry, low quality, extra fingers"></textarea>
+    </label>
+
+    <div class="row">
+      <label class="field grow">
+        <span>Modèle</span>
+        <select id="model"></select>
+      </label>
+      <label class="field">
+        <span>Quant.</span>
+        <select id="quant"></select>
+      </label>
+    </div>
+
+    <div class="field">
+      <span>Format</span>
+      <div class="ratios" id="ratios"></div>
+    </div>
+
+    <div class="row">
+      <label class="field grow">
+        <span>Batch (nombre d'images)</span>
+        <input type="range" id="batch" min="1" max="4" value="1">
+        <small id="batch-val">1 image</small>
+      </label>
+    </div>
+
+    <details class="advanced">
+      <summary>Avancé (étapes, guidance, seed)</summary>
+      <div class="row">
+        <label class="field"><span>Étapes</span><input type="number" id="steps" min="1" max="50"></label>
+        <label class="field"><span>Guidance (CFG)</span><input type="number" id="cfg" step="0.1"></label>
+        <label class="field"><span>Seed</span><input type="number" id="seed" placeholder="aléatoire"></label>
+      </div>
+    </details>
+
+    <div class="actions">
+      <button id="generate-btn" class="btn primary big">✨ Générer</button>
+      <button id="cancel-btn" class="btn danger" hidden>Annuler</button>
+    </div>
+
+    <p id="gen-error" class="error" hidden></p>
+  </section>
+
+  <!-- Colonne résultat -->
+  <section class="panel result-panel">
+    <div class="progress-wrap" id="progress-wrap" hidden>
+      <div class="progress-bar"><div id="progress-fill"></div></div>
+      <div class="progress-meta"><span id="progress-text">en cours…</span></div>
+    </div>
+
+    <div id="results" class="results"></div>
+
+    <div id="stats-box" class="stats-box" hidden>
+      <div class="stats-head">Statistiques de generation</div>
+      <div class="stats-grid">
+        <div class="stat"><span class="stat-label">Temps total</span><span class="stat-val" id="st-total">-</span></div>
+        <div class="stat"><span class="stat-label">Denoising</span><span class="stat-val" id="st-denoise">-</span></div>
+        <div class="stat"><span class="stat-label">Par etape</span><span class="stat-val" id="st-perstep">-</span></div>
+        <div class="stat"><span class="stat-label">Vitesse</span><span class="stat-val" id="st-its">-</span></div>
+        <div class="stat"><span class="stat-label">Batch</span><span class="stat-val" id="st-batch">-</span></div>
+        <div class="stat"><span class="stat-label">Par image</span><span class="stat-val" id="st-perimg">-</span></div>
+      </div>
+    </div>
+
+    <div class="log-box">
+      <div class="log-head">Journal <button id="log-toggle" class="link">afficher/masquer</button></div>
+      <pre id="log" class="log" hidden></pre>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.RATIOS = {{ ratios | tojson }};
+window.PAGE = "generate";
+</script>
+<script src="{{ url_for('static', filename='generate.js') }}"></script>
+{% endblock %}

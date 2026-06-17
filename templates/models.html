@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Modèles · Local Image Studio{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <div class="panel-head">
+    <h2>Modèles & moteur</h2>
+    <div id="engine-card" class="engine-card">
+      <div>
+        <strong>Moteur sd-cli</strong>
+        <p class="muted">stable-diffusion.cpp (CUDA) — gère tous les modèles.</p>
+      </div>
+      <div class="engine-actions">
+        <span id="engine-state" class="badge {% if engine_ready %}badge-ok{% else %}badge-warn{% endif %}">
+          {% if engine_ready %}installé ✓{% else %}non installé{% endif %}
+        </span>
+        <button id="install-engine" class="btn {% if engine_ready %}ghost{% else %}primary{% endif %}">
+          {% if engine_ready %}Réinstaller{% else %}Installer le moteur{% endif %}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Infos VRAM -->
+  {% if vram_gb %}
+  <div class="gpu-banner">
+    <span class="badge badge-ok">VRAM</span>
+    <strong>{{ gpu_name }}</strong>
+    <span class="muted">— {{ vram_gb }} Go détectés.
+    {% if vram_gb >= 12 %}Tous les modèles passent en Q5/Q6. ✓
+    {% elif vram_gb >= 8 %}La plupart des modèles passent. Préférez Q4_K_M pour les gros modèles.
+    {% elif vram_gb >= 6 %}Utilisez Q4_K_M et activez l'offload CPU.
+    {% else %}VRAM limitée — utilisez Q4 et l'offload CPU obligatoire.
+    {% endif %}
+    </span>
+  </div>
+  {% endif %}
+
+  <div id="task-banner" class="banner" hidden>
+    <div class="progress-bar"><div id="banner-fill"></div></div>
+    <div class="banner-text"><span id="banner-text">…</span></div>
+  </div>
+
+  <div class="model-grid">
+    {% for mid, m in models.items() %}
+    {% set st = statuses[mid] %}
+    <div class="model-card" data-id="{{ mid }}">
+      <div class="mc-head">
+        <h3>{{ m.name }}</h3>
+        {% if m.needs_token %}<span class="tag tag-warn">token requis</span>{% endif %}
+        {% if st.ready %}<span class="tag tag-ok">prêt</span>{% else %}<span class="tag">à télécharger</span>{% endif %}
+      </div>
+      <p class="muted mc-desc">{{ m.desc }}</p>
+
+      <!-- VRAM recommandée -->
+      <p class="mc-vram {% if not vram_gb or vram_gb >= (m.vram_min_gb or 0) %}ok{% else %}warn{% endif %}">
+        VRAM min: ~{{ m.vram_min_gb or '?' }} Go
+        {% if vram_gb %}
+          {% if vram_gb >= (m.vram_min_gb or 0) %} ✓{% else %} ⚠ (vous: {{ vram_gb }} Go){% endif %}
+        {% endif %}
+      </p>
+
+      <!-- Licence -->
+      {% if m.license %}
+      <p class="mc-license">📄 {{ m.license }}</p>
+      {% endif %}
+
+      <!-- Lien HF -->
+      {% if m.hf_url %}
+      <p class="mc-hf-link"><a href="{{ m.hf_url }}" target="_blank" rel="noopener">🔗 Page du modèle ↗</a></p>
+      {% endif %}
+
+      <div class="mc-quants">
+        {% for q in m.quants %}
+        <span class="quant {% if st.quants.get(q) %}have{% endif %}">
+          {{ q }} · {{ m.size_gb.get(q, '?') }} Go
+        </span>
+        {% endfor %}
+      </div>
+      <div class="mc-deps">
+        <small class="muted">Dépendances :</small>
+        {% for d in m.deps %}
+        <span class="dep {% if st.deps.get(d) %}have{% else %}miss{% endif %}">{{ d }}</span>
+        {% endfor %}
+      </div>
+      <div class="mc-actions">
+        <select class="dl-quant">
+          {% for q in m.quants %}
+          <option value="{{ q }}" {% if q==m.default_quant %}selected{% endif %}>{{ q }} ({{ m.size_gb.get(q, '?') }} Go)</option>
+          {% endfor %}
+        </select>
+        <button class="btn primary dl-btn" data-model="{{ mid }}">Télécharger</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.PAGE = "models";
+{% if token_set %}window.TOKEN_SET = true;{% endif %}
+</script>
+<script src="{{ url_for('static', filename='models.js') }}"></script>
+{% endblock %}
