@@ -520,14 +520,17 @@ $('#mmproj-download-btn')?.addEventListener('click', async () => {
     const j = await r.json();
     const btn = $('#mmproj-download-btn');
     const msg = $('#mmproj-msg');
-    if (btn && msg) {
+    const statusDiv = $('#mmproj-status');
+    if (btn && msg && statusDiv) {
       if (j.downloaded) {
         msg.textContent = '✓ mmproj disponible - prêt pour l\'édition !';
         msg.classList.add('ok');
         btn.hidden = true;
+        statusDiv.classList.remove('hidden');
       } else {
         msg.textContent = '⚠️ mmproj manquant - cliquez pour télécharger (1.2 Go)';
         btn.hidden = false;
+        statusDiv.classList.remove('hidden');
       }
     }
   } catch (e) {}

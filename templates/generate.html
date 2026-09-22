@@ -53,14 +53,12 @@
         FLUX.2 Klein (édition par référence), SD 3.5 (img2img classique).
         <br>Exemple : "make it sunset", "add sunglasses", "change style to watercolor".
       </p>
-      {% if m.name == 'Qwen-Image 2.1' %}
-      <div id="mmproj-status" class="mmproj-notice">
+      <div id="mmproj-status" class="mmproj-notice hidden">
         <span id="mmproj-msg">Vérification...</span>
-        <button id="mmproj-download-btn" class="btn small primary" hidden>
+        <button id="mmproj-download-btn" class="btn small primary">
           Télécharger mmproj (requis pour l'édition)
         </button>
       </div>
-      {% endif %}
       <label class="field" id="strength-field" style="display:none;">
         <span>Force (strength) <em>pour SD 3.5</em></span>
         <input type="number" id="strength" min="0" max="1" step="0.05" placeholder="0.75" value="0.75">
