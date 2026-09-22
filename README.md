@@ -95,6 +95,8 @@ Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
 | **Z-Image** | 28 étapes | Apache 2.0 ✅ | Qualité polyvalente |
 | **Qwen-Image 2512** | 30 étapes | Apache 2.0 ✅ | Réalisme humain |
 | **Qwen-Image 2.1** | 25 étapes | Qwen Research ⚠️ | Edition + transparence |
+| **FLUX.2 Klein 4B** | ⚡ 4 étapes | Apache 2.0 ✅ | Rapide + edition |
+| **FLUX.2 Klein 9B** | ⚡ 4 étapes | Non-commercial | Qualité + edition |
 | **Ideogram 4** | 12 étapes | Ideogram | Rendu de texte |
 | **FHDR Uncensored** | 20 étapes | Non-commercial | Sans censure |
 
@@ -104,7 +106,8 @@ Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
 
 - **Vous débutez ?** → **FLUX.1 schnell** (le plus rapide)
 - **Meilleure qualité rapide ?** → **FLUX.2 Klein 9B** ou **Qwen-Image 2512**
-- **Edition d'images / transparence ?** → **Qwen-Image 2.1** (nouveau !)
+- **Edition d'images ?** → **Qwen-Image 2.1** (édition avancée) ou **FLUX.2 Klein** (édition rapide)
+- **Img2img classique ?** → **SD 3.5 Medium/Large** (contrôle de la force)
 - **Texte lisible dans l'image ?** → **ERNIE-Image Turbo** ou **Ideogram 4**
 - **Le plus léger ?** → **SD 3.5 Medium** (~2 Go)
 

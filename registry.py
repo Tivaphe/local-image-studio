@@ -492,7 +492,27 @@ def _diffusion_path(model_id, quant):
 
 def build_command(model_id, quant, prompt, negative, width, height, steps,
                   cfg, seed, batch, out_template, sd_cli, manifest,
-                  source_image=None, lora_dir=None):
+                  source_image=None, lora_dir=None, strength=None):
+    """
+    Construit la commande sd-cli complète.
+
+    Args:
+        model_id: ID du modèle
+        quant: quantification
+        prompt: prompt principal
+        negative: prompt négatif
+        width, height: dimensions
+        steps: nombre d'étapes
+        cfg: guidance scale
+        seed: seed
+        batch: nombre d'images
+        out_template: template de sortie
+        sd_cli: chemin de sd-cli
+        manifest: manifeste des dépendances
+        source_image: chemin vers image source pour img2img/edit (optionnel)
+        lora_dir: dossier contenant les LoRA (optionnel)
+        strength: force de la transformation pour img2img SD (0-1, optionnel)
+    """
     m = MODELS[model_id]
     arch = m["arch"]
     args = [sd_cli]
@@ -545,13 +565,23 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
         else:
             args += ["--llm", _dep_path(manifest, "qwen25vl_7b")]
 
-    # Image source pour img2img / edition (Qwen-Image-2.1)
+    # Image source pour img2img / edition
+    # Qwen-Image-2.1 : -r + --llm_vision (edition semantique avancee)
     if source_image and model_id == "qwen-image-2.1":
         args += ["-r", source_image]
-        # Ajouter le modele de vision pour l'edition
         mmproj_path = _dep_path(manifest, "mmproj_qwen3vl_8b")
         if mmproj_path:
             args += ["--llm_vision", mmproj_path]
+
+    # FLUX.2 Klein : -r pour l'edition (reference image)
+    elif source_image and arch == "flux2":
+        args += ["-r", source_image]
+
+    # SD 3.5 : --init-image pour img2img classique
+    elif source_image and arch == "sd3":
+        args += ["--init-image", source_image]
+        if strength is not None:
+            args += ["--strength", f"{strength}"]
 
     # Support LoRA (dossier contenant les fichiers .safetensors)
     if lora_dir:

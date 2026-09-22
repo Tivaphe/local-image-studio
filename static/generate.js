@@ -139,12 +139,20 @@ function onModelChange() {
   $('#gen-error').textContent = warn;
   $('#gen-error').hidden = !warn;
 
-  // Desactiver l'upload si le modele n'est pas Qwen-Image-2.1
-  const isEditModel = m.id === 'qwen-image-2.1' || m.arch === 'qwen_image';
+  // Activer l'upload pour les modeles avec support d'edition/img2img
+  const isEditModel = m.id === 'qwen-image-2.1' 
+    || m.arch === 'flux2' 
+    || m.arch === 'sd3';
   const uploadArea = $('#file-upload-area');
   if (uploadArea) {
     uploadArea.style.opacity = isEditModel ? '1' : '0.5';
     uploadArea.style.pointerEvents = isEditModel ? 'auto' : 'none';
+  }
+  
+  // Afficher le champ strength pour les modeles SD
+  const strengthField = $('#strength-field');
+  if (strengthField) {
+    strengthField.style.display = (m.arch === 'sd3') ? '' : 'none';
   }
 }
 
@@ -258,6 +266,9 @@ $('#generate-btn').addEventListener('click', async () => {
     }
   }
 
+  // Récupérer le strength pour les modèles SD
+  const strengthVal = $('#strength').value || null;
+
   const body = {
     model_id,
     quant: $('#quant').value,
@@ -270,6 +281,7 @@ $('#generate-btn').addEventListener('click', async () => {
     batch: $('#batch').value,
     source_image: uploadedImagePath || null,
     lora_dir: $('#lora-dir').value || null,
+    strength: (m.arch === 'sd3' && strengthVal) ? parseFloat(strengthVal) : null,
   };
 
   const r = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

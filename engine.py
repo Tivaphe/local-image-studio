@@ -382,7 +382,8 @@ class TaskManager:
                 int(p["width"]), int(p["height"]), int(p["steps"]), float(p["cfg"]),
                 seed, batch, out_tmpl, str(sd), manifest,
                 source_image=p.get("source_image"),
-                lora_dir=p.get("lora_dir"))
+                lora_dir=p.get("lora_dir"),
+                strength=p.get("strength"))
 
             self._set(log="Démarrage de la génération…",
                       total_steps=int(p["steps"]), step=0)
