@@ -20,7 +20,7 @@ from urllib.request import urlopen, Request
 
 from config import (ROOT, BIN_DIR, DIFFUSION_DIR, OUTPUT_DIR, find_sd_cli)
 from registry import (MODELS, DEPS, DEP_QUANT_PRIORITY, resolve_dep_gguf,
-                      load_manifest, save_manifest, build_command)
+                      load_manifest, save_manifest, build_command, _dep_path)
 
 
 # =========================================================================== #
