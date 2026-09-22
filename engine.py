@@ -375,16 +375,13 @@ class TaskManager:
                 mmproj_path = _dep_path(manifest, "mmproj_qwen3vl_8b")
                 if not mmproj_path or not Path(mmproj_path).exists():
                     raise RuntimeError(
-                        "Pour éditer avec Qwen-Image-2.1, le fichier mmproj est requis. "
-                        "Il n'est pas dans les dépendances standard. "
-                        "Téléchargez-le manuellement depuis: "
+                        "Pour ÉDITER avec Qwen-Image-2.1, le fichier mmproj est requis. "
+                        "Sans lui, vous pouvez seulement GÉNÉRER des images (pas modifier). "
+                        "Téléchargez-le via le bouton 'Télécharger mmproj' dans l'interface, "
+                        "ou manuellement depuis: "
                         "https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF/resolve/main/mmproj-Qwen3VL-8B-Instruct-F16.gguf "
                         "dans le dossier models/llm/"
                     )
-                # Vérifier que l'image source existe
-                source_path = Path(p["source_image"])
-                if not source_path.exists():
-                    raise RuntimeError(f"Image source introuvable: {p['source_image']}")
 
             batch = max(1, min(4, int(p["batch"])))
             batch_id = f"{int(time.time())}_{model_id}"  # pour la DB
