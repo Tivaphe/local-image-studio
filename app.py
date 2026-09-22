@@ -205,6 +205,46 @@ def api_cancel():
 
 
 # --------------------------------------------------------------------------- #
+#  API : téléchargement mmproj (pour édition Qwen-Image-2.1)
+# --------------------------------------------------------------------------- #
+@app.route("/api/download-mmproj", methods=["POST"])
+def api_download_mmproj():
+    """Télécharge le fichier mmproj pour l'édition Qwen-Image-2.1."""
+    from registry import DEPS
+    from registry import load_manifest
+    from engine import ensure_dep, hf_token
+    from pathlib import Path
+    try:
+        token = hf_token()
+        ensure_dep("mmproj_qwen3vl_8b", token)
+        manifest = load_manifest()
+        info = manifest.get("mmproj_qwen3vl_8b", {})
+        path = info.get("path")
+        exists = path and Path(path).exists()
+        if exists:
+            return jsonify({"ok": True, "message": "mmproj téléchargé ✓", "status": "ready"})
+        else:
+            return jsonify({"ok": False, "error": "Téléchargement effectué mais fichier non trouvé"}, status=500)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/mmproj-status", methods=["GET"])
+def api_mmproj_status():
+    """Vérifie si mmproj est téléchargé."""
+    from registry import load_manifest
+    from pathlib import Path
+    manifest = load_manifest()
+    info = manifest.get("mmproj_qwen3vl_8b", {})
+    path = info.get("path")
+    exists = path and Path(path).exists()
+    return jsonify({
+        "downloaded": exists,
+        "path": path if exists else None
+    })
+
+
+# --------------------------------------------------------------------------- #
 #  API : historique
 # --------------------------------------------------------------------------- #
 @app.route("/api/delete-image", methods=["POST"])

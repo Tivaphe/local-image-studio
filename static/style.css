@@ -213,6 +213,11 @@ small{color:var(--muted)}
 .hint{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}
 .hint strong{color:var(--accent2)}
 
+/* mmproj notice */
+.mmproj-notice{background:#f0a93b15;border:1px solid #f0a93b44;border-radius:8px;padding:10px 12px;margin-top:10px;display:flex;align-items:center;gap:10px}
+.mmproj-notice .mmproj-msg{color:var(--warn);font-size:13px}
+.mmproj-notice .mmproj-msg.ok{color:var(--ok)}
+
 /* modele edit-badge */
 .edit-badge{display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;
   background:var(--accent);color:#fff;margin-left:6px;vertical-align:middle}

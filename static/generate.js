@@ -471,7 +471,67 @@ async function doTranslate() {
 }
 $('#translate-btn')?.addEventListener('click', doTranslate);
 
-// ---------- negative prompt par defaut ----------
+// ---------- vérification mmproj pour Qwen-Image-2.1 ----------
+function checkMmprojStatus() {
+  const btn = $('#mmproj-download-btn');
+  const msg = $('#mmproj-msg');
+  if (!btn || !msg) return;
+
+  // Vérifier si mmproj est disponible via l'API
+  fetch('/api/status')
+    .then(r => r.json())
+    .then(data => {
+      // L'API /api/status ne donne pas directement le statut mmproj
+      // On vérifie via un endpoint dédié ou on utilise le manifeste
+    })
+    .catch(() => {});
+}
+
+// Bouton de téléchargement mmproj
+$('#mmproj-download-btn')?.addEventListener('click', async () => {
+  const btn = $('#mmproj-download-btn');
+  const msg = $('#mmproj-msg');
+  btn.disabled = true;
+  btn.textContent = '...';
+  msg.textContent = 'Téléchargement en cours...';
+
+  try {
+    const r = await fetch('/api/download-mmproj', { method: 'POST' });
+    const j = await r.json();
+    if (j.ok) {
+      msg.textContent = '✓ mmproj téléchargé - prêt pour l\'édition !';
+      msg.classList.add('ok');
+      btn.hidden = true;
+    } else {
+      msg.textContent = '✗ Erreur: ' + (j.error || 'Unknown');
+    }
+  } catch (e) {
+    msg.textContent = '✗ Erreur: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Télécharger mmproj';
+  }
+});
+
+// Vérification initiale du statut mmproj
+(async function checkMmproj() {
+  try {
+    const r = await fetch('/api/mmproj-status');
+    const j = await r.json();
+    const btn = $('#mmproj-download-btn');
+    const msg = $('#mmproj-msg');
+    if (btn && msg) {
+      if (j.downloaded) {
+        msg.textContent = '✓ mmproj disponible - prêt pour l\'édition !';
+        msg.classList.add('ok');
+        btn.hidden = true;
+      } else {
+        msg.textContent = '⚠️ mmproj manquant - cliquez pour télécharger (1.2 Go)';
+        btn.hidden = false;
+      }
+    }
+  } catch (e) {}
+})();
 async function loadDefaultNegative() {
   try {
     const r = await fetch('/api/default-negative');
