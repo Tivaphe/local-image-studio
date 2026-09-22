@@ -81,6 +81,14 @@ small{color:var(--muted)}
 .gen-grid{display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:22px;align-items:start}
 @media(max-width:900px){.gen-grid{grid-template-columns:1fr}}
 
+
+/* layout generate — panneaux spécifiques */
+.form-panel{
+  position:sticky;top:100px;
+}
+.result-panel{
+  display:flex;flex-direction:column;gap:16px;
+}
 /* progress */
 .progress-wrap{margin-bottom:16px}
 .progress-bar{height:8px;background:var(--bg2);border-radius:6px;overflow:hidden;border:1px solid var(--border)}
@@ -221,3 +229,7 @@ small{color:var(--muted)}
 /* modele edit-badge */
 .edit-badge{display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;
   background:var(--accent);color:#fff;margin-left:6px;vertical-align:middle}
+
+/* téléchargement modèles (page modèles) */
+.dl-quant{flex:1;min-width:0}
+.dl-btn{min-width:120px}

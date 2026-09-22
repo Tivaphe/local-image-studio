@@ -129,6 +129,7 @@ def api_models():
             "defaults": m["defaults"],
             "min_steps": m.get("min_steps", 1), "max_steps": m.get("max_steps", 50),
             "deps": m["deps"],
+            "presets": m.get("presets", {}),
             "status": st,
         }
     return jsonify(out)
@@ -387,6 +388,6 @@ def stats_page():
 
 if __name__ == "__main__":
     port = 7860
-    print(f"\n  ➜  Local Image Studio : http://127.0.0.1:{port}\n")
+    print(f"\n  ➜  Local Image Studio : http://0.0.0.0:{port}\n")
     # use_reloader=False : évite de relancer deux fois les téléchargements/threads
-    app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)

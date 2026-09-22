@@ -36,13 +36,6 @@ DEPS = {
         "dest": VAE_DIR / "qwen_image_vae.safetensors",
         "size_gb": 0.27,
     },
-    "vae_qwen21": {
-        "type": "exact",
-        "repo": "Comfy-Org/Qwen-Image-2.1",
-        "filename": "vae/qwen_image_2.1_vae_bf16.safetensors",
-        "dest": VAE_DIR / "qwen_image_2.1_vae_bf16.safetensors",
-        "size_gb": 0.68,
-    },
     "clip_l": {
         "type": "exact",
         "repo": "comfyanonymous/flux_text_encoders",
@@ -95,19 +88,27 @@ DEPS = {
         "dest": LLM_DIR / "Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf",
         "size_gb": 4.7,
     },
+
+    "mmproj_qwen3vl_8b": {
+        "type": "exact",
+        "repo": "Qwen/Qwen3-VL-8B-Instruct-GGUF",
+        "filename": "mmproj-Qwen3VL-8B-Instruct-F16.gguf",
+        "dest": LLM_DIR / "mmproj-Qwen3VL-8B-Instruct-F16.gguf",
+        "size_gb": 1.2,
+    },
+    "vae_qwen_21": {
+        "type": "exact",
+        "repo": "unsloth/Qwen-Image-2.1-FP8",
+        "filename": "vae/qwen_image_2.1_vae_bf16.safetensors",
+        "dest": VAE_DIR / "qwen_image_2.1_vae_bf16.safetensors",
+        "size_gb": 0.68,
+    },
     "vae_sd3": {
         "type": "exact",
         "repo": "stabilityai/stable-diffusion-3.5-large",
         "filename": "vae/diffusion_pytorch_model.safetensors",
         "dest": VAE_DIR / "sd3_vae.safetensors",
         "size_gb": 0.17,
-    },
-    "mmproj_qwen3vl_8b": {
-        "type": "exact",
-        "repo": "unsloth/Qwen3-VL-8B-Instruct-GGUF",
-        "filename": "mmproj-BF16.gguf",
-        "dest": LLM_DIR / "mmproj-BF16.gguf",
-        "size_gb": 1.2,
     },
 }
 
@@ -125,6 +126,12 @@ DEP_QUANT_PRIORITY = ["Q4_K_M", "Q5_K_M", "Q6_K"]
 # needs_vae    : False pour SD3 (VAE integre dans le modele)
 MODELS = {
     "flux-schnell": {
+
+        "presets": {
+            "rapide":    {"steps": 4,  "cfg": 1.0, "quant": "Q4_K_M", "label": "⚡ Rapide (4 etapes, Q4)"},
+            "equilibre": {"steps": 4,  "cfg": 1.0, "quant": "Q5_K_M", "label": "⚡ Rapide+ (4 etapes, Q5)"},
+            "qualite":   {"steps": 8,  "cfg": 2.0, "quant": "Q6_K",   "label": "✨ Qualite (8 etapes, Q6)"},
+        },
         "name": "FLUX.1 schnell",
         "arch": "flux",
         "repo": "unsloth/FLUX.1-schnell-GGUF",
@@ -147,6 +154,12 @@ MODELS = {
         "min_steps": 1, "max_steps": 8,
     },
     "z-image": {
+
+        "presets": {
+            "rapide":    {"steps": 14, "cfg": 3.0, "quant": "Q4_K_M", "label": "⚡ Rapide (14 etapes, Q4)"},
+            "equilibre": {"steps": 28, "cfg": 4.0, "quant": "Q5_K_M", "label": "⚖️ Equilibre (28 etapes, Q5)"},
+            "qualite":   {"steps": 40, "cfg": 5.0, "quant": "Q6_K",   "label": "✨ Qualite (40 etapes, Q6)"},
+        },
         "name": "Z-Image",
         "arch": "zimage",
         "repo": "unsloth/Z-Image-GGUF",
@@ -169,6 +182,12 @@ MODELS = {
         "min_steps": 10, "max_steps": 50,
     },
     "ernie-turbo": {
+
+        "presets": {
+            "rapide":    {"steps": 8,  "cfg": 1.0, "quant": "Q4_K_M", "label": "⚡ Rapide (8 etapes, Q4)"},
+            "equilibre": {"steps": 12, "cfg": 2.0, "quant": "Q5_K_M", "label": "⚖️ Equilibre (12 etapes, Q5)"},
+            "qualite":   {"steps": 20, "cfg": 3.5, "quant": "Q6_K",   "label": "✨ Qualite (20 etapes, Q6)"},
+        },
         "name": "ERNIE-Image Turbo",
         "arch": "ernie",
         "repo": "unsloth/ERNIE-Image-Turbo-GGUF",
@@ -192,6 +211,12 @@ MODELS = {
         "min_steps": 4, "max_steps": 20,
     },
     "ideogram4": {
+
+        "presets": {
+            "rapide":    {"steps": 8,  "cfg": 3.0, "quant": "Q4_0", "label": "⚡ Rapide (8 etapes)"},
+            "equilibre": {"steps": 12, "cfg": 4.0, "quant": "Q4_0", "label": "⚖️ Equilibre (12 etapes)"},
+            "qualite":   {"steps": 20, "cfg": 5.0, "quant": "Q4_0", "label": "✨ Qualite (20 etapes)"},
+        },
         "name": "Ideogram 4",
         "arch": "ideogram",
         "repo": "leejet/ideogram-4-GGUF",
@@ -211,6 +236,12 @@ MODELS = {
         "min_steps": 4, "max_steps": 30,
     },
     "fhdr": {
+
+        "presets": {
+            "rapide":    {"steps": 12, "cfg": 2.5, "quant": "Q4_K_M", "label": "⚡ Rapide (12 etapes)"},
+            "equilibre": {"steps": 20, "cfg": 3.5, "quant": "Q4_K_M", "label": "⚖️ Equilibre (20 etapes)"},
+            "qualite":   {"steps": 35, "cfg": 4.5, "quant": "Q4_K_M", "label": "✨ Qualite (35 etapes)"},
+        },
         "name": "FHDR Uncensored (FLUX-dev)",
         "arch": "flux",
         "repo": "kpsss34/FHDR_Uncensored",
@@ -229,6 +260,13 @@ MODELS = {
         "min_steps": 8, "max_steps": 40,
     },
     "qwen-image-2512": {
+
+        "presets": {
+            "rapide":    {"steps": 15, "cfg": 2.0, "quant": "Q4_K_M", "label": "⚡ Rapide (15 etapes, Q4)"},
+            "equilibre": {"steps": 30, "cfg": 4.0, "quant": "Q5_K_M", "label": "⚖️ Equilibre (30 etapes, Q5)"},
+            "qualite":   {"steps": 50, "cfg": 5.0, "quant": "Q6_K",   "label": "✨ Qualite (50 etapes, Q6)"},
+            "optimise":  {"steps": 25, "cfg": 3.5, "quant": "Q5_K_M", "label": "🎯 Optimise edition (25 etapes)"},
+        },
         "name": "Qwen-Image 2512",
         "arch": "qwen_image",
         "repo": "unsloth/Qwen-Image-2512-GGUF",
@@ -250,31 +288,46 @@ MODELS = {
         "defaults": {"steps": 30, "cfg": 4.0, "sampler": "euler"},
         "min_steps": 10, "max_steps": 60,
     },
+
     "qwen-image-2.1": {
-        "name": "Qwen-Image 2.1",
+        "name": "Qwen-Image-2.1",
         "arch": "qwen_image",
-        "repo": "leejet/Qwen-Image-2.1-GGUF",
-        "quants": ["Q4_0", "Q4_K", "Q5_0", "Q6_K"],
+        "repo": "unsloth/Qwen-Image-2.1-GGUF",
+        "quants": ["Q4_0", "Q5_0", "Q6_K"],
         "default_quant": "Q5_0",
         "file_for_quant": {
-            "Q4_0":   "qwen_image_2.1-Q4_0.gguf",
-            "Q4_K":   "qwen_image_2.1-Q4_K.gguf",
-            "Q5_0":   "qwen_image_2.1-Q5_0.gguf",
-            "Q6_K":   "qwen_image_2.1-Q6_K.gguf",
+            "Q4_0": "qwen-image-2.1-Q4_0.gguf",
+            "Q5_0": "qwen-image-2.1-Q5_0.gguf",
+            "Q6_K": "qwen-image-2.1-Q6_K.gguf",
         },
-        "size_gb": {"Q4_0": 4.2, "Q4_K": 4.2, "Q5_0": 5.1, "Q6_K": 6.0},
-        "deps": ["vae_qwen21", "qwen3vl_8b"],
-        "supports_neg": True,
+        "size_gb": {"Q4_0": 4.05, "Q5_0": 5.22, "Q6_K": 5.88},
+        "deps": ["vae_qwen_21", "qwen3vl_8b", "mmproj_qwen3vl_8b"],
+        "supports_neg": False,
         "needs_token": False,
-        "license": "Qwen Research (usage non-commercial uniquement)",
-        "hf_url": "https://huggingface.co/leejet/Qwen-Image-2.1-GGUF",
+        "supports_img2img": True,
+        "license": "Qwen Research License (usage non-commercial)",
+        "hf_url": "https://huggingface.co/unsloth/Qwen-Image-2.1-GGUF",
         "vram_min_gb": 8,
-        "desc": "Version 2.1 amelioree. Generation + edition d'images, transparence. Pour l'edition: telecharger mmproj via le bouton.",
+        "desc": "Image editing (semantic) + text2image. mmproj requis pour l'editions.",
         "defaults": {"steps": 25, "cfg": 3.5, "sampler": "euler"},
         "min_steps": 10, "max_steps": 50,
+        "presets": {
+            "rapide":    {"steps": 15, "cfg": 1.0, "quant": "Q4_0", "label": "⚡ Rapide (15 etapes, Q4_0)"},
+            "equilibre": {"steps": 25, "cfg": 3.5, "quant": "Q5_0", "label": "⚖️ Equilibre (25 etapes, Q5_0)"},
+            "qualite":   {"steps": 40, "cfg": 6.0, "quant": "Q6_K", "label": "✨ Qualite (40 etapes, Q6_K)"},
+            "optimise":  {"steps": 20, "cfg": 1.0, "quant": "Q4_K", "label": "🎯 Optimise edition (20 etapes, Q4_K)"},
+        },
     },
+
     # ---- NOUVEAUX MODELES ----
     "sd3.5-medium": {
+
+
+        "presets": {
+            "rapide":    {"steps": 15, "cfg": 3.5, "quant": "Q4_K_M", "label": "⚡ Rapide (15 etapes, Q4)"},
+            "equilibre": {"steps": 30, "cfg": 4.5, "quant": "Q5_K_M", "label": "⚖️ Equilibre (30 etapes, Q5)"},
+            "qualite":   {"steps": 45, "cfg": 5.5, "quant": "Q6_K",   "label": "✨ Qualite (45 etapes, Q6)"},
+        },
         "name": "Stable Diffusion 3.5 Medium",
         "arch": "sd3",
         "repo": "city96/stable-diffusion-3.5-medium-gguf",
@@ -299,6 +352,13 @@ MODELS = {
         "min_steps": 10, "max_steps": 50,
     },
     "sd3.5-large": {
+
+
+        "presets": {
+            "rapide":    {"steps": 15, "cfg": 3.5, "quant": "Q5_0", "label": "⚡ Rapide (15 etapes, Q5_0)"},
+            "equilibre": {"steps": 30, "cfg": 4.5, "quant": "Q5_1", "label": "⚖️ Equilibre (30 etapes, Q5_1)"},
+            "qualite":   {"steps": 45, "cfg": 5.5, "quant": "Q5_1", "label": "✨ Qualite (45 etapes, Q5_1)"},
+        },
         "name": "Stable Diffusion 3.5 Large",
         "arch": "sd3",
         "repo": "city96/stable-diffusion-3.5-large-gguf",
@@ -322,6 +382,13 @@ MODELS = {
         "min_steps": 10, "max_steps": 50,
     },
     "sd3.5-large-turbo": {
+
+
+        "presets": {
+            "rapide":    {"steps": 4,  "cfg": 0.4, "quant": "Q4_1", "label": "⚡ Ultra-rapide (4 etapes, Q4_1)"},
+            "equilibre": {"steps": 4,  "cfg": 0.4, "quant": "Q5_1", "label": "⚖️ Equilibre (4 etapes, Q5_1)"},
+            "qualite":   {"steps": 6,  "cfg": 0.6, "quant": "Q5_1", "label": "✨ Qualite (6 etapes, Q5_1)"},
+        },
         "name": "Stable Diffusion 3.5 Large Turbo",
         "arch": "sd3",
         "repo": "city96/stable-diffusion-3.5-large-turbo-gguf",
@@ -345,6 +412,13 @@ MODELS = {
         "min_steps": 1, "max_steps": 8,
     },
     "flux2-klein-4b": {
+
+        "presets": {
+            "rapide":    {"steps": 4,  "cfg": 1.0, "quant": "Q4_K_M", "label": "⚡ Ultra-rapide (4 etapes, Q4)"},
+            "equilibre": {"steps": 4,  "cfg": 1.0, "quant": "Q5_K_M", "label": "⚖️ Equilibre (4 etapes, Q5)"},
+            "qualite":   {"steps": 6,  "cfg": 2.0, "quant": "Q6_K",   "label": "✨ Qualite (6 etapes, Q6)"},
+            "optimise":  {"steps": 4,  "cfg": 1.0, "quant": "Q4_K_M", "label": "🎯 Optimise edition (4 etapes, Q4)"},
+        },
         "name": "FLUX.2 Klein 4B",
         "arch": "flux2",
         "repo": "unsloth/FLUX.2-klein-4B-GGUF",
@@ -367,6 +441,13 @@ MODELS = {
         "min_steps": 1, "max_steps": 10,
     },
     "flux2-klein-9b": {
+
+        "presets": {
+            "rapide":    {"steps": 4,  "cfg": 1.0, "quant": "Q4_K_M", "label": "⚡ Ultra-rapide (4 etapes, Q4)"},
+            "equilibre": {"steps": 4,  "cfg": 1.0, "quant": "Q5_K_M", "label": "⚖️ Equilibre (4 etapes, Q5)"},
+            "qualite":   {"steps": 6,  "cfg": 2.0, "quant": "Q6_K",   "label": "✨ Qualite (6 etapes, Q6)"},
+            "optimise":  {"steps": 4,  "cfg": 1.0, "quant": "Q4_K_M", "label": "🎯 Optimise edition (4 etapes, Q4)"},
+        },
         "name": "FLUX.2 Klein 9B",
         "arch": "flux2",
         "repo": "unsloth/FLUX.2-klein-9B-GGUF",
@@ -493,26 +574,6 @@ def _diffusion_path(model_id, quant):
 def build_command(model_id, quant, prompt, negative, width, height, steps,
                   cfg, seed, batch, out_template, sd_cli, manifest,
                   source_image=None, lora_dir=None, strength=None):
-    """
-    Construit la commande sd-cli complète.
-
-    Args:
-        model_id: ID du modèle
-        quant: quantification
-        prompt: prompt principal
-        negative: prompt négatif
-        width, height: dimensions
-        steps: nombre d'étapes
-        cfg: guidance scale
-        seed: seed
-        batch: nombre d'images
-        out_template: template de sortie
-        sd_cli: chemin de sd-cli
-        manifest: manifeste des dépendances
-        source_image: chemin vers image source pour img2img/edit (optionnel)
-        lora_dir: dossier contenant les LoRA (optionnel)
-        strength: force de la transformation pour img2img SD (0-1, optionnel)
-    """
     m = MODELS[model_id]
     arch = m["arch"]
     args = [sd_cli]
@@ -533,11 +594,7 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
         elif arch in ("ernie", "ideogram", "flux2"):
             vae_key = "vae_flux2"
         elif arch == "qwen_image":
-            # Qwen-Image 2.1 utilise son propre VAE
-            if model_id == "qwen-image-2.1":
-                vae_key = "vae_qwen21"
-            else:
-                vae_key = "vae_qwen"
+            vae_key = "vae_qwen_21" if model_id == "qwen-image-2.1" else "vae_qwen"
         else:
             vae_key = "vae_flux"
         args += ["--vae", _dep_path(manifest, vae_key)]
@@ -559,33 +616,10 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     elif arch == "ideogram":
         args += ["--llm", _dep_path(manifest, "qwen3vl_8b")]
     elif arch == "qwen_image":
-        # Qwen-Image 2.1 utilise Qwen3-VL-8B au lieu de Qwen2.5-VL-7B
-        if model_id == "qwen-image-2.1":
-            args += ["--llm", _dep_path(manifest, "qwen3vl_8b")]
-        else:
-            args += ["--llm", _dep_path(manifest, "qwen25vl_7b")]
-
-    # Image source pour img2img / edition
-    # Qwen-Image-2.1 : -r + --llm_vision (edition semantique avancee)
-    if source_image and model_id == "qwen-image-2.1":
-        args += ["-r", source_image]
-        mmproj_path = _dep_path(manifest, "mmproj_qwen3vl_8b")
-        if mmproj_path:
-            args += ["--llm_vision", mmproj_path]
-
-    # FLUX.2 Klein : -r pour l'edition (reference image)
-    elif source_image and arch == "flux2":
-        args += ["-r", source_image]
-
-    # SD 3.5 : --init-image pour img2img classique
-    elif source_image and arch == "sd3":
-        args += ["--init-image", source_image]
-        if strength is not None:
-            args += ["--strength", f"{strength}"]
-
-    # Support LoRA (dossier contenant les fichiers .safetensors)
-    if lora_dir:
-        args += ["--lora-model-dir", lora_dir]
+        args += ["--llm", _dep_path(manifest, "qwen25vl_7b")]
+        # mmproj pour l'edition (Qwen-Image-2.1)
+        if model_id == "qwen-image-2.1" and manifest.get("mmproj_qwen3vl_8b"):
+            args += ["--llm_vision", _dep_path(manifest, "mmproj_qwen3vl_8b")]
 
     # Prompt
     if arch == "ideogram":
@@ -594,6 +628,10 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
         args += ["-p", prompt or " "]
         if negative and m.get("supports_neg"):
             args += ["-n", negative]
+
+    # Image source (img2img / edition)
+    if source_image:
+        args += ["-r", source_image]
 
     # Parametres
     args += ["--cfg-scale", f"{cfg}",
@@ -619,6 +657,14 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     # --flow-shift pour les architectures Wan
     if arch in ("qwen_image", "ernie"):
         args += ["--flow-shift", "3"]
+
+    # --qwen-image-zero-cond-t : meilleure qualite d'edition Qwen-Image-2.1
+    if model_id == "qwen-image-2.1" and source_image:
+        args += ["--qwen-image-zero-cond-t"]
+
+    # LoRA : dossier de poids (sd-cli scanne automatiquement)
+    if lora_dir:
+        args += ["--lora-dir", lora_dir]
 
     return args
 
