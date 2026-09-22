@@ -217,9 +217,6 @@ def api_delete_image():
         fp = config.OUTPUT_DIR / fname
         try:
             fp.unlink(missing_ok=True)
-            # dossier du batch si vide
-            if fp.parent != config.OUTPUT_DIR and not any(fp.parent.iterdir()):
-                fp.parent.rmdir()
         except Exception:
             pass
     return jsonify({"ok": True})
