@@ -17,6 +17,8 @@ DIFFUSION_DIR  = MODELS_DIR / "diffusion"
 VAE_DIR        = MODELS_DIR / "vae"
 TEXTENC_DIR    = MODELS_DIR / "textenc"
 LLM_DIR        = MODELS_DIR / "llm"
+LORAS_DIR      = MODELS_DIR / "loras"    # poids LoRA (safetensors)
+SOURCE_IMAGES_DIR = ROOT / "source_images"  # images pour img2img
 OUTPUT_DIR     = ROOT / "output"         # images générées (auto-save)
 
 DB_PATH        = ROOT / "history.db"
@@ -47,5 +49,5 @@ def find_sd_cli() -> Path | None:
 
 
 # Création des dossiers de base
-for _d in (BIN_DIR, MODELS_DIR, DIFFUSION_DIR, VAE_DIR, TEXTENC_DIR, LLM_DIR, OUTPUT_DIR):
+for _d in (BIN_DIR, MODELS_DIR, DIFFUSION_DIR, VAE_DIR, TEXTENC_DIR, LLM_DIR, LORAS_DIR, SOURCE_IMAGES_DIR, OUTPUT_DIR):
     _d.mkdir(parents=True, exist_ok=True)

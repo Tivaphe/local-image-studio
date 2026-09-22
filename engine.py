@@ -380,7 +380,9 @@ class TaskManager:
             cmd = build_command(
                 model_id, quant, p["prompt"], p.get("negative", ""),
                 int(p["width"]), int(p["height"]), int(p["steps"]), float(p["cfg"]),
-                seed, batch, out_tmpl, str(sd), manifest)
+                seed, batch, out_tmpl, str(sd), manifest,
+                source_image=p.get("source_image"),
+                lora_dir=p.get("lora_dir"))
 
             self._set(log="Démarrage de la génération…",
                       total_steps=int(p["steps"]), step=0)

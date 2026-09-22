@@ -1,6 +1,7 @@
 /* ===== Page Generer =====
    FIX 4 : memorise le modele selectionne (localStorage) et le restaure.
    FIX 3 : affiche les stats de generation (chrono live + stats finales).
+   IMG2IMG + LORA : support de l'upload d'image et des LoRA.
 */
 // Fallback: $ et $$ en cas de chargement avant app.js
 if (typeof window.$ === 'undefined') {
@@ -37,7 +38,7 @@ async function loadModels() {
   if (!sel) return;
   sel.innerHTML = '';
 
-  // restauration du modele choisit precedemment
+  // restauration du modele choisi precedemment
   const prefs = loadPrefs();
   let savedModel = prefs.model;
   // verifie que le modele sauvegarde existe encore
@@ -119,7 +120,7 @@ function onModelChange() {
     opt.textContent = qt + (have ? ' OK' : '  (a telecharger)');
     q.appendChild(opt);
   }
-  // restaure la quant sauvegardee si valide pour ce modele
+  // restaure la quant sauvegarde si valide pour ce modele
   if (prefs.quant && m.quants.includes(prefs.quant) && prefs.model === $('#model').value) {
     q.value = prefs.quant;
   } else {
@@ -137,11 +138,100 @@ function onModelChange() {
   const warn = !m.status.ready ? `Ce modele n'est pas telecharge. Allez dans l'onglet Modeles.` : '';
   $('#gen-error').textContent = warn;
   $('#gen-error').hidden = !warn;
+
+  // Desactiver l'upload si le modele n'est pas Qwen-Image-2.1
+  const isEditModel = m.id === 'qwen-image-2.1' || m.arch === 'qwen_image';
+  const uploadArea = $('#file-upload-area');
+  if (uploadArea) {
+    uploadArea.style.opacity = isEditModel ? '1' : '0.5';
+    uploadArea.style.pointerEvents = isEditModel ? 'auto' : 'none';
+  }
 }
 
 $('#batch').addEventListener('input', e => {
   const v = parseInt(e.target.value);
   $('#batch-val').textContent = v + ' image' + (v > 1 ? 's' : '');
+});
+
+// ---------- Gestion de l'upload d'image source (img2img) ----------
+let uploadedImagePath = null;
+
+async function handleFileSelect(file) {
+  if (!file) return;
+  const validTypes = ['image/png', 'image/jpeg', 'image/webp'];
+  if (!validTypes.includes(file.type)) {
+    alert('Format non supporté. Utilisez PNG, JPG ou WEBP.');
+    return;
+  }
+
+  // Upload vers le serveur
+  const formData = new FormData();
+  formData.append('image', file);
+
+  try {
+    const r = await fetch('/api/upload-source-image', { method: 'POST', body: formData });
+    const j = await r.json();
+    if (!j.ok) {
+      alert(j.error || 'Erreur lors de l\'upload');
+      return;
+    }
+    uploadedImagePath = j.filename;
+    $('#source-image-path').value = j.filename;
+
+    // Afficher l'aperçu
+    $('#preview-img').src = URL.createObjectURL(file);
+    $('#preview-name').textContent = file.name;
+    $('#upload-placeholder').classList.add('hidden');
+    $('#upload-preview').classList.remove('hidden');
+  } catch (e) {
+    alert('Erreur: ' + e.message);
+  }
+}
+
+// Click sur la zone d'upload
+$('#source-image-input')?.addEventListener('change', e => {
+  if (e.target.files.length > 0) {
+    handleFileSelect(e.target.files[0]);
+  }
+});
+
+// Clic sur la zone placeholder
+$('#upload-placeholder')?.addEventListener('click', () => {
+  $('#source-image-input').click();
+});
+
+// Drag & Drop
+const uploadArea = $('#file-upload-area');
+if (uploadArea) {
+  uploadArea.addEventListener('dragover', e => {
+    e.preventDefault();
+    uploadArea.classList.add('dragover');
+  });
+  uploadArea.addEventListener('dragleave', () => {
+    uploadArea.classList.remove('dragover');
+  });
+  uploadArea.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      handleFileSelect(files[0]);
+      // Synchroniser l'input file
+      const dt = new DataTransfer();
+      dt.items.add(files[0]);
+      $('#source-image-input').files = dt.files;
+    }
+  });
+}
+
+// Retirer l'image
+$('#remove-image')?.addEventListener('click', () => {
+  uploadedImagePath = null;
+  $('#source-image-path').value = '';
+  $('#source-image-input').value = '';
+  $('#upload-placeholder').classList.remove('hidden');
+  $('#upload-preview').classList.add('hidden');
+  $('#preview-img').src = '';
 });
 
 // ---------- generation ----------
@@ -153,17 +243,35 @@ $('#generate-btn').addEventListener('click', async () => {
     $('#gen-error').textContent = `Le modele << ${m.name} >> n'est pas pret. Telechargez-le dans l'onglet Modeles.`;
     return;
   }
+
+  // Construction du prompt final (combine prompt principal + syntaxe LoRA si présente)
+  let finalPrompt = $('#prompt').value;
+  const loraPrompt = $('#lora-prompt').value.trim();
+
+  // Si le prompt LoRA est défini, on le combine avec le prompt principal
+  if (loraPrompt && model_id === 'qwen-image-2.1') {
+    // Pour Qwen-Image-2.1, on peut ajouter des spécifications dans le prompt
+    if (finalPrompt) {
+      finalPrompt = finalPrompt + ' ' + loraPrompt;
+    } else {
+      finalPrompt = loraPrompt;
+    }
+  }
+
   const body = {
     model_id,
     quant: $('#quant').value,
-    prompt: $('#prompt').value,
+    prompt: finalPrompt,
     negative: $('#negative').value,
     ratio: currentRatio,
     steps: $('#steps').value,
     cfg: $('#cfg').value,
     seed: $('#seed').value || null,
     batch: $('#batch').value,
+    source_image: uploadedImagePath || null,
+    lora_dir: $('#lora-dir').value || null,
   };
+
   const r = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const j = await r.json();
   if (!j.ok) {

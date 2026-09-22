@@ -36,6 +36,13 @@ DEPS = {
         "dest": VAE_DIR / "qwen_image_vae.safetensors",
         "size_gb": 0.27,
     },
+    "vae_qwen21": {
+        "type": "exact",
+        "repo": "Comfy-Org/Qwen-Image-2.1",
+        "filename": "vae/qwen_image_2_1_vae.safetensors",
+        "dest": VAE_DIR / "qwen_image_2_1_vae.safetensors",
+        "size_gb": 0.28,
+    },
     "clip_l": {
         "type": "exact",
         "repo": "comfyanonymous/flux_text_encoders",
@@ -94,6 +101,13 @@ DEPS = {
         "filename": "vae/diffusion_pytorch_model.safetensors",
         "dest": VAE_DIR / "sd3_vae.safetensors",
         "size_gb": 0.17,
+    },
+    "mmproj_qwen3vl_8b": {
+        "type": "exact",
+        "repo": "Qwen/Qwen3-VL-8B-Instruct-GGUF",
+        "filename": "mmproj-Qwen3-VL-8B-Instruct-F16.gguf",
+        "dest": LLM_DIR / "mmproj-Qwen3-VL-8B-Instruct-F16.gguf",
+        "size_gb": 5.5,
     },
 }
 
@@ -235,6 +249,29 @@ MODELS = {
         "desc": "Realisme humain ameliore, details naturels et rendu de texte.",
         "defaults": {"steps": 30, "cfg": 4.0, "sampler": "euler"},
         "min_steps": 10, "max_steps": 60,
+    },
+    "qwen-image-2.1": {
+        "name": "Qwen-Image 2.1",
+        "arch": "qwen_image",
+        "repo": "leejet/Qwen-Image-2.1-GGUF",
+        "quants": ["Q4_0", "Q4_K_M", "Q5_K_M", "Q6_K"],
+        "default_quant": "Q5_K_M",
+        "file_for_quant": {
+            "Q4_0":   "qwen-image-2.1-Q4_0.gguf",
+            "Q4_K_M": "qwen-image-2.1-Q4_K_M.gguf",
+            "Q5_K_M": "qwen-image-2.1-Q5_K_M.gguf",
+            "Q6_K":   "qwen-image-2.1-Q6_K.gguf",
+        },
+        "size_gb": {"Q4_0": 4.1, "Q4_K_M": 4.6, "Q5_K_M": 5.2, "Q6_K": 5.9},
+        "deps": ["vae_qwen21", "qwen3vl_8b"],
+        "supports_neg": True,
+        "needs_token": False,
+        "license": "Qwen Research (usage non-commercial uniquement)",
+        "hf_url": "https://huggingface.co/leejet/Qwen-Image-2.1-GGUF",
+        "vram_min_gb": 8,
+        "desc": "Version 2.1 amelioree. Generation + edition d'images, transparence. Licence non-commercial.",
+        "defaults": {"steps": 25, "cfg": 3.5, "sampler": "euler"},
+        "min_steps": 10, "max_steps": 50,
     },
     # ---- NOUVEAUX MODELES ----
     "sd3.5-medium": {
@@ -454,7 +491,8 @@ def _diffusion_path(model_id, quant):
 
 
 def build_command(model_id, quant, prompt, negative, width, height, steps,
-                  cfg, seed, batch, out_template, sd_cli, manifest):
+                  cfg, seed, batch, out_template, sd_cli, manifest,
+                  source_image=None, lora_dir=None):
     m = MODELS[model_id]
     arch = m["arch"]
     args = [sd_cli]
@@ -475,7 +513,11 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
         elif arch in ("ernie", "ideogram", "flux2"):
             vae_key = "vae_flux2"
         elif arch == "qwen_image":
-            vae_key = "vae_qwen"
+            # Qwen-Image 2.1 utilise son propre VAE
+            if model_id == "qwen-image-2.1":
+                vae_key = "vae_qwen21"
+            else:
+                vae_key = "vae_qwen"
         else:
             vae_key = "vae_flux"
         args += ["--vae", _dep_path(manifest, vae_key)]
@@ -497,7 +539,23 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     elif arch == "ideogram":
         args += ["--llm", _dep_path(manifest, "qwen3vl_8b")]
     elif arch == "qwen_image":
-        args += ["--llm", _dep_path(manifest, "qwen25vl_7b")]
+        # Qwen-Image 2.1 utilise Qwen3-VL-8B au lieu de Qwen2.5-VL-7B
+        if model_id == "qwen-image-2.1":
+            args += ["--llm", _dep_path(manifest, "qwen3vl_8b")]
+        else:
+            args += ["--llm", _dep_path(manifest, "qwen25vl_7b")]
+
+    # Image source pour img2img / edition (Qwen-Image-2.1)
+    if source_image and model_id == "qwen-image-2.1":
+        args += ["-r", source_image]
+        # Ajouter le modele de vision pour l'edition
+        mmproj_path = _dep_path(manifest, "mmproj_qwen3vl_8b")
+        if mmproj_path:
+            args += ["--llm_vision", mmproj_path]
+
+    # Support LoRA (dossier contenant les fichiers .safetensors)
+    if lora_dir:
+        args += ["--lora-model-dir", lora_dir]
 
     # Prompt
     if arch == "ideogram":

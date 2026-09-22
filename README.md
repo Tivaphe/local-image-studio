@@ -81,7 +81,7 @@ Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
 
 ---
 
-## 🧠 Modèles disponibles (11)
+## 🧠 Modèles disponibles (12)
 
 | Modèle | Vitesse | Licence | Idéal pour |
 |---|---|---|---|
@@ -94,6 +94,7 @@ Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
 | **ERNIE-Image Turbo** | ⚡ 8 étapes | Apache 2.0 ✅ | Texte dans l'image |
 | **Z-Image** | 28 étapes | Apache 2.0 ✅ | Qualité polyvalente |
 | **Qwen-Image 2512** | 30 étapes | Apache 2.0 ✅ | Réalisme humain |
+| **Qwen-Image 2.1** | 25 étapes | Qwen Research ⚠️ | Edition + transparence |
 | **Ideogram 4** | 12 étapes | Ideogram | Rendu de texte |
 | **FHDR Uncensored** | 20 étapes | Non-commercial | Sans censure |
 
@@ -103,6 +104,7 @@ Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
 
 - **Vous débutez ?** → **FLUX.1 schnell** (le plus rapide)
 - **Meilleure qualité rapide ?** → **FLUX.2 Klein 9B** ou **Qwen-Image 2512**
+- **Edition d'images / transparence ?** → **Qwen-Image 2.1** (nouveau !)
 - **Texte lisible dans l'image ?** → **ERNIE-Image Turbo** ou **Ideogram 4**
 - **Le plus léger ?** → **SD 3.5 Medium** (~2 Go)
 
