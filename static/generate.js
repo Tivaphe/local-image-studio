@@ -494,6 +494,7 @@ $('#mmproj-download-btn')?.addEventListener('click', async () => {
   btn.disabled = true;
   btn.textContent = '...';
   msg.textContent = 'Téléchargement en cours...';
+  msg.classList.remove('ok');
 
   try {
     const r = await fetch('/api/download-mmproj', { method: 'POST' });
@@ -501,15 +502,20 @@ $('#mmproj-download-btn')?.addEventListener('click', async () => {
     if (j.ok) {
       msg.textContent = '✓ mmproj téléchargé - prêt pour l\'édition !';
       msg.classList.add('ok');
-      btn.hidden = true;
+      btn.textContent = '✓ Téléchargé';
+      btn.disabled = true;
     } else {
       msg.textContent = '✗ Erreur: ' + (j.error || 'Unknown');
+      msg.innerHTML += '<br><a href="https://huggingface.co/unsloth/Qwen3-VL-8B-Instruct-GGUF/resolve/main/mmproj-Qwen3-VL-8B-Instruct-F16.gguf" target="_blank">Télécharger manuellement (1.2 Go)</a>';
     }
   } catch (e) {
     msg.textContent = '✗ Erreur: ' + e.message;
+    msg.innerHTML += '<br><a href="https://huggingface.co/unsloth/Qwen3-VL-8B-Instruct-GGUF/resolve/main/mmproj-Qwen3VL-8B-Instruct-F16.gguf" target="_blank">Télécharger manuellement (1.2 Go)</a>';
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Télécharger mmproj';
+    if (!btn.disabled) {
+      btn.textContent = 'Télécharger mmproj';
+      btn.disabled = false;
+    }
   }
 });
 

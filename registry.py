@@ -104,10 +104,10 @@ DEPS = {
     },
     "mmproj_qwen3vl_8b": {
         "type": "exact",
-        "repo": "Qwen/Qwen3-VL-8B-Instruct-GGUF",
+        "repo": "unsloth/Qwen3-VL-8B-Instruct-GGUF",
         "filename": "mmproj-Qwen3-VL-8B-Instruct-F16.gguf",
         "dest": LLM_DIR / "mmproj-Qwen3-VL-8B-Instruct-F16.gguf",
-        "size_gb": 5.5,
+        "size_gb": 1.2,
     },
 }
 
