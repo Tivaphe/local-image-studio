@@ -506,11 +506,11 @@ $('#mmproj-download-btn')?.addEventListener('click', async () => {
       btn.disabled = true;
     } else {
       msg.textContent = '✗ Erreur: ' + (j.error || 'Unknown');
-      msg.innerHTML += '<br><a href="https://huggingface.co/unsloth/Qwen3-VL-8B-Instruct-GGUF/resolve/main/mmproj-Qwen3-VL-8B-Instruct-F16.gguf" target="_blank">Télécharger manuellement (1.2 Go)</a>';
+      msg.innerHTML += '<br><a href="https://huggingface.co/unsloth/Qwen3-VL-8B-Instruct-GGUF/blob/main/mmproj-BF16.gguf" target="_blank">Télécharger manuellement (1.2 Go)</a>';
     }
   } catch (e) {
     msg.textContent = '✗ Erreur: ' + e.message;
-    msg.innerHTML += '<br><a href="https://huggingface.co/unsloth/Qwen3-VL-8B-Instruct-GGUF/resolve/main/mmproj-Qwen3VL-8B-Instruct-F16.gguf" target="_blank">Télécharger manuellement (1.2 Go)</a>';
+    msg.innerHTML += '<br><a href="https://huggingface.co/unsloth/Qwen3-VL-8B-Instruct-GGUF/blob/main/mmproj-BF16.gguf" target="_blank">Télécharger manuellement (1.2 Go)</a>';
   } finally {
     if (!btn.disabled) {
       btn.textContent = 'Télécharger mmproj';
