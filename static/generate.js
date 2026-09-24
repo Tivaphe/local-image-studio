@@ -1,6 +1,7 @@
 /* ===== Page Generer =====
    FIX 4 : memorise le modele selectionne (localStorage) et le restaure.
    FIX 3 : affiche les stats de generation (chrono live + stats finales).
+   IMG2IMG + LORA : support de l'upload d'image et des LoRA.
 */
 // Fallback: $ et $$ en cas de chargement avant app.js
 if (typeof window.$ === 'undefined') {
@@ -37,7 +38,7 @@ async function loadModels() {
   if (!sel) return;
   sel.innerHTML = '';
 
-  // restauration du modele choisit precedemment
+  // restauration du modele choisi precedemment
   const prefs = loadPrefs();
   let savedModel = prefs.model;
   // verifie que le modele sauvegarde existe encore
@@ -110,7 +111,10 @@ function onModelChange() {
   const m = MODELS[$('#model').value];
   if (!m) return;
   const q = $('#quant');
+  const presetSelect = $('#preset');
   q.innerHTML = '';
+  presetSelect.innerHTML = '<option value="default">→ Config par défaut ←</option>';
+
   const prefs = loadPrefs();
   for (const qt of m.quants) {
     const opt = document.createElement('option');
@@ -119,15 +123,35 @@ function onModelChange() {
     opt.textContent = qt + (have ? ' OK' : '  (a telecharger)');
     q.appendChild(opt);
   }
-  // restaure la quant sauvegardee si valide pour ce modele
-  if (prefs.quant && m.quants.includes(prefs.quant) && prefs.model === $('#model').value) {
-    q.value = prefs.quant;
-  } else {
-    q.value = m.default_quant;
+  // Quant par défaut
+  q.value = m.default_quant;
+
+  // Remplir les presets
+  if (m.presets) {
+    for (const [key, preset] of Object.entries(m.presets)) {
+      const opt = document.createElement('option');
+      opt.value = JSON.stringify(preset);
+      opt.textContent = preset.label || key;
+      presetSelect.appendChild(opt);
+    }
   }
-  $('#steps').value = m.defaults.steps;
+
+  // Appliquer le preset sauvegardé ou par défaut
+  const savedPreset = prefs.preset;
+  if (savedPreset && m.presets && m.presets[savedPreset]) {
+    applyPreset(m.presets[savedPreset]);
+    presetSelect.value = savedPreset;
+  } else {
+    // Valeurs par défaut
+    $('#steps').value = m.defaults.steps;
+    $('#cfg').value = m.defaults.cfg;
+    if (prefs.quant && m.quants.includes(prefs.quant) && prefs.model === $('#model').value) {
+      q.value = prefs.quant;
+    }
+    presetSelect.value = 'default';
+  }
+
   $('#steps').min = m.min_steps; $('#steps').max = m.max_steps;
-  $('#cfg').value = m.defaults.cfg;
   $('#negative').parentElement.style.display = m.supports_neg ? '' : 'none';
   // pre-remplir le negative par defaut si vide
   const negEl = $('#negative');
@@ -137,11 +161,121 @@ function onModelChange() {
   const warn = !m.status.ready ? `Ce modele n'est pas telecharge. Allez dans l'onglet Modeles.` : '';
   $('#gen-error').textContent = warn;
   $('#gen-error').hidden = !warn;
+
+  // Activer l'upload pour les modeles avec support d'edition/img2img
+  const isEditModel = m.id === 'qwen-image-2.1' 
+    || m.arch === 'flux2' 
+    || m.arch === 'sd3';
+  const uploadArea = $('#file-upload-area');
+  if (uploadArea) {
+    uploadArea.style.opacity = isEditModel ? '1' : '0.5';
+    uploadArea.style.pointerEvents = isEditModel ? 'auto' : 'none';
+  }
+  
+  // Afficher le champ strength pour les modeles SD
+  const strengthField = $('#strength-field');
+  if (strengthField) {
+    strengthField.style.display = (m.arch === 'sd3') ? '' : 'none';
+  }
+}
+
+// Appliquer un preset aux champs
+function applyPreset(preset) {
+  if (!preset) return;
+  $('#steps').value = preset.steps || $('#steps').value;
+  $('#cfg').value = preset.cfg || $('#cfg').value;
+  if (preset.quant) {
+    const q = $('#quant');
+    if (q.find(`option[value="${preset.quant}"]`)) {
+      q.value = preset.quant;
+    }
+  }
 }
 
 $('#batch').addEventListener('input', e => {
   const v = parseInt(e.target.value);
   $('#batch-val').textContent = v + ' image' + (v > 1 ? 's' : '');
+});
+
+// ---------- Gestion de l'upload d'image source (img2img) ----------
+let uploadedImagePath = null;
+
+async function handleFileSelect(file) {
+  if (!file) return;
+  const validTypes = ['image/png', 'image/jpeg', 'image/webp'];
+  if (!validTypes.includes(file.type)) {
+    alert('Format non supporté. Utilisez PNG, JPG ou WEBP.');
+    return;
+  }
+
+  // Upload vers le serveur
+  const formData = new FormData();
+  formData.append('image', file);
+
+  try {
+    const r = await fetch('/api/upload-source-image', { method: 'POST', body: formData });
+    const j = await r.json();
+    if (!j.ok) {
+      alert(j.error || 'Erreur lors de l\'upload');
+      return;
+    }
+    uploadedImagePath = j.filename;
+    $('#source-image-path').value = j.filename;
+
+    // Afficher l'aperçu
+    $('#preview-img').src = URL.createObjectURL(file);
+    $('#preview-name').textContent = file.name;
+    $('#upload-placeholder').classList.add('hidden');
+    $('#upload-preview').classList.remove('hidden');
+  } catch (e) {
+    alert('Erreur: ' + e.message);
+  }
+}
+
+// Click sur la zone d'upload
+$('#source-image-input')?.addEventListener('change', e => {
+  if (e.target.files.length > 0) {
+    handleFileSelect(e.target.files[0]);
+  }
+});
+
+// Clic sur la zone placeholder
+$('#upload-placeholder')?.addEventListener('click', () => {
+  $('#source-image-input').click();
+});
+
+// Drag & Drop
+const uploadArea = $('#file-upload-area');
+if (uploadArea) {
+  uploadArea.addEventListener('dragover', e => {
+    e.preventDefault();
+    uploadArea.classList.add('dragover');
+  });
+  uploadArea.addEventListener('dragleave', () => {
+    uploadArea.classList.remove('dragover');
+  });
+  uploadArea.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      handleFileSelect(files[0]);
+      // Synchroniser l'input file
+      const dt = new DataTransfer();
+      dt.items.add(files[0]);
+      $('#source-image-input').files = dt.files;
+    }
+  });
+}
+
+// Retirer l'image
+$('#remove-image')?.addEventListener('click', () => {
+  uploadedImagePath = null;
+  $('#source-image-path').value = '';
+  $('#source-image-input').value = '';
+  $('#upload-placeholder').classList.remove('hidden');
+  $('#upload-preview').classList.add('hidden');
+  $('#preview-img').src = '';
 });
 
 // ---------- generation ----------
@@ -153,17 +287,48 @@ $('#generate-btn').addEventListener('click', async () => {
     $('#gen-error').textContent = `Le modele << ${m.name} >> n'est pas pret. Telechargez-le dans l'onglet Modeles.`;
     return;
   }
+
+  // Sauvegarder le preset sélectionné
+  const presetSelect = $('#preset');
+  const presetValue = presetSelect.value;
+  if (presetValue !== 'default') {
+    try {
+      const preset = JSON.parse(presetValue);
+      savePrefs({ preset: presetValue });
+    } catch (e) {}
+  }
+
+  // Construction du prompt final (combine prompt principal + syntaxe LoRA si présente)
+  let finalPrompt = $('#prompt').value.trim();
+  const loraPrompt = $('#lora-prompt').value.trim();
+
+  // Si le prompt LoRA est défini, l'ajouter au prompt principal (tous modèles)
+  if (loraPrompt) {
+    if (finalPrompt) {
+      finalPrompt = finalPrompt + ' ' + loraPrompt;
+    } else {
+      finalPrompt = loraPrompt;
+    }
+  }
+
+  // Récupérer le strength pour les modèles SD
+  const strengthVal = $('#strength').value || null;
+
   const body = {
     model_id,
     quant: $('#quant').value,
-    prompt: $('#prompt').value,
+    prompt: finalPrompt,
     negative: $('#negative').value,
     ratio: currentRatio,
     steps: $('#steps').value,
     cfg: $('#cfg').value,
     seed: $('#seed').value || null,
     batch: $('#batch').value,
+    source_image: uploadedImagePath || null,
+    lora_dir: $('#lora-dir').value || null,
+    strength: (m.arch === 'sd3' && strengthVal) ? parseFloat(strengthVal) : null,
   };
+
   const r = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const j = await r.json();
   if (!j.ok) {
@@ -351,7 +516,79 @@ async function doTranslate() {
 }
 $('#translate-btn')?.addEventListener('click', doTranslate);
 
-// ---------- negative prompt par defaut ----------
+// ---------- vérification mmproj pour Qwen-Image-2.1 ----------
+function checkMmprojStatus() {
+  const btn = $('#mmproj-download-btn');
+  const msg = $('#mmproj-msg');
+  if (!btn || !msg) return;
+
+  // Vérifier si mmproj est disponible via l'API
+  fetch('/api/status')
+    .then(r => r.json())
+    .then(data => {
+      // L'API /api/status ne donne pas directement le statut mmproj
+      // On vérifie via un endpoint dédié ou on utilise le manifeste
+    })
+    .catch(() => {});
+}
+
+// Bouton de téléchargement mmproj
+$('#mmproj-download-btn')?.addEventListener('click', async () => {
+  const btn = $('#mmproj-download-btn');
+  const msg = $('#mmproj-msg');
+  btn.disabled = true;
+  btn.textContent = '...';
+  msg.textContent = 'Téléchargement en cours...';
+  msg.classList.remove('ok');
+
+  try {
+    const r = await fetch('/api/download-mmproj', { method: 'POST' });
+    const j = await r.json();
+    if (j.ok) {
+      msg.textContent = '✓ mmproj téléchargé - prêt pour l\'édition !';
+      msg.classList.add('ok');
+      btn.textContent = '✓ Téléchargé';
+      btn.disabled = true;
+    } else {
+      msg.textContent = '✗ Erreur: ' + (j.error || 'Unknown');
+      msg.innerHTML += '<br><a href="https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF/resolve/main/mmproj-Qwen3VL-8B-Instruct-F16.gguf" target="_blank">Télécharger manuellement (1.2 Go)</a>';
+    }
+  } catch (e) {
+    msg.textContent = '✗ Erreur: ' + e.message;
+    msg.innerHTML += '<br><a href="https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF/resolve/main/mmproj-Qwen3VL-8B-Instruct-F16.gguf" target="_blank">Télécharger manuellement (1.2 Go)</a>';
+  } finally {
+    if (!btn.disabled) {
+      btn.textContent = 'Télécharger mmproj';
+      btn.disabled = false;
+    }
+  }
+});
+
+// Vérification initiale du statut mmproj (uniquement Qwen-Image-2.1)
+(async function checkMmproj() {
+  try {
+    const currentModel = $('#model') ? $('#model').value : null;
+    const isQwen21 = currentModel === 'qwen-image-2.1';
+    if (!isQwen21) return;
+
+    const r = await fetch('/api/mmproj-status');
+    const j = await r.json();
+    const btn = $('#mmproj-download-btn');
+    const msg = $('#mmproj-msg');
+    const statusDiv = $('#mmproj-status');
+    if (btn && msg && statusDiv) {
+      statusDiv.classList.remove('hidden');
+      if (j.downloaded) {
+        msg.textContent = '✓ mmproj disponible — prêt pour l'édition !';
+        msg.classList.add('ok');
+        btn.hidden = true;
+      } else {
+        msg.textContent = '⚠️ mmproj manquant — cliquez pour télécharger (1.2 Go)';
+        btn.hidden = false;
+      }
+    }
+  } catch (e) {}
+})();
 async function loadDefaultNegative() {
   try {
     const r = await fetch('/api/default-negative');

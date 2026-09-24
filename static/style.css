@@ -81,6 +81,14 @@ small{color:var(--muted)}
 .gen-grid{display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:22px;align-items:start}
 @media(max-width:900px){.gen-grid{grid-template-columns:1fr}}
 
+
+/* layout generate — panneaux spécifiques */
+.form-panel{
+  position:sticky;top:100px;
+}
+.result-panel{
+  display:flex;flex-direction:column;gap:16px;
+}
 /* progress */
 .progress-wrap{margin-bottom:16px}
 .progress-bar{height:8px;background:var(--bg2);border-radius:6px;overflow:hidden;border:1px solid var(--border)}
@@ -187,3 +195,41 @@ small{color:var(--muted)}
 .mc-vram.warn{color:var(--warn)}
 .mc-hf-link{font-size:12px}
 .gpu-banner{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px}
+
+/* ===== Upload d'image source (img2img) ===== */
+.img-source-row{margin-bottom:10px}
+.file-upload{position:relative;border:2px dashed var(--border);border-radius:12px;background:var(--bg2);
+  min-height:100px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:border-color .2s,background .2s}
+.file-upload:hover{border-color:var(--accent);background:#7c5cff08}
+.file-upload.dragover{border-color:var(--accent);background:#7c5cff18}
+.upload-placeholder{display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--muted)}
+.upload-placeholder .icon{font-size:32px}
+.upload-placeholder span{font-size:14px}
+.upload-preview{position:absolute;inset:0;border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+.upload-preview img{width:100%;height:100%;object-fit:cover}
+.upload-preview .preview-info{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,#0008);
+  padding:8px 12px;display:flex;justify-content:space-between;align-items:center;color:#fff;font-size:12px}
+.upload-preview.hidden,.upload-placeholder.hidden{display:none}
+
+/* section LoRA */
+.lora-section{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:8px}
+.lora-section label{margin-bottom:10px}
+.lora-section textarea{min-height:60px}
+.lora-section .hint{margin-top:8px;font-size:12px}
+
+/* hint */
+.hint{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}
+.hint strong{color:var(--accent2)}
+
+/* mmproj notice */
+.mmproj-notice{background:#f0a93b15;border:1px solid #f0a93b44;border-radius:8px;padding:10px 12px;margin-top:10px;display:flex;align-items:center;gap:10px}
+.mmproj-notice .mmproj-msg{color:var(--warn);font-size:13px}
+.mmproj-notice .mmproj-msg.ok{color:var(--ok)}
+
+/* modele edit-badge */
+.edit-badge{display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;
+  background:var(--accent);color:#fff;margin-left:6px;vertical-align:middle}
+
+/* téléchargement modèles (page modèles) */
+.dl-quant{flex:1;min-width:0}
+.dl-btn{min-width:120px}

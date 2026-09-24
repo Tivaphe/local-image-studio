@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build / distrib
+bin/
+models/
+output/
+source_images/
+*.zip
+*.part
+
+# Settings / secrets
+settings.json
+history.db

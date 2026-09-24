@@ -20,7 +20,7 @@ from urllib.request import urlopen, Request
 
 from config import (ROOT, BIN_DIR, DIFFUSION_DIR, OUTPUT_DIR, find_sd_cli)
 from registry import (MODELS, DEPS, DEP_QUANT_PRIORITY, resolve_dep_gguf,
-                      load_manifest, save_manifest, build_command)
+                      load_manifest, save_manifest, build_command, _dep_path)
 
 
 # =========================================================================== #
@@ -370,17 +370,43 @@ class TaskManager:
             if missing:
                 raise RuntimeError("Dépendances manquantes: " + ", ".join(missing))
 
+            # Vérification spécifique pour Qwen-Image-2.1 avec édition
+            if model_id == "qwen-image-2.1" and p.get("source_image"):
+                mmproj_path = _dep_path(manifest, "mmproj_qwen3vl_8b")
+                if not mmproj_path or not Path(mmproj_path).exists():
+                    raise RuntimeError(
+                        "Pour ÉDITER avec Qwen-Image-2.1, le fichier mmproj est requis. "
+                        "Sans lui, vous pouvez seulement GÉNÉRER des images (pas modifier). "
+                        "Téléchargez-le via le bouton 'Télécharger mmproj' dans l'interface, "
+                        "ou manuellement depuis: "
+                        "https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF/resolve/main/mmproj-Qwen3VL-8B-Instruct-F16.gguf "
+                        "dans le dossier models/llm/"
+                    )
+
             batch = max(1, min(4, int(p["batch"])))
-            batch_id = f"{int(time.time())}_{model_id}"
-            out_prefix = OUTPUT_DIR / batch_id
-            out_prefix.mkdir(parents=True, exist_ok=True)
-            out_tmpl = str(out_prefix / "img_%03d.png")
+            batch_id = f"{int(time.time())}_{model_id}"  # pour la DB
             seed = int(p["seed"]) if p.get("seed") not in (None, "") else int(time.time()) % 1000000
+
+            # Générer des noms de fichiers intelligents
+            # Format: model_motsprompt_001.png (dans output/ directement)
+            model_name = m["name"].lower().replace(" ", "_").replace("-", "_")
+            # Extraire les premiers mots du prompt (max 3 mots)
+            prompt_words = (p["prompt"] or "").strip().lower()
+            # Supprimer la ponctuation et prendre les premiers mots significatifs
+            clean_prompt = re.sub(r'[^\w\s]', '', prompt_words)
+            words = clean_prompt.split()[:3] if clean_prompt else ["generation"]
+            prompt_part = "_".join(words)[:40]  # max 40 caractères
+
+            # Template de sortie directement dans OUTPUT_DIR
+            out_tmpl = str(OUTPUT_DIR / f"{model_name}_{prompt_part}_%03d.png")
 
             cmd = build_command(
                 model_id, quant, p["prompt"], p.get("negative", ""),
                 int(p["width"]), int(p["height"]), int(p["steps"]), float(p["cfg"]),
-                seed, batch, out_tmpl, str(sd), manifest)
+                seed, batch, out_tmpl, str(sd), manifest,
+                source_image=p.get("source_image"),
+                lora_dir=p.get("lora_dir"),
+                strength=p.get("strength"))
 
             self._set(log="Démarrage de la génération…",
                       total_steps=int(p["steps"]), step=0)
@@ -441,11 +467,21 @@ class TaskManager:
                           result={"type": "generate", "cancelled": True, "images": []})
                 return
 
-            # collecte des images produites
-            produced = sorted(out_prefix.glob("img_*.png"))
+            # collecte des images produites (chercher directement dans OUTPUT_DIR)
+            # Pattern: model_nomprompt_NNN.png
+            pattern_start = f"{m['name'].lower().replace(' ', '_').replace('-', '_')}_{prompt_part}"
+            produced = sorted([
+                f for f in OUTPUT_DIR.glob(f"{pattern_start}_*.png")
+                if f.stat().st_mtime > t_start - 5  # fichiers récents (moins de 5s)
+            ])
+
+            # Fallback si aucun fichier trouvé avec le pattern
             if not produced:
-                # fallback : n'importe quel png récent dans le dossier
-                produced = sorted(out_prefix.glob("*.png"))
+                produced = sorted(OUTPUT_DIR.glob("*.png"))
+                produced = [f for f in produced if f.stat().st_mtime > t_start - 5]
+
+            # Trier par timestamp de modification pour respecter l'ordre
+            produced.sort(key=lambda f: f.stat().st_mtime)
             images = []
             for i, fp in enumerate(produced):
                 rel = fp.relative_to(OUTPUT_DIR).as_posix()

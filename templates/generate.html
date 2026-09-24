@@ -24,6 +24,48 @@
       <textarea id="negative" rows="2" placeholder="ce qu'il faut éviter : blurry, low quality, extra fingers"></textarea>
     </label>
 
+    <!-- Image source pour img2img / edition -->
+    <details class="advanced">
+      <summary>Image source (img2img / édition)</summary>
+      <div class="img-source-row">
+        <label class="field">
+          <span>Uploader une image</span>
+          <div class="file-upload" id="file-upload-area">
+            <input type="file" id="source-image-input" accept="image/png,image/jpeg,image/webp" hidden>
+            <div class="upload-placeholder" id="upload-placeholder">
+              <i class="icon">📁</i>
+              <span>Cliquez ou glissez une image ici</span>
+              <small class="muted">PNG, JPG, WEBP - pour l'édition avec Qwen-Image 2.1</small>
+            </div>
+            <div class="upload-preview hidden" id="upload-preview">
+              <img id="preview-img" alt="Aperçu">
+              <div class="preview-info">
+                <span id="preview-name"></span>
+                <button id="remove-image" class="btn ghost small">Retirer</button>
+              </div>
+            </div>
+          </div>
+        </label>
+        <input type="hidden" id="source-image-path">
+      </div>
+      <p class="hint">
+        <strong>Modèles avec édition :</strong> Qwen-Image 2.1 (édition sémantique), 
+        FLUX.2 Klein (édition par référence), SD 3.5 (img2img classique).
+        <br>Exemple : "make it sunset", "add sunglasses", "change style to watercolor".
+      </p>
+      <div id="mmproj-status" class="mmproj-notice hidden">
+        <span id="mmproj-msg">Vérification...</span>
+        <button id="mmproj-download-btn" class="btn small primary">
+          Télécharger mmproj (requis pour l'édition)
+        </button>
+      </div>
+      <label class="field" id="strength-field" style="display:none;">
+        <span>Force (strength) <em>pour SD 3.5</em></span>
+        <input type="number" id="strength" min="0" max="1" step="0.05" placeholder="0.75" value="0.75">
+        <small class="muted">0 = image originale conservée, 1 = re-generer completement</small>
+      </label>
+    </details>
+
     <div class="row">
       <label class="field grow">
         <span>Modèle</span>
@@ -33,6 +75,14 @@
         <span>Quant.</span>
         <select id="quant"></select>
       </label>
+    </div>
+
+    <!-- Sélection du preset -->
+    <div class="field">
+      <span>Présélection</span>
+      <select id="preset">
+        <option value="default">→ Config par défaut ←</option>
+      </select>
     </div>
 
     <div class="field">
@@ -54,6 +104,30 @@
         <label class="field"><span>Étapes</span><input type="number" id="steps" min="1" max="50"></label>
         <label class="field"><span>Guidance (CFG)</span><input type="number" id="cfg" step="0.1"></label>
         <label class="field"><span>Seed</span><input type="number" id="seed" placeholder="aléatoire"></label>
+      </div>
+    </details>
+
+    <!-- Section LoRA -->
+    <details class="advanced">
+      <summary>LoRA (modularités)</summary>
+      <div class="lora-section">
+        <label class="field">
+          <span>Dossier LoRA</span>
+          <input type="text" id="lora-dir" placeholder="./models/loras" value="./models/loras">
+          <small class="muted">Chemin du dossier contenant les fichiers .safetensors LoRA</small>
+        </label>
+        <label class="field">
+          <span>Prompt avec LoRA</span>
+          <textarea id="lora-prompt" rows="2" placeholder="ex: a cat &lt;lora:realism:0.8&gt; &lt;lora:detail:1.2&gt;"></textarea>
+          <small class="muted">
+            Syntaxe: &lt;lora:nom_fichier_sans_extension:contribution&gt;<br>
+            Le dossier LoRA doit contenir les fichiers .safetensors
+          </small>
+        </label>
+        <p class="hint">
+          <strong>Note:</strong> Les LoRA fonctionnent principalement avec FLUX (format safetensors).
+          Pour Qwen-Image 2.1 (modèle DiT), les LoRA SD 1.5 classiques ne sont pas compatibles.
+        </p>
       </div>
     </details>
 
