@@ -579,7 +579,7 @@ $('#mmproj-download-btn')?.addEventListener('click', async () => {
     if (btn && msg && statusDiv) {
       statusDiv.classList.remove('hidden');
       if (j.downloaded) {
-        msg.textContent = '✓ mmproj disponible — prêt pour l'édition !';
+        msg.textContent = "✓ mmproj disponible — prêt pour l'édition !";
         msg.classList.add('ok');
         btn.hidden = true;
       } else {

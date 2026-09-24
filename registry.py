@@ -293,14 +293,14 @@ MODELS = {
         "name": "Qwen-Image-2.1",
         "arch": "qwen_image",
         "repo": "unsloth/Qwen-Image-2.1-GGUF",
-        "quants": ["Q4_0", "Q5_0", "Q6_K"],
-        "default_quant": "Q5_0",
+        "quants": ["Q4_K_M", "Q5_K_M", "Q6_K"],
+        "default_quant": "Q5_K_M",
         "file_for_quant": {
-            "Q4_0": "qwen-image-2.1-Q4_0.gguf",
-            "Q5_0": "qwen-image-2.1-Q5_0.gguf",
-            "Q6_K": "qwen-image-2.1-Q6_K.gguf",
+            "Q4_K_M": "qwen-image-2.1-Q4_K_M.gguf",
+            "Q5_K_M": "qwen-image-2.1-Q5_K_M.gguf",
+            "Q6_K":   "qwen-image-2.1-Q6_K.gguf",
         },
-        "size_gb": {"Q4_0": 4.05, "Q5_0": 5.22, "Q6_K": 5.88},
+        "size_gb": {"Q4_K_M": 4.2, "Q5_K_M": 5.4, "Q6_K": 6.3},
         "deps": ["vae_qwen_21", "qwen3vl_8b", "mmproj_qwen3vl_8b"],
         "supports_neg": False,
         "needs_token": False,
@@ -312,10 +312,10 @@ MODELS = {
         "defaults": {"steps": 25, "cfg": 3.5, "sampler": "euler"},
         "min_steps": 10, "max_steps": 50,
         "presets": {
-            "rapide":    {"steps": 15, "cfg": 1.0, "quant": "Q4_0", "label": "⚡ Rapide (15 etapes, Q4_0)"},
-            "equilibre": {"steps": 25, "cfg": 3.5, "quant": "Q5_0", "label": "⚖️ Equilibre (25 etapes, Q5_0)"},
-            "qualite":   {"steps": 40, "cfg": 6.0, "quant": "Q6_K", "label": "✨ Qualite (40 etapes, Q6_K)"},
-            "optimise":  {"steps": 20, "cfg": 1.0, "quant": "Q4_K", "label": "🎯 Optimise edition (20 etapes, Q4_K)"},
+            "rapide":    {"steps": 15, "cfg": 1.0, "quant": "Q4_K_M", "label": "⚡ Rapide (15 etapes, Q4)"},
+            "equilibre": {"steps": 25, "cfg": 3.5, "quant": "Q5_K_M", "label": "⚖️ Equilibre (25 etapes, Q5)"},
+            "qualite":   {"steps": 40, "cfg": 6.0, "quant": "Q6_K",   "label": "✨ Qualite (40 etapes, Q6)"},
+            "optimise":  {"steps": 20, "cfg": 1.0, "quant": "Q4_K_M", "label": "🎯 Optimise edition (20 etapes, Q4)"},
         },
     },
 
@@ -616,7 +616,8 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     elif arch == "ideogram":
         args += ["--llm", _dep_path(manifest, "qwen3vl_8b")]
     elif arch == "qwen_image":
-        args += ["--llm", _dep_path(manifest, "qwen25vl_7b")]
+        llm_key = "qwen3vl_8b" if model_id == "qwen-image-2.1" else "qwen25vl_7b"
+        args += ["--llm", _dep_path(manifest, llm_key)]
         # mmproj pour l'edition (Qwen-Image-2.1)
         if model_id == "qwen-image-2.1" and manifest.get("mmproj_qwen3vl_8b"):
             args += ["--llm_vision", _dep_path(manifest, "mmproj_qwen3vl_8b")]
@@ -632,6 +633,8 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     # Image source (img2img / edition)
     if source_image:
         args += ["-r", source_image]
+        if strength is not None:
+            args += ["--strength", f"{strength}"]
 
     # Parametres
     args += ["--cfg-scale", f"{cfg}",
