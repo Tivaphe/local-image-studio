@@ -88,8 +88,13 @@ function updateDlBtn(card) {
   const btn = card.querySelector('.dl-btn');
   if (!sel || !btn) return;
   const opt = sel.selectedOptions[0];
-  const have = opt && opt.dataset.have === '1';
-  if (have) {
+  const haveQuant = opt && opt.dataset.have === '1';
+  const hasMissDeps = card.querySelectorAll('.dep.miss').length > 0;
+  if (haveQuant && hasMissDeps) {
+    btn.textContent = 'Télécharger dépendances';
+    btn.classList.add('primary');
+    btn.classList.remove('ghost');
+  } else if (haveQuant) {
     btn.textContent = 'Re-télécharger';
     btn.classList.remove('primary');
     btn.classList.add('ghost');

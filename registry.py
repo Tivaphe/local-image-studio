@@ -60,9 +60,9 @@ DEPS = {
     },
     "qwen3_4b": {
         "type": "gguf",
-        "repo": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+        "repo": "unsloth/Qwen3-4B-GGUF",
         "dest_dir": LLM_DIR,
-        "size_gb": 2.6,
+        "size_gb": 2.5,
     },
     "qwen3_8b": {
         "type": "gguf",
@@ -428,6 +428,7 @@ MODELS = {
         "size_gb": {"Q4_K_M": 2.6, "Q5_K_M": 2.9, "Q6_K": 3.3},
         "deps": ["vae_flux2", "qwen3_4b"],
         "supports_neg": False,
+        "supports_img2img": True,
         "needs_token": False,
         "license": "Apache 2.0 (libre, commercial OK)",
         "hf_url": "https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF",
@@ -457,6 +458,7 @@ MODELS = {
         "size_gb": {"Q4_K_M": 5.9, "Q5_K_M": 6.7, "Q6_K": 7.5},
         "deps": ["vae_flux2", "qwen3_8b"],
         "supports_neg": False,
+        "supports_img2img": True,
         "needs_token": True,
         "license": "FLUX Non-Commercial (usage perso uniquement)",
         "hf_url": "https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF",
@@ -479,10 +481,44 @@ def _quant_of(filename: str):
     return None
 
 
+def _is_valid_dep(dep_id: str, p: Path) -> bool:
+    """Verifie qu'un fichier correspond bien a la dependance attendue (evite les collisions)."""
+    name = p.name.lower()
+    if dep_id == "qwen3_4b":
+        return ("qwen3" in name or "qwen_3" in name) and "4b" in name and "vl" not in name and "mmproj" not in name
+    elif dep_id == "qwen3_8b":
+        return ("qwen3" in name or "qwen_3" in name) and "8b" in name and "vl" not in name and "mmproj" not in name
+    elif dep_id == "ministral_3b":
+        return "ministral" in name
+    elif dep_id == "qwen3vl_8b":
+        return ("qwen3" in name or "qwen_3" in name) and "vl" in name and "mmproj" not in name
+    elif dep_id == "qwen25vl_7b":
+        return ("qwen2.5" in name or "qwen2_5" in name or "qwen25" in name) and "vl" in name and "mmproj" not in name
+    elif dep_id == "mmproj_qwen3vl_8b":
+        return "mmproj" in name and ("qwen3" in name or "qwen_3" in name)
+    elif dep_id == "vae_flux":
+        return (("flux" in name and "2" not in name and ("vae" in name or "ae" in name)) or name == "ae.safetensors")
+    elif dep_id == "vae_flux2":
+        return ("flux2" in name or "flux_2" in name) and ("vae" in name or "ae" in name)
+    elif dep_id == "vae_qwen":
+        return "qwen" in name and ("vae" in name or "ae" in name) and "2.1" not in name and "21" not in name
+    elif dep_id == "vae_qwen_21":
+        return "qwen" in name and ("2.1" in name or "21" in name) and ("vae" in name or "ae" in name)
+    elif dep_id == "vae_sd3":
+        return "sd3" in name or name == "diffusion_pytorch_model.safetensors"
+    elif dep_id == "clip_l":
+        return "clip_l" in name or "clip-l" in name
+    elif dep_id == "clip_g":
+        return "clip_g" in name or "clip-g" in name
+    elif dep_id == "t5xxl":
+        return "t5xxl" in name or "t5_xxl" in name or "t5-xxl" in name
+    return True
+
+
 def resolve_dep_gguf(dep_id: str, files: list, priority=None):
     priority = priority or DEP_QUANT_PRIORITY
 
-    ggufs = [f for f in files if f.lower().endswith(".gguf") and "/" not in f]
+    ggufs = [f for f in files if f.lower().endswith(".gguf") and "/" not in f and _is_valid_dep(dep_id, Path(f))]
     plain = {}
     for f in ggufs:
         q = _quant_of(f)
@@ -502,7 +538,18 @@ def resolve_dep_gguf(dep_id: str, files: list, priority=None):
 def load_manifest():
     if MANIFEST_PATH.exists():
         try:
-            return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+            mf = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+            cleaned = False
+            for dep_id in list(mf.keys()):
+                info = mf[dep_id]
+                if isinstance(info, dict) and "path" in info:
+                    p = Path(info["path"])
+                    if not p.exists() or not _is_valid_dep(dep_id, p):
+                        del mf[dep_id]
+                        cleaned = True
+            if cleaned:
+                save_manifest(mf)
+            return mf
         except Exception:
             return {}
     return {}
@@ -557,25 +604,66 @@ def build_ideogram_prompt(text, negative, width, height):
 # --------------------------------------------------------------------------- #
 #  Construction de la commande sd-cli
 # --------------------------------------------------------------------------- #
+def _find_dep_on_disk(dep_id: str) -> Path | None:
+    """Recherche sur le disque un fichier correspondant precisement a dep_id."""
+    if dep_id not in DEPS:
+        return None
+    dep = DEPS[dep_id]
+    if dep.get("type") == "exact":
+        dest = dep.get("dest")
+        if dest and dest.exists() and _is_valid_dep(dep_id, dest):
+            return dest
+
+    search_dirs = []
+    if dep.get("dest_dir"):
+        search_dirs.append(dep["dest_dir"])
+    if dep.get("dest") and dep["dest"].parent not in search_dirs:
+        search_dirs.append(dep["dest"].parent)
+    if "llm" in dep_id or "qwen" in dep_id or "ministral" in dep_id:
+        if LLM_DIR not in search_dirs:
+            search_dirs.append(LLM_DIR)
+        if TEXTENC_DIR not in search_dirs:
+            search_dirs.append(TEXTENC_DIR)
+    elif "vae" in dep_id:
+        if VAE_DIR not in search_dirs:
+            search_dirs.append(VAE_DIR)
+    elif "clip" in dep_id or "t5" in dep_id:
+        if TEXTENC_DIR not in search_dirs:
+            search_dirs.append(TEXTENC_DIR)
+
+    candidates = []
+    for d in search_dirs:
+        if not d or not d.exists():
+            continue
+        for f in d.iterdir():
+            if f.is_file() and _is_valid_dep(dep_id, f):
+                candidates.append(f)
+
+    if not candidates:
+        return None
+
+    plain = {}
+    for f in candidates:
+        q = _quant_of(f.name)
+        if q and not ("-UD-" in f.name or "-IQ" in f.name):
+            plain.setdefault(q, f)
+    for q in DEP_QUANT_PRIORITY:
+        if q in plain:
+            return plain[q]
+    if plain:
+        return next(iter(plain.values()))
+    return candidates[0]
+
+
 def _dep_path(manifest, dep_id):
     info = manifest.get(dep_id) or {}
     path = info.get("path")
-    if path and Path(path).exists():
+    if path and Path(path).exists() and _is_valid_dep(dep_id, Path(path)):
         return str(path)
-    # Fallback vers l'emplacement standard si présent sur disque
-    if dep_id in DEPS:
-        dep = DEPS[dep_id]
-        if dep.get("type") == "exact":
-            dest = dep.get("dest")
-            if dest and dest.exists():
-                return str(dest)
-        elif dep.get("type") == "gguf":
-            dest_dir = dep.get("dest_dir")
-            if dest_dir and dest_dir.exists():
-                ggufs = list(dest_dir.glob("*.gguf"))
-                if ggufs:
-                    return str(ggufs[0])
-    return path
+    found = _find_dep_on_disk(dep_id)
+    if found:
+        return str(found)
+    return None
 
 
 def _diffusion_path(model_id, quant):
@@ -654,7 +742,7 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
         if llm:
             args += ["--llm", str(llm)]
         # mmproj pour l'edition (Qwen-Image-2.1)
-        if model_id == "qwen-image-2.1" and manifest.get("mmproj_qwen3vl_8b"):
+        if model_id == "qwen-image-2.1":
             mmproj = _dep_path(manifest, "mmproj_qwen3vl_8b")
             if mmproj:
                 args += ["--llm_vision", str(mmproj)]

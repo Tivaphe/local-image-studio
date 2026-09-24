@@ -28,29 +28,10 @@ SYSTEM_PROMPT_REPHRASE = (
 
 
 def _get_model_path():
-    """Retrouve le chemin du Qwen3-4B depuis le manifeste (dependance partagee)."""
-    import json
-    from config import MANIFEST_PATH, LLM_DIR
-    from pathlib import Path
-
-    # 1) Cherche dans le manifeste
-    if MANIFEST_PATH.exists():
-        try:
-            mf = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-            info = mf.get("qwen3_4b") or {}
-            if info.get("path") and Path(info["path"]).exists():
-                return info["path"]
-        except Exception:
-            pass
-
-    # 2) Cherche directement dans le dossier LLM
-    if LLM_DIR.exists():
-        candidates = sorted(LLM_DIR.glob("*Qwen3-4B*Q*_M*.gguf"))
-        if not candidates:
-            candidates = sorted(LLM_DIR.glob("*Qwen3-4B*.gguf"))
-        if candidates:
-            return str(candidates[0])
-    return None
+    """Retrouve le chemin du Qwen3-4B depuis le manifeste ou le disque (dependance partagee)."""
+    from registry import load_manifest, _dep_path
+    mf = load_manifest()
+    return _dep_path(mf, "qwen3_4b")
 
 
 def enhancer_available():

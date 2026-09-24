@@ -189,6 +189,7 @@ def api_generate():
         "seed": data.get("seed"),
         "batch": max(1, min(4, int(data.get("batch") or 1))),
         "source_image": data.get("source_image"),
+        "strength": data.get("strength"),
         "lora_dir": data.get("lora_dir"),
     }
     if not params["prompt"]:

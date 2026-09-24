@@ -187,7 +187,17 @@ function onModelChange() {
   if (m.supports_neg && !negEl.value && window.DEFAULT_NEG) {
     negEl.value = window.DEFAULT_NEG;
   }
-  const warn = !m.status.ready ? `Ce modèle n'est pas téléchargé. Allez dans l'onglet Modèles.` : '';
+  let warn = '';
+  if (!m.status.ready) {
+    const missingDeps = Object.entries(m.status.deps || {})
+      .filter(([_, ok]) => !ok)
+      .map(([k, _]) => k);
+    if (missingDeps.length > 0) {
+      warn = `Dépendances manquantes pour ce modèle : ${missingDeps.join(', ')}. Rendez-vous dans l'onglet Modèles pour les télécharger.`;
+    } else {
+      warn = `Ce modèle n'est pas encore téléchargé. Rendez-vous dans l'onglet Modèles.`;
+    }
+  }
   $('#gen-error').textContent = warn;
   $('#gen-error').hidden = !warn;
 
