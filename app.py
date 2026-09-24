@@ -117,6 +117,7 @@ def api_models():
     for mid, m in MODELS.items():
         st = model_status(mid)
         out[mid] = {
+            "id": mid,
             "name": m["name"], "desc": m["desc"], "arch": m["arch"],
             "repo": m["repo"],
             "license": m.get("license", ""),

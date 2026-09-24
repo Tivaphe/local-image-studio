@@ -86,10 +86,14 @@
       <div class="mc-actions">
         <select class="dl-quant">
           {% for q in m.quants %}
-          <option value="{{ q }}" {% if q==m.default_quant %}selected{% endif %}>{{ q }} ({{ m.size_gb.get(q, '?') }} Go)</option>
+          <option value="{{ q }}" data-have="{{ '1' if st.quants.get(q) else '0' }}" {% if q==m.default_quant %}selected{% endif %}>
+            {{ q }} ({{ m.size_gb.get(q, '?') }} Go){% if st.quants.get(q) %} ✓ téléchargé{% endif %}
+          </option>
           {% endfor %}
         </select>
-        <button class="btn primary dl-btn" data-model="{{ mid }}">Télécharger</button>
+        <button class="btn {% if st.quants.get(m.default_quant) %}ghost{% else %}primary{% endif %} dl-btn" data-model="{{ mid }}">
+          {% if st.quants.get(m.default_quant) %}Re-télécharger{% else %}Télécharger{% endif %}
+        </button>
       </div>
     </div>
     {% endfor %}

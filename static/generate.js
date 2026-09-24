@@ -48,7 +48,7 @@ async function loadModels() {
   for (const [id, m] of Object.entries(MODELS)) {
     const opt = document.createElement('option');
     opt.value = id;
-    opt.textContent = m.name + (m.status.ready ? '' : '  (a telecharger)');
+    opt.textContent = m.name + (m.status.ready ? ' ✓' : '  (à télécharger)');
     if (!m.status.ready) opt.style.color = '#9aa0ad';
     sel.appendChild(opt);
     if (m.status.ready && !firstReady) firstReady = id; // 1er modele pret par defaut
@@ -56,9 +56,36 @@ async function loadModels() {
   // ordre de priorite : modele sauvegarde > 1er pret > 1er de la liste
   sel.value = savedModel || firstReady || Object.keys(MODELS)[0];
   sel.addEventListener('change', () => {
-    savePrefs({ model: sel.value, quant: $('#quant').value });
+    savePrefs({ model: sel.value, quant: $('#quant')?.value });
     onModelChange();
   });
+
+  const quantSelect = $('#quant');
+  if (quantSelect) {
+    quantSelect.addEventListener('change', () => {
+      savePrefs({ model: sel.value, quant: quantSelect.value });
+    });
+  }
+
+  const presetSelect = $('#preset');
+  if (presetSelect) {
+    presetSelect.addEventListener('change', () => {
+      const modelId = sel.value;
+      const m = MODELS[modelId];
+      if (!m) return;
+      const key = presetSelect.value;
+      if (key === 'default') {
+        $('#steps').value = m.defaults.steps;
+        $('#cfg').value = m.defaults.cfg;
+        if (quantSelect) quantSelect.value = m.default_quant;
+        savePrefs({ model: modelId, preset: 'default', quant: quantSelect ? quantSelect.value : null });
+      } else if (m.presets && m.presets[key]) {
+        applyPreset(m.presets[key]);
+        savePrefs({ model: modelId, preset: key, quant: quantSelect ? quantSelect.value : null });
+      }
+    });
+  }
+
   buildRatios();
   // restauration du ratio
   if (prefs.ratio && RATIOS[prefs.ratio]) currentRatio = prefs.ratio;
@@ -108,7 +135,8 @@ function buildRatiosApply() {
 }
 
 function onModelChange() {
-  const m = MODELS[$('#model').value];
+  const modelId = $('#model').value;
+  const m = MODELS[modelId];
   if (!m) return;
   const q = $('#quant');
   const presetSelect = $('#preset');
@@ -120,7 +148,8 @@ function onModelChange() {
     const opt = document.createElement('option');
     opt.value = qt;
     const have = m.status.quants[qt];
-    opt.textContent = qt + (have ? ' OK' : '  (a telecharger)');
+    const sz = m.size_gb && m.size_gb[qt] ? ` (${m.size_gb[qt]} Go)` : '';
+    opt.textContent = `${qt}${sz} ${have ? '✓ prêt' : '· à télécharger'}`;
     q.appendChild(opt);
   }
   // Quant par défaut
@@ -130,14 +159,14 @@ function onModelChange() {
   if (m.presets) {
     for (const [key, preset] of Object.entries(m.presets)) {
       const opt = document.createElement('option');
-      opt.value = JSON.stringify(preset);
+      opt.value = key;
       opt.textContent = preset.label || key;
       presetSelect.appendChild(opt);
     }
   }
 
   // Appliquer le preset sauvegardé ou par défaut
-  const savedPreset = prefs.preset;
+  const savedPreset = (prefs.model === modelId) ? prefs.preset : null;
   if (savedPreset && m.presets && m.presets[savedPreset]) {
     applyPreset(m.presets[savedPreset]);
     presetSelect.value = savedPreset;
@@ -145,7 +174,7 @@ function onModelChange() {
     // Valeurs par défaut
     $('#steps').value = m.defaults.steps;
     $('#cfg').value = m.defaults.cfg;
-    if (prefs.quant && m.quants.includes(prefs.quant) && prefs.model === $('#model').value) {
+    if (prefs.quant && m.quants.includes(prefs.quant) && prefs.model === modelId) {
       q.value = prefs.quant;
     }
     presetSelect.value = 'default';
@@ -158,12 +187,12 @@ function onModelChange() {
   if (m.supports_neg && !negEl.value && window.DEFAULT_NEG) {
     negEl.value = window.DEFAULT_NEG;
   }
-  const warn = !m.status.ready ? `Ce modele n'est pas telecharge. Allez dans l'onglet Modeles.` : '';
+  const warn = !m.status.ready ? `Ce modèle n'est pas téléchargé. Allez dans l'onglet Modèles.` : '';
   $('#gen-error').textContent = warn;
   $('#gen-error').hidden = !warn;
 
   // Activer l'upload pour les modeles avec support d'edition/img2img
-  const isEditModel = m.id === 'qwen-image-2.1' 
+  const isEditModel = modelId === 'qwen-image-2.1' 
     || m.arch === 'flux2' 
     || m.arch === 'sd3';
   const uploadArea = $('#file-upload-area');
@@ -177,17 +206,23 @@ function onModelChange() {
   if (strengthField) {
     strengthField.style.display = (m.arch === 'sd3') ? '' : 'none';
   }
+
+  // Vérifier mmproj pour Qwen-Image-2.1
+  checkMmproj();
 }
 
 // Appliquer un preset aux champs
 function applyPreset(preset) {
   if (!preset) return;
-  $('#steps').value = preset.steps || $('#steps').value;
-  $('#cfg').value = preset.cfg || $('#cfg').value;
+  if (preset.steps !== undefined) $('#steps').value = preset.steps;
+  if (preset.cfg !== undefined) $('#cfg').value = preset.cfg;
   if (preset.quant) {
     const q = $('#quant');
-    if (q.find(`option[value="${preset.quant}"]`)) {
-      q.value = preset.quant;
+    if (q) {
+      const opt = q.querySelector(`option[value="${preset.quant}"]`);
+      if (opt) {
+        q.value = preset.quant;
+      }
     }
   }
 }
@@ -290,13 +325,8 @@ $('#generate-btn').addEventListener('click', async () => {
 
   // Sauvegarder le preset sélectionné
   const presetSelect = $('#preset');
-  const presetValue = presetSelect.value;
-  if (presetValue !== 'default') {
-    try {
-      const preset = JSON.parse(presetValue);
-      savePrefs({ preset: presetValue });
-    } catch (e) {}
-  }
+  const presetValue = presetSelect ? presetSelect.value : 'default';
+  savePrefs({ model: model_id, preset: presetValue, quant: $('#quant')?.value });
 
   // Construction du prompt final (combine prompt principal + syntaxe LoRA si présente)
   let finalPrompt = $('#prompt').value.trim();
@@ -564,31 +594,36 @@ $('#mmproj-download-btn')?.addEventListener('click', async () => {
   }
 });
 
-// Vérification initiale du statut mmproj (uniquement Qwen-Image-2.1)
-(async function checkMmproj() {
+// Vérification du statut mmproj (uniquement Qwen-Image-2.1)
+async function checkMmproj() {
+  const currentModel = $('#model') ? $('#model').value : null;
+  const isQwen21 = currentModel === 'qwen-image-2.1';
+  const statusDiv = $('#mmproj-status');
+  if (!statusDiv) return;
+  if (!isQwen21) {
+    statusDiv.classList.add('hidden');
+    return;
+  }
   try {
-    const currentModel = $('#model') ? $('#model').value : null;
-    const isQwen21 = currentModel === 'qwen-image-2.1';
-    if (!isQwen21) return;
-
     const r = await fetch('/api/mmproj-status');
     const j = await r.json();
     const btn = $('#mmproj-download-btn');
     const msg = $('#mmproj-msg');
-    const statusDiv = $('#mmproj-status');
-    if (btn && msg && statusDiv) {
+    if (btn && msg) {
       statusDiv.classList.remove('hidden');
       if (j.downloaded) {
         msg.textContent = "✓ mmproj disponible — prêt pour l'édition !";
         msg.classList.add('ok');
         btn.hidden = true;
       } else {
-        msg.textContent = '⚠️ mmproj manquant — cliquez pour télécharger (1.2 Go)';
+        msg.textContent = "⚠️ mmproj manquant — requis pour l'édition (1.2 Go)";
+        msg.classList.remove('ok');
         btn.hidden = false;
       }
     }
   } catch (e) {}
-})();
+}
+
 async function loadDefaultNegative() {
   try {
     const r = await fetch('/api/default-negative');

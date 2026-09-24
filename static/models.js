@@ -82,6 +82,31 @@ if (btnEngine) {
   });
 }
 
+// --- Mise à jour dynamique du bouton de téléchargement selon la quant sélectionnée ---
+function updateDlBtn(card) {
+  const sel = card.querySelector('.dl-quant');
+  const btn = card.querySelector('.dl-btn');
+  if (!sel || !btn) return;
+  const opt = sel.selectedOptions[0];
+  const have = opt && opt.dataset.have === '1';
+  if (have) {
+    btn.textContent = 'Re-télécharger';
+    btn.classList.remove('primary');
+    btn.classList.add('ghost');
+  } else {
+    btn.textContent = 'Télécharger';
+    btn.classList.add('primary');
+    btn.classList.remove('ghost');
+  }
+}
+
+$$('.model-card').forEach(card => {
+  const sel = card.querySelector('.dl-quant');
+  if (sel) {
+    sel.addEventListener('change', () => updateDlBtn(card));
+  }
+});
+
 // --- Boutons : telecharger un modele ---
 $$('.dl-btn').forEach(btn => {
   btn.addEventListener('click', async () => {
