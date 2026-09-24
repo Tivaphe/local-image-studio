@@ -817,3 +817,194 @@ RATIOS = {
     "9:16": (768, 1344),
     "16:9": (1344, 768),
 }
+
+
+# --------------------------------------------------------------------------- #
+#  Format « image source » : conserver le format du fichier uploade
+# --------------------------------------------------------------------------- #
+# Cle speciale de ratio : la taille est calculee a partir de l'image uploadee.
+SOURCE_RATIO = "source"
+
+# Les modeles de diffusion sont entraines autour de ~1 Mpx (1024x1024).
+# Au-dela, la generation devient tres lente et peut saturer la VRAM.
+SOURCE_TARGET_PIXELS = 1024 * 1024      # budget « adapte » (recommande)
+SOURCE_MAX_PIXELS    = 2048 * 2048      # plafond absolu (mode « taille exacte »)
+SOURCE_MIN_SIDE      = 256
+SOURCE_MAX_SIDE      = 2048
+
+# Modes proposes a l'utilisateur
+SOURCE_MODES = {
+    "adapted": {
+        "label": "Adapté (recommandé)",
+        "desc": "Même cadrage, résolution ramenée à ~1 Mpx pour la vitesse/VRAM.",
+    },
+    "exact": {
+        "label": "Taille exacte",
+        "desc": "Conserve les pixels d'origine (plafonné à 2048 px / 4 Mpx).",
+    },
+}
+SOURCE_DEFAULT_MODE = "adapted"
+
+
+def _snap16(x):
+    """Arrondit au multiple de 16 le plus proche (les VAE/patchs l'exigent)."""
+    x = int(round(float(x)))
+    return max(16, int(round(x / 16.0)) * 16)
+
+
+def _scale_to_pixels(w, h, max_pixels):
+    """Redimensionne (w, h) en conservant le ratio pour rester sous max_pixels."""
+    px = float(w) * float(h)
+    if px <= max_pixels or px <= 0:
+        return float(w), float(h)
+    k = (max_pixels / px) ** 0.5
+    return float(w) * k, float(h) * k
+
+
+def _best_snap(tw, th):
+    """Aligne (tw, th) sur des multiples de 16 en conservant au mieux le format.
+
+    Les 4 combinaisons arrondi-inf/sup sont testees. Le score penalise a la fois
+    la derive du ratio et l'ecart a la taille visee (x2), car en mode « taille
+    exacte » on veut rester au plus pres des pixels d'origine. A egalite on
+    prend la plus petite surface (moins gourmande en VRAM).
+    """
+    tw, th = float(tw), float(th)
+    ratio = tw / th if th else 1.0
+    span = (tw + th) or 1.0
+    ws = {max(16, int(tw // 16) * 16), max(16, int(tw // 16 + 1) * 16)}
+    hs = {max(16, int(th // 16) * 16), max(16, int(th // 16 + 1) * 16)}
+    best, best_score = None, None
+    for cw in sorted(ws):
+        for ch in sorted(hs):
+            err_ratio = abs((cw / float(ch)) - ratio) / ratio
+            err_size = (abs(cw - tw) + abs(ch - th)) / span
+            score = (round(err_ratio + 2.0 * err_size, 9), cw * ch)
+            if best_score is None or score < best_score:
+                best, best_score = (cw, ch), score
+    return best
+
+
+def source_target_size(w, h, mode=SOURCE_DEFAULT_MODE):
+    """Calcule la taille de generation qui conserve le format de l'image source.
+
+    Retourne (width, height, downscaled) avec width/height multiples de 16.
+    - mode "adapted" : ratio conserve, surface ramenee a ~1 Mpx.
+    - mode "exact"   : taille d'origine conservee, plafonnee a SOURCE_MAX_PIXELS.
+    """
+    w = max(1, int(w))
+    h = max(1, int(h))
+    ratio = w / float(h)
+
+    tw, th = float(w), float(h)
+    if mode == "exact":
+        budget = SOURCE_MAX_PIXELS
+    else:
+        # on ramene la surface au budget ~1 Mpx (agrandit les petites images,
+        # reduit les grandes) en conservant strictement le cadrage
+        budget = SOURCE_TARGET_PIXELS
+        k = (budget / (tw * th)) ** 0.5
+        tw, th = tw * k, th * k
+
+    # plafond dur sur la surface puis sur le cote le plus long
+    tw, th = _scale_to_pixels(tw, th, budget)
+    longest = max(tw, th)
+    if longest > SOURCE_MAX_SIDE:
+        k = SOURCE_MAX_SIDE / longest
+        tw, th = tw * k, th * k
+
+    nw, nh = _best_snap(tw, th)
+
+    # cote minimum : on agrandit le petit cote sans exploser le grand
+    if min(nw, nh) < SOURCE_MIN_SIDE:
+        if ratio >= 1:      # paysage -> c'est la hauteur qui est trop petite
+            nh = SOURCE_MIN_SIDE
+            nw = _snap16(nh * ratio)
+        else:               # portrait -> c'est la largeur
+            nw = SOURCE_MIN_SIDE
+            nh = _snap16(nw / ratio)
+        # si l'ajustement depasse le plafond, on reboucle vers le bas
+        if max(nw, nh) > SOURCE_MAX_SIDE:
+            k = SOURCE_MAX_SIDE / float(max(nw, nh))
+            nw, nh = _snap16(nw * k), _snap16(nh * k)
+        nw = max(16, min(nw, SOURCE_MAX_SIDE))
+        nh = max(16, min(nh, SOURCE_MAX_SIDE))
+
+    downscaled = (nw * nh) < (w * h)
+    return nw, nh, downscaled
+
+
+def source_size_options(w, h):
+    """Renvoie, pour l'interface, les deux modes precalcules + le ratio detecte."""
+    w, h = int(w), int(h)
+    out = {"width": w, "height": h}
+    out["ratio"] = ratio_label(w, h)
+    out["megapixels"] = round(w * h / 1e6, 2)
+    for mode in SOURCE_MODES:
+        nw, nh, _ = source_target_size(w, h, mode)
+        area_in, area_out = w * h, nw * nh
+        out[mode] = {
+            "width": nw, "height": nh,
+            # tolerance : l'alignement sur un multiple de 16 px ne doit pas etre
+            # annonce comme un agrandissement/reduction
+            "downscaled": area_out < area_in * 0.98,
+            "upscaled": area_out > area_in * 1.10,
+            "exact_pixels": (nw == w and nh == h),
+        }
+    return out
+
+
+def _gcd_ratio(w, h):
+    """Plus grand diviseur commun, mais on n'affiche un ratio simple que si les
+    termes restent petits (sinon on prefere une notation decimale)."""
+    a, b = abs(int(w)), abs(int(h))
+    while b:
+        a, b = b, a % b
+    if a <= 0:
+        return 0
+    nw, nh = int(w) // a, int(h) // a
+    return a if (nw <= 40 and nh <= 40) else 0
+
+
+def ratio_label(w, h):
+    """Etiquette lisible d'un ratio : 1920x1080 -> '16:9', 1366x768 -> '1.78:1'."""
+    w, h = int(w), int(h)
+    if h <= 0:
+        return f"{w}:0"
+    g = _gcd_ratio(w, h)
+    return f"{w//g}:{h//g}" if g else f"{w/h:.2f}:1"
+
+
+def clamp_user_size(w, h):
+    """Valide une taille libre saisie par l'utilisateur.
+
+    Aligne sur 16, borne chaque cote a [SOURCE_MIN_SIDE, SOURCE_MAX_SIDE] et
+    la surface au plafond absolu. Retourne (width, height).
+    """
+    w, h = int(w), int(h)
+    if w <= 0 or h <= 0:
+        raise ValueError("Largeur et hauteur doivent être supérieures à 0.")
+    tw, th = float(w), float(h)
+    # on borne en conservant le ratio demande (pas cote par cote)
+    if max(tw, th) > SOURCE_MAX_SIDE:
+        k = SOURCE_MAX_SIDE / max(tw, th)
+        tw, th = tw * k, th * k
+    if min(tw, th) < SOURCE_MIN_SIDE:
+        k = SOURCE_MIN_SIDE / min(tw, th)
+        tw, th = tw * k, th * k
+    tw, th = _scale_to_pixels(tw, th, SOURCE_MAX_PIXELS)
+    # dernier filet : un cote isole hors bornes (ratios tres extremes)
+    tw = min(max(tw, 16), SOURCE_MAX_SIDE)
+    th = min(max(th, 16), SOURCE_MAX_SIDE)
+    nw, nh = _best_snap(tw, th)
+    return (min(max(nw, 16), SOURCE_MAX_SIDE),
+            min(max(nh, 16), SOURCE_MAX_SIDE))
+
+
+# Limites exposees a l'interface (format libre)
+SIZE_LIMITS = {
+    "multiple": 16,
+    "min_side": SOURCE_MIN_SIDE,
+    "max_side": SOURCE_MAX_SIDE,
+    "max_pixels": SOURCE_MAX_PIXELS,
+}

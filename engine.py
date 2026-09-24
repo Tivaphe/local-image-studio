@@ -21,6 +21,7 @@ from urllib.request import urlopen, Request
 from config import (ROOT, BIN_DIR, DIFFUSION_DIR, OUTPUT_DIR, find_sd_cli)
 from registry import (MODELS, DEPS, DEP_QUANT_PRIORITY, resolve_dep_gguf,
                       load_manifest, save_manifest, build_command, _dep_path)
+import image_utils
 
 
 # =========================================================================== #
@@ -401,11 +402,21 @@ class TaskManager:
             # Mémoriser les fichiers déjà existants pour détecter précisément les nouveaux
             existing_files = set(OUTPUT_DIR.glob("*.png"))
 
+            # Image source : chemin absolu valide (sd-cli est lance avec un cwd
+            # qui n'est pas forcement la racine du projet)
+            source_image = p.get("source_image")
+            if source_image:
+                src_path = image_utils.safe_source_path(source_image)
+                if not src_path:
+                    raise RuntimeError(
+                        "Image source introuvable ou invalide. Uploadez-la à nouveau.")
+                source_image = str(src_path)
+
             cmd = build_command(
                 model_id, quant, p["prompt"], p.get("negative", ""),
                 int(p["width"]), int(p["height"]), int(p["steps"]), float(p["cfg"]),
                 seed, batch, out_tmpl, str(sd), manifest,
-                source_image=p.get("source_image"),
+                source_image=source_image,
                 lora_dir=p.get("lora_dir"),
                 strength=p.get("strength"))
 
@@ -414,7 +425,12 @@ class TaskManager:
                 if arg_val is None:
                     raise RuntimeError(f"Erreur interne : l'argument de commande #{idx_arg} est None.")
 
-            self._set(log="Démarrage de la génération…",
+            size_info = p.get("size_info") or {}
+            size_note = f"{int(p['width'])}×{int(p['height'])} px"
+            if size_info.get("mode") == "source":
+                size_note += (f" (format de l'image source "
+                              f"{size_info.get('source_width')}×{size_info.get('source_height')})")
+            self._set(log=f"Démarrage de la génération… {size_note}",
                       total_steps=int(p["steps"]), step=0, error=None)
 
             creationflags = 0
@@ -543,7 +559,9 @@ class TaskManager:
                       progress=1.0, done=True, busy=False, error=None,
                       result={"type": "generate", "images": images,
                               "batch_id": batch_id, "cancelled": False,
-                              "stats": stats})
+                              "stats": stats,
+                              "width": int(p["width"]), "height": int(p["height"]),
+                              "size_info": size_info})
         except Exception as e:
             self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
                       result={"type": "generate", "images": [], "error": str(e), "cancelled": False})

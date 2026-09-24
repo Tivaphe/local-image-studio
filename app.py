@@ -14,9 +14,12 @@ from flask import (Flask, render_template, request, jsonify, send_from_directory
 import config
 import db
 import engine
+import image_utils
 from engine import (tasks, load_settings, save_settings, hf_token, engine_ready,
                     model_status)
-from registry import MODELS, DEPS, RATIOS, DEFAULT_NEGATIVE
+from registry import (MODELS, DEPS, RATIOS, DEFAULT_NEGATIVE, SIZE_LIMITS,
+                      SOURCE_DEFAULT_MODE, SOURCE_MODES, SOURCE_RATIO,
+                      source_size_options)
 import gpu_info
 import uuid
 try:
@@ -43,7 +46,11 @@ def index():
 
 @app.route("/generate")
 def generate():
-    return render_template("generate.html", models=MODELS, ratios=RATIOS)
+    return render_template("generate.html", models=MODELS, ratios=RATIOS,
+                           source_ratio=SOURCE_RATIO,
+                           source_modes=SOURCE_MODES,
+                           source_default_mode=SOURCE_DEFAULT_MODE,
+                           size_limits=SIZE_LIMITS)
 
 
 @app.route("/history")
@@ -173,15 +180,30 @@ def api_generate():
         return jsonify({"ok": False, "error": "Modèle inconnu"}), 400
     m = MODELS[mid]
     quant = data.get("quant") or m["default_quant"]
-    ratio = data.get("ratio", "1:1")
-    w, h = RATIOS.get(ratio, RATIOS["1:1"])
-    if data.get("width") and data.get("height"):
-        w, h = int(data["width"]), int(data["height"])
+
+    prompt = (data.get("prompt") or "").strip()
+    if not prompt:
+        return jsonify({"ok": False, "error": "Le prompt est vide."}), 400
+
+    # --- resolution du format de sortie ------------------------------------ #
+    # ratio = un preset (1:1, 16:9…) | "source" = format de l'image uploadee
+    # width/height = format libre saisi manuellement
+    ratio = data.get("ratio") or "1:1"
+    size_mode = data.get("size_mode") or data.get("source_size_mode") or SOURCE_DEFAULT_MODE
+    try:
+        w, h, size_info = image_utils.resolve_output_size(
+            ratio=ratio,
+            source_image=data.get("source_image"),
+            size_mode=size_mode,
+            width=data.get("width"),
+            height=data.get("height"))
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
 
     params = {
         "model_id": mid,
         "quant": quant,
-        "prompt": (data.get("prompt") or "").strip(),
+        "prompt": prompt,
         "negative": (data.get("negative") or "").strip(),
         "width": w, "height": h,
         "steps": int(data.get("steps") or m["defaults"]["steps"]),
@@ -191,14 +213,14 @@ def api_generate():
         "source_image": data.get("source_image"),
         "strength": data.get("strength"),
         "lora_dir": data.get("lora_dir"),
+        "size_info": size_info,
     }
-    if not params["prompt"]:
-        return jsonify({"ok": False, "error": "Le prompt est vide."}), 400
     try:
         tasks.start_generate(params)
     except RuntimeError as e:
         return jsonify({"ok": False, "error": str(e)}), 409
-    return jsonify({"ok": True, "params": params})
+    return jsonify({"ok": True, "params": params,
+                    "width": w, "height": h, "size": size_info})
 
 
 @app.route("/api/cancel", methods=["POST"])
@@ -323,7 +345,11 @@ def api_enrich():
 # --------------------------------------------------------------------------- #
 @app.route("/api/upload-source-image", methods=["POST"])
 def api_upload_source_image():
-    """Upload une image source pour img2img/edition. Renvoie le path relatif."""
+    """Upload une image source pour img2img/edition.
+
+    Renvoie le path relatif + les dimensions detectees et les tailles de
+    generation proposees pour conserver ce format.
+    """
     if "image" not in request.files:
         return jsonify({"ok": False, "error": "Aucune image fournie."}), 400
     f = request.files["image"]
@@ -333,8 +359,61 @@ def api_upload_source_image():
     unique_name = f"{uuid.uuid4().hex[:12]}{ext}"
     dest = config.SOURCE_IMAGES_DIR / unique_name
     f.save(str(dest))
+
+    # dimensions reelles du fichier -> permet de proposer « garder ce format »
+    dims = image_utils.read_image_size(dest)
+    if not dims:
+        try:
+            dest.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return jsonify({"ok": False,
+                        "error": "Fichier image illisible ou corrompu. "
+                                 "Utilisez un PNG, JPG ou WEBP valide."}), 400
+
+    w, h = dims
+    opts = source_size_options(w, h)
     rel = dest.relative_to(config.ROOT).as_posix()
-    return jsonify({"ok": True, "filename": rel, "url": f"/source-images/{unique_name}"})
+    return jsonify({
+        "ok": True,
+        "filename": rel,
+        "url": f"/source-images/{unique_name}",
+        "width": w, "height": h,
+        "ratio": opts["ratio"],
+        "megapixels": opts["megapixels"],
+        "size_mode": SOURCE_DEFAULT_MODE,
+        "sizes": {mode: opts[mode] for mode in SOURCE_MODES},
+    })
+
+
+@app.route("/source-images/<path:filename>")
+def serve_source_image(filename):
+    """Sert les images uploadees (aperçu côté navigateur)."""
+    return send_from_directory(str(config.SOURCE_IMAGES_DIR), filename)
+
+
+@app.route("/api/source-size", methods=["POST"])
+def api_source_size():
+    """Recalcule la taille de generation pour une image source deja uploadee.
+
+    Utilise par l'interface quand on change de mode (Adapté / Taille exacte)
+    sans avoir a re-uploader le fichier.
+    """
+    data = request.get_json(force=True)
+    src = image_utils.safe_source_path(data.get("source_image"))
+    if not src:
+        return jsonify({"ok": False, "error": "Image source introuvable."}), 404
+    dims = image_utils.read_image_size(src)
+    if not dims:
+        return jsonify({"ok": False, "error": "Dimensions illisibles."}), 400
+    opts = source_size_options(dims[0], dims[1])
+    mode = data.get("size_mode") or SOURCE_DEFAULT_MODE
+    if mode not in SOURCE_MODES:
+        mode = SOURCE_DEFAULT_MODE
+    return jsonify({"ok": True, "width": dims[0], "height": dims[1],
+                    "ratio": opts["ratio"], "size_mode": mode,
+                    "target": opts[mode],
+                    "sizes": {m: opts[m] for m in SOURCE_MODES}})
 
 # --------------------------------------------------------------------------- #
 #  API : statistiques
