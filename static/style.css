@@ -109,7 +109,7 @@ small{color:var(--muted)}
   max-height:180px;overflow:auto;font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#9fb0c9;white-space:pre-wrap;margin:0}
 
 /* error */
-.error{color:var(--danger);background:#e0566b15;border:1px solid #e0566b44;border-radius:8px;padding:8px 12px;margin-top:10px}
+.error{color:var(--danger);background:#e0566b15;border:1px solid #e0566b44;border-radius:8px;padding:8px 12px;margin-top:10px;white-space:pre-wrap;line-height:1.45;word-break:break-word}
 
 /* gallery history */
 .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;margin-top:14px}

@@ -367,12 +367,14 @@ $('#generate-btn').addEventListener('click', async () => {
     return;
   }
   $('#gen-error').hidden = true;
+  $('#gen-error').textContent = '';
   $('#generate-btn').hidden = true;
   $('#cancel-btn').hidden = false;
   $('#results').innerHTML = '';
   $('#stats-box').hidden = true;
   $('#progress-wrap').hidden = false;
   $('#progress-fill').style.width = '0%';
+  $('#log').textContent = '';
   $('#log').hidden = false;
   pollStatus();
 });
@@ -414,6 +416,8 @@ function pollStatus() {
       if (eta > 0 && j.step > 1) txt += ` - ~${fmtTime(eta)} restant`;
     } else if (j.busy) {
       txt = j.log || 'en cours...';
+    } else if (j.error) {
+      txt = 'erreur';
     } else {
       txt = 'termine';
     }
@@ -422,7 +426,7 @@ function pollStatus() {
     if (j.log) $('#log').textContent = j.log + ($('#log').textContent ? '\n' + $('#log').textContent : '');
 
     // affichage des images au fur et a mesure
-    if (j.kind === 'generate' && j.result && j.result.images) {
+    if (j.kind === 'generate' && j.result && j.result.images && j.result.images.length > 0) {
       showResults(j.result.images);
     }
 
@@ -433,10 +437,18 @@ function pollStatus() {
       if (j.error) {
         $('#gen-error').hidden = false;
         $('#gen-error').textContent = j.error;
+        $('#log').hidden = false;
+      } else if (j.kind === 'generate') {
+        const imgs = (j.result && j.result.images) || [];
+        if (imgs.length === 0 && !j.result?.cancelled) {
+          $('#gen-error').hidden = false;
+          $('#gen-error').textContent = j.log || "Aucune image n'a été produite.";
+          $('#log').hidden = false;
+        }
       }
       // stats finales (FIX 3)
       const stats = (j.result && j.result.stats) || j.stats;
-      if (stats) showStats(stats);
+      if (stats && j.result && j.result.images && j.result.images.length > 0) showStats(stats);
       refreshEngineBadge();
     }
   }, 1000);

@@ -7,6 +7,7 @@ Registre des modeles + dependances partagees.
 """
 import json
 import re
+from pathlib import Path
 
 from config import (DIFFUSION_DIR, VAE_DIR, TEXTENC_DIR, LLM_DIR, MANIFEST_PATH)
 
@@ -558,7 +559,23 @@ def build_ideogram_prompt(text, negative, width, height):
 # --------------------------------------------------------------------------- #
 def _dep_path(manifest, dep_id):
     info = manifest.get(dep_id) or {}
-    return info.get("path")
+    path = info.get("path")
+    if path and Path(path).exists():
+        return str(path)
+    # Fallback vers l'emplacement standard si présent sur disque
+    if dep_id in DEPS:
+        dep = DEPS[dep_id]
+        if dep.get("type") == "exact":
+            dest = dep.get("dest")
+            if dest and dest.exists():
+                return str(dest)
+        elif dep.get("type") == "gguf":
+            dest_dir = dep.get("dest_dir")
+            if dest_dir and dest_dir.exists():
+                ggufs = list(dest_dir.glob("*.gguf"))
+                if ggufs:
+                    return str(ggufs[0])
+    return path
 
 
 def _diffusion_path(model_id, quant):
@@ -574,7 +591,8 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     args = [sd_cli]
 
     # Modele de diffusion
-    args += ["--diffusion-model", _diffusion_path(model_id, quant)]
+    diff_file = _diffusion_path(model_id, quant)
+    args += ["--diffusion-model", diff_file]
 
     # Modele uncond (Ideogram)
     if arch == "ideogram":
@@ -592,30 +610,54 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
             vae_key = "vae_qwen_21" if model_id == "qwen-image-2.1" else "vae_qwen"
         else:
             vae_key = "vae_flux"
-        args += ["--vae", _dep_path(manifest, vae_key)]
+        vpath = _dep_path(manifest, vae_key)
+        if vpath:
+            args += ["--vae", str(vpath)]
 
     # Encodeurs de texte
     if arch == "flux":
-        args += ["--clip_l", _dep_path(manifest, "clip_l"),
-                 "--t5xxl",  _dep_path(manifest, "t5xxl")]
+        cl = _dep_path(manifest, "clip_l")
+        t5 = _dep_path(manifest, "t5xxl")
+        if cl:
+            args += ["--clip_l", str(cl)]
+        if t5:
+            args += ["--t5xxl", str(t5)]
     elif arch == "sd3":
-        args += ["--clip_l", _dep_path(manifest, "clip_l"),
-                 "--clip_g", _dep_path(manifest, "clip_g"),
-                 "--t5xxl",  _dep_path(manifest, "t5xxl")]
+        cl = _dep_path(manifest, "clip_l")
+        cg = _dep_path(manifest, "clip_g")
+        t5 = _dep_path(manifest, "t5xxl")
+        if cl:
+            args += ["--clip_l", str(cl)]
+        if cg:
+            args += ["--clip_g", str(cg)]
+        if t5:
+            args += ["--t5xxl", str(t5)]
     elif arch == "flux2":
-        args += ["--llm", _dep_path(manifest, "qwen3_4b" if model_id == "flux2-klein-4b" else "qwen3_8b")]
+        llm = _dep_path(manifest, "qwen3_4b" if model_id == "flux2-klein-4b" else "qwen3_8b")
+        if llm:
+            args += ["--llm", str(llm)]
     elif arch == "zimage":
-        args += ["--llm", _dep_path(manifest, "qwen3_4b")]
+        llm = _dep_path(manifest, "qwen3_4b")
+        if llm:
+            args += ["--llm", str(llm)]
     elif arch == "ernie":
-        args += ["--llm", _dep_path(manifest, "ministral_3b")]
+        llm = _dep_path(manifest, "ministral_3b")
+        if llm:
+            args += ["--llm", str(llm)]
     elif arch == "ideogram":
-        args += ["--llm", _dep_path(manifest, "qwen3vl_8b")]
+        llm = _dep_path(manifest, "qwen3vl_8b")
+        if llm:
+            args += ["--llm", str(llm)]
     elif arch == "qwen_image":
         llm_key = "qwen3vl_8b" if model_id == "qwen-image-2.1" else "qwen25vl_7b"
-        args += ["--llm", _dep_path(manifest, llm_key)]
+        llm = _dep_path(manifest, llm_key)
+        if llm:
+            args += ["--llm", str(llm)]
         # mmproj pour l'edition (Qwen-Image-2.1)
         if model_id == "qwen-image-2.1" and manifest.get("mmproj_qwen3vl_8b"):
-            args += ["--llm_vision", _dep_path(manifest, "mmproj_qwen3vl_8b")]
+            mmproj = _dep_path(manifest, "mmproj_qwen3vl_8b")
+            if mmproj:
+                args += ["--llm_vision", str(mmproj)]
 
     # Prompt
     if arch == "ideogram":
@@ -627,7 +669,10 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
 
     # Image source (img2img / edition)
     if source_image:
-        args += ["-r", source_image]
+        if arch in ("sd3", "sd"):
+            args += ["-i", source_image]
+        else:
+            args += ["-r", source_image]
         if strength is not None:
             args += ["--strength", f"{strength}"]
 
@@ -652,17 +697,20 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     if arch in ("flux", "sd3"):
         args += ["--clip-on-cpu"]
 
-    # --flow-shift pour les architectures Wan
-    if arch in ("qwen_image", "ernie"):
+    # --flow-shift pour Wan (Qwen-Image 2512 et ERNIE) ; Qwen-Image 2.1 utilise un flow schedule automatique
+    if arch == "ernie" or model_id == "qwen-image-2512":
         args += ["--flow-shift", "3"]
 
-    # --qwen-image-zero-cond-t : meilleure qualite d'edition Qwen-Image-2.1
+    # zero-cond-t pour meilleure qualite d'edition Qwen-Image-2.1
     if model_id == "qwen-image-2.1" and source_image:
-        args += ["--qwen-image-zero-cond-t"]
+        args += ["--model-args", "qwen_image_zero_cond_t=true"]
 
-    # LoRA : dossier de poids (sd-cli scanne automatiquement)
+    # LoRA : --lora-model-dir (option officielle sd-cli, pas --lora-dir)
     if lora_dir:
-        args += ["--lora-dir", lora_dir]
+        lora_p = Path(lora_dir)
+        if "<lora:" in (prompt or "") or (lora_p.exists() and any(lora_p.glob("*.safetensors"))):
+            lora_p.mkdir(parents=True, exist_ok=True)
+            args += ["--lora-model-dir", str(lora_p)]
 
     return args
 
