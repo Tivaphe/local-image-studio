@@ -74,10 +74,41 @@ In the same tab, click **"Download"** on a model.
 1. **Type your description** (prompt) in any language
 2. Click **🌐 Translate EN** to translate to English (models work best in English)
 3. (Optional) Click **✨ Enrich** to automatically enrich your prompt
-4. Choose the **number of images** (1 to 4) and the **format** (square, portrait, landscape…)
+4. Choose the **number of images** (1 to 4) and the **format** (square, portrait, landscape…, **🖼 Original** = the uploaded image's format, or **✂ a custom size**)
 5. Click **✨ Generate**
 
 Your images are **automatically saved** in the `output/` folder.
+
+---
+
+### 4️⃣ Edit an image (img2img / editing)
+
+1. Expand **"Source image (img2img / editing)"** and upload your image (PNG, JPG, WEBP)
+2. Describe the change you want: *"add sunglasses"*, *"make it sunset"*, *"watercolor style"*…
+3. Pick a model that can edit: **Qwen-Image 2.1** (semantic editing),
+   **FLUX.2 Klein** (reference editing) or **SD 3.5** (classic img2img, *Strength* setting)
+4. Click **✨ Generate**
+
+#### 📐 Choosing the output format
+
+The **Format** field offers three ways to set the size of the generated image:
+
+| Choice | Result |
+|---|---|
+| **1:1 · 3:4 · 4:3 · 9:16 · 16:9** | Preset formats (1024 px base) |
+| **🖼 Original** | **Keeps the uploaded image's format** — selected automatically on upload |
+| **✂ Custom** | Any width × height (multiple of 16, from 256 to 2048 px) |
+
+**🖼 Original** preserves the file's framing exactly and computes the output at ~1 MP:
+that's the models' native resolution, so generation stays fast and fits in VRAM.
+*e.g. a 1920×1080 photo → 1360×768, the 16:9 framing is preserved*
+
+The **"Exact file size"** checkbox (under the chip) uses the original pixel count instead,
+capped at 2048 px / ~4 MP so VRAM isn't exhausted — slower and heavier.
+*e.g. 1920×1080 → 1920×1088*
+
+> 💡 Dimensions are always aligned to a multiple of **16 px** (required by the models'
+> VAE/patch sizes). The format actually used is shown above the results and stored in history.
 
 ---
 
@@ -130,13 +161,14 @@ Some models require a **free Hugging Face token**:
 
 | Feature | Description |
 |---|---|
-| 🖼️ **Generation** | 1 to 4 images per batch, 5 formats |
+| 🖼️ **Generation** | 1 to 4 images per batch, 5 ratios + "Original" chip (uploaded file's format) + custom size |
 | 🌐 **Translation** | Translates your prompt (FR, ES…) to English |
 | ✨ **Enrichment** | An LLM enriches your prompt (style, lighting, composition…) |
 | 📊 **Statistics** | Generation time per model, most used model, etc. |
 | 📚 **History** | All your images with their prompt, reusable in 1 click |
 | 💾 **Auto-save** | Images saved in `output/` |
 | 🚫 **Negative prompt** | Pre-filled automatically (editable) |
+| 📐 **Format preserved** | In img2img/editing, the output keeps the uploaded file's framing (or its exact pixels) |
 | 📄 **Licenses** | Shown for each model |
 | 🔗 **HF links** | Direct access to each model's page |
 
@@ -151,6 +183,7 @@ local-image-studio/
 ├── engine.py              ← sd-cli engine + downloads
 ├── registry.py            ← 11 model definitions
 ├── prompt_enhancer.py     ← Enrichment & translation (LLM)
+├── image_utils.py         ← Image dimensions + output format (img2img)
 ├── gpu_info.py            ← VRAM detection
 ├── db.py                  ← History & statistics
 ├── config.py              ← Path configuration
@@ -161,6 +194,7 @@ local-image-studio/
 │   ├── ADD_MODEL_FR.md    ← How to add a model (FR)
 │   └── ADD_MODEL_EN.md    ← How to add a model (EN)
 │
+├── tests/                 ← Tests (python -m unittest discover -s tests)
 ├── bin/                   ← sd-cli.exe (auto-downloaded)
 ├── models/                ← GGUF + VAE + encoders (auto-downloaded)
 └── output/                ← Your generated images

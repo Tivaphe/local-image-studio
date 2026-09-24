@@ -12,9 +12,17 @@ const $ = window.$;
 const $$ = window.$$;
 
 const RATIOS = window.RATIOS || { "1:1": [1024, 1024] };
+const SOURCE_RATIO = window.SOURCE_RATIO || "source";
+const SOURCE_MODES = window.SOURCE_MODES || {};
+const SOURCE_DEFAULT_MODE = window.SOURCE_DEFAULT_MODE || "adapted";
+const SIZE_LIMITS = window.SIZE_LIMITS || { multiple: 16, min_side: 256, max_side: 2048, max_pixels: 4194304 };
+const CUSTOM_RATIO = "custom";
 
 let MODELS = {};
 let currentRatio = "1:1";
+let lastPresetRatio = "1:1";       // dernier preset choisi (retour apres « Image »)
+let sourceSizeMode = SOURCE_DEFAULT_MODE;   // "adapted" | "exact"
+let sourceImage = null;   // {filename,width,height,ratio,megapixels,sizes}
 let pollTimer = null;
 
 // ---------- memoire de la selection (FIX 4) ----------
@@ -86,10 +94,20 @@ async function loadModels() {
     });
   }
 
+  // restauration du format choisi precedemment (etat pose AVANT la construction
+  // des puces pour eviter les doubles ecouteurs)
+  if (prefs.size_mode && SOURCE_MODES[prefs.size_mode]) sourceSizeMode = prefs.size_mode;
+  if (prefs.ratio === CUSTOM_RATIO) {
+    currentRatio = CUSTOM_RATIO;
+    if (prefs.custom_w) $('#custom-w').value = prefs.custom_w;
+    if (prefs.custom_h) $('#custom-h').value = prefs.custom_h;
+  } else if (prefs.ratio && RATIOS[prefs.ratio]) {
+    currentRatio = prefs.ratio;
+    lastPresetRatio = prefs.ratio;
+  }
+  // le format « Image » ne se restaure pas : il faut re-uploader le fichier
   buildRatios();
-  // restauration du ratio
-  if (prefs.ratio && RATIOS[prefs.ratio]) currentRatio = prefs.ratio;
-  buildRatiosApply();
+  applyRatioUI();
   onModelChange();
 
   // reuse depuis l'historique
@@ -104,34 +122,212 @@ async function loadModels() {
     $('#steps').value = p.steps || '';
     $('#cfg').value = p.cfg || '';
     $('#seed').value = p.seed || '';
+    // format de l'image historique : preset connu sinon taille libre
+    const rw = parseInt(p.w, 10), rh = parseInt(p.h, 10);
+    if (rw > 0 && rh > 0) {
+      const match = Object.entries(RATIOS).find(([_, wh]) => wh[0] === rw && wh[1] === rh);
+      if (match) {
+        currentRatio = match[0];
+        lastPresetRatio = match[0];
+      } else {
+        $('#custom-w').value = snapSize(rw);
+        $('#custom-h').value = snapSize(rh);
+        currentRatio = CUSTOM_RATIO;
+      }
+      savePrefs({ ratio: currentRatio,
+                  custom_w: parseInt($('#custom-w').value, 10),
+                  custom_h: parseInt($('#custom-h').value, 10) });
+      applyRatioUI();
+    }
   }
+}
+
+function ratioIcon(w, h, max = 26) {
+  const sc = max / Math.max(w, h);
+  const iw = Math.max(4, Math.round(w * sc));
+  const ih = Math.max(4, Math.round(h * sc));
+  return `<i style="width:${iw}px;height:${ih}px"></i>`;
 }
 
 function buildRatios() {
   const box = $('#ratios');
   box.innerHTML = '';
+
+  // presets (1:1, 3:4, ...)
   for (const [name, [w, h]] of Object.entries(RATIOS)) {
     const d = document.createElement('div');
-    d.className = 'ratio' + (name === currentRatio ? ' sel' : '');
+    d.className = 'ratio';
     d.title = `${name}  (${w}x${h})`;
     d.dataset.name = name;
-    const max = 26;
-    const sc = max / Math.max(w, h);
-    const iw = Math.round(w * sc), ih = Math.round(h * sc);
-    d.innerHTML = `<i style="width:${iw}px;height:${ih}px"></i>`;
-    d.addEventListener('click', () => {
-      currentRatio = name;
-      savePrefs({ ratio: name });
-      $$('.ratio').forEach(x => x.classList.remove('sel'));
-      d.classList.add('sel');
-    });
+    d.innerHTML = ratioIcon(w, h);
+    d.addEventListener('click', () => selectRatio(name));
     box.appendChild(d);
   }
+
+  // format « Original » : garde le format de l'image uploadee (img2img / edition)
+  const src = document.createElement('div');
+  src.className = 'ratio wide';
+  src.dataset.name = SOURCE_RATIO;
+  src.innerHTML = '<b>🖼</b><span>Original</span>';
+  src.addEventListener('click', () => selectRatio(SOURCE_RATIO));
+  box.appendChild(src);
+
+  // format libre (largeur x hauteur)
+  const cus = document.createElement('div');
+  cus.className = 'ratio wide';
+  cus.dataset.name = CUSTOM_RATIO;
+  cus.title = 'Taille libre : largeur et hauteur personnalisées';
+  cus.innerHTML = '<b>✂</b><span>Libre</span>';
+  cus.addEventListener('click', () => selectRatio(CUSTOM_RATIO));
+  box.appendChild(cus);
+
+  bindSourceSizeToggle();
+  bindCustomSize();
+  refreshSourceChip();
 }
-function buildRatiosApply() {
-  $$('.ratio').forEach(x => {
-    x.classList.toggle('sel', x.dataset.name === currentRatio);
+
+// ----- selection du format -------------------------------------------------
+function selectRatio(name) {
+  if (name === SOURCE_RATIO && !sourceImage) {
+    setFormatHint("Uploadez d'abord une image dans « Image source (img2img / édition) » " +
+                  "pour pouvoir garder son format d'origine.");
+    return;
+  }
+  if (name !== SOURCE_RATIO) lastPresetRatio = (RATIOS[name] ? name : lastPresetRatio);
+  currentRatio = name;
+  savePrefs({ ratio: name });
+  setFormatHint('');
+  applyRatioUI();
+}
+
+function applyRatioUI() {
+  $$('.ratio').forEach(x => x.classList.toggle('sel', x.dataset.name === currentRatio));
+  const srcBox = $('#source-size-box');
+  const cusBox = $('#custom-size-box');
+  if (srcBox) srcBox.classList.toggle('hidden', currentRatio !== SOURCE_RATIO);
+  if (cusBox) cusBox.classList.toggle('hidden', currentRatio !== CUSTOM_RATIO);
+  const useBtn = $('#use-source-format');
+  if (useBtn) useBtn.classList.toggle('hidden', !sourceImage || currentRatio === SOURCE_RATIO);
+  if (currentRatio === SOURCE_RATIO) renderSourceSize();
+  if (currentRatio === CUSTOM_RATIO) renderCustomHint();
+}
+
+function setFormatHint(txt) {
+  const el = $('#format-hint');
+  if (!el) return;
+  el.textContent = txt || '';
+  el.classList.toggle('warn', !!txt);
+}
+
+// ----- puce « Original » : reflete le format du fichier uploade -------------
+function refreshSourceChip() {
+  const chip = $(`.ratio[data-name="${SOURCE_RATIO}"]`);
+  if (!chip) return;
+  if (sourceImage) {
+    chip.classList.remove('off');
+    chip.title = `Format d'origine — ${sourceImage.width}×${sourceImage.height} (${sourceImage.ratio})`;
+    chip.innerHTML = ratioIcon(sourceImage.width, sourceImage.height, 20) + '<span>Original</span>';
+  } else {
+    chip.classList.add('off');
+    chip.classList.remove('sel');
+    chip.title = "Uploadez une image source pour garder son format d'origine";
+    chip.innerHTML = '<b>🖼</b><span>Original</span>';
+  }
+  applyRatioUI();
+}
+
+// ----- resolution : adaptee (defaut) ou taille exacte du fichier ------------
+function bindSourceSizeToggle() {
+  const cb = $('#source-exact-size');
+  if (!cb) return;
+  if (!SOURCE_MODES[sourceSizeMode]) sourceSizeMode = SOURCE_DEFAULT_MODE;
+  cb.checked = (sourceSizeMode === 'exact');
+  cb.addEventListener('change', () => {
+    sourceSizeMode = cb.checked ? 'exact' : SOURCE_DEFAULT_MODE;
+    savePrefs({ size_mode: sourceSizeMode });
+    renderSourceSize();
   });
+}
+
+function renderSourceSize() {
+  if (!sourceImage) return;
+  const det = $('#source-size-detected');
+  const tgt = $('#source-size-target');
+  const hint = $('#source-size-hint');
+  const sizes = sourceImage.sizes || {};
+  const opt = sizes[sourceSizeMode] || sizes[SOURCE_DEFAULT_MODE] || {};
+
+  if (det) det.textContent = `${sourceImage.width} × ${sourceImage.height} px · ` +
+                             `${sourceImage.ratio} · ${sourceImage.megapixels} Mpx`;
+  if (tgt) tgt.textContent = opt.width ? `${opt.width} × ${opt.height} px` : '—';
+  const cb = $('#source-exact-size');
+  const cbLabel = $('#source-exact-label');
+  const exact = sizes['exact'] || {};
+  if (cb) cb.checked = (sourceSizeMode === 'exact');
+  if (cbLabel) {
+    cbLabel.textContent = exact.width
+      ? `Taille exacte du fichier — ${exact.width} × ${exact.height} px (plus lent, plus de VRAM)`
+      : 'Taille exacte du fichier';
+  }
+  if (hint) {
+    let txt = (SOURCE_MODES[sourceSizeMode] || {}).desc || '';
+    const out = opt.width ? `${opt.width}×${opt.height}` : '';
+    if (opt.downscaled) {
+      txt += ` Votre fichier (${sourceImage.width}×${sourceImage.height}) est ramené à ` +
+             `${out} : même cadrage, génération plus rapide et moins de VRAM.`;
+    } else if (opt.upscaled) {
+      txt += ` Votre fichier est agrandi à ${out} (les modèles travaillent autour de 1 Mpx).`;
+    } else if (opt.exact_pixels) {
+      txt += ` La taille de votre fichier est conservée telle quelle (${out}).`;
+    } else if (out) {
+      txt += ` Cadrage conservé, taille alignée sur un multiple de 16 px (${out}).`;
+    }
+    hint.textContent = txt;
+  }
+  const dimsTxt = $('#source-dims-text');
+  if (dimsTxt) {
+    dimsTxt.textContent = `Format détecté : ${sourceImage.width} × ${sourceImage.height} px ` +
+                          `(${sourceImage.ratio}, ${sourceImage.megapixels} Mpx)`;
+  }
+}
+
+// ----- format libre ---------------------------------------------------------
+function snapSize(v) {
+  const mult = SIZE_LIMITS.multiple || 16;
+  const lo = SIZE_LIMITS.min_side || 256;
+  const hi = SIZE_LIMITS.max_side || 2048;
+  let n = Math.round((parseInt(v, 10) || lo) / mult) * mult;
+  return Math.min(Math.max(n, lo), hi);
+}
+
+function bindCustomSize() {
+  ['#custom-w', '#custom-h'].forEach(selId => {
+    const el = $(selId);
+    if (!el) return;
+    el.min = SIZE_LIMITS.min_side || 256;
+    el.max = SIZE_LIMITS.max_side || 2048;
+    el.step = SIZE_LIMITS.multiple || 16;
+    el.addEventListener('change', () => {
+      el.value = snapSize(el.value);
+      savePrefs({ custom_w: parseInt($('#custom-w').value, 10),
+                  custom_h: parseInt($('#custom-h').value, 10) });
+      renderCustomHint();
+    });
+  });
+  renderCustomHint();
+}
+
+function renderCustomHint() {
+  const hint = $('#custom-size-hint');
+  if (!hint) return;
+  const w = snapSize($('#custom-w').value);
+  const h = snapSize($('#custom-h').value);
+  const mp = (w * h) / 1e6;
+  let warn = '';
+  if (mp > 1.6) warn = ' ⚠ grande image : génération lente et VRAM élevée.';
+  hint.textContent = `${w} × ${h} px · ${(w / h).toFixed(2)}:1 · ${mp.toFixed(2)} Mpx` +
+                     ` — multiple de ${SIZE_LIMITS.multiple || 16}, ` +
+                     `entre ${SIZE_LIMITS.min_side || 256} et ${SIZE_LIMITS.max_side || 2048} px.${warn}`;
 }
 
 function onModelChange() {
@@ -272,12 +468,68 @@ async function handleFileSelect(file) {
     $('#preview-name').textContent = file.name;
     $('#upload-placeholder').classList.add('hidden');
     $('#upload-preview').classList.remove('hidden');
+
+    // dimensions detectees cote serveur -> format « image »
+    setSourceImage(j);
   } catch (e) {
     alert('Erreur: ' + e.message);
   }
 }
 
-// Click sur la zone d'upload
+// Le serveur renvoie width/height/ratio + les deux tailles proposees
+function setSourceImage(info) {
+  if (!info || !info.width || !info.height) return;
+  sourceImage = {
+    filename: info.filename,
+    width: info.width,
+    height: info.height,
+    ratio: info.ratio,
+    megapixels: info.megapixels,
+    sizes: info.sizes || {},
+  };
+  // on garde le choix de resolution de l'utilisateur (defaut : adapte ~1 Mpx)
+  if (!SOURCE_MODES[sourceSizeMode]) sourceSizeMode = SOURCE_DEFAULT_MODE;
+  const dimsBox = $('#source-dims');
+  if (dimsBox) dimsBox.classList.remove('hidden');
+  refreshSourceChip();
+  renderSourceSize();
+  // le format de l'image uploadee devient le format courant (modifiable ensuite)
+  selectRatio(SOURCE_RATIO);
+  ensureSourceSizes();
+}
+
+// Filet de securite : si la reponse d'upload ne contient pas les tailles
+// proposees, on les redemande au serveur.
+async function ensureSourceSizes() {
+  if (!sourceImage || (sourceImage.sizes && Object.keys(sourceImage.sizes).length)) return;
+  try {
+    const r = await fetch('/api/source-size', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_image: sourceImage.filename, size_mode: sourceSizeMode })
+    });
+    const j = await r.json();
+    if (j.ok) {
+      sourceImage.sizes = j.sizes || {};
+      if (j.ratio) sourceImage.ratio = j.ratio;
+      renderSourceSize();
+      refreshSourceChip();
+    }
+  } catch (e) {}
+}
+
+function clearSourceImage() {
+  sourceImage = null;
+  uploadedImagePath = null;
+  const dimsBox = $('#source-dims');
+  if (dimsBox) dimsBox.classList.add('hidden');
+  if (currentRatio === SOURCE_RATIO) {
+    currentRatio = RATIOS[lastPresetRatio] ? lastPresetRatio : Object.keys(RATIOS)[0];
+    savePrefs({ ratio: currentRatio });
+  }
+  refreshSourceChip();
+}
+
+// Clic sur la zone d'upload
 $('#source-image-input')?.addEventListener('change', e => {
   if (e.target.files.length > 0) {
     handleFileSelect(e.target.files[0]);
@@ -315,12 +567,17 @@ if (uploadArea) {
 
 // Retirer l'image
 $('#remove-image')?.addEventListener('click', () => {
-  uploadedImagePath = null;
   $('#source-image-path').value = '';
   $('#source-image-input').value = '';
   $('#upload-placeholder').classList.remove('hidden');
   $('#upload-preview').classList.add('hidden');
   $('#preview-img').src = '';
+  clearSourceImage();
+});
+
+// « Garder ce format » : revient au format de l'image uploadee
+$('#use-source-format')?.addEventListener('click', () => {
+  if (sourceImage) selectRatio(SOURCE_RATIO);
 });
 
 // ---------- generation ----------
@@ -354,12 +611,25 @@ $('#generate-btn').addEventListener('click', async () => {
   // Récupérer le strength pour les modèles SD
   const strengthVal = $('#strength').value || null;
 
+  // Format : preset / image uploadee / libre
+  if (currentRatio === SOURCE_RATIO && !sourceImage) {
+    $('#gen-error').hidden = false;
+    $('#gen-error').textContent = "Le format « Original » demande une image source : uploadez-en une ou choisissez un autre format.";
+    return;
+  }
+  const isCustom = currentRatio === CUSTOM_RATIO;
+  const customW = isCustom ? snapSize($('#custom-w').value) : null;
+  const customH = isCustom ? snapSize($('#custom-h').value) : null;
+
   const body = {
     model_id,
     quant: $('#quant').value,
     prompt: finalPrompt,
     negative: $('#negative').value,
     ratio: currentRatio,
+    size_mode: sourceSizeMode,
+    width: customW,
+    height: customH,
     steps: $('#steps').value,
     cfg: $('#cfg').value,
     seed: $('#seed').value || null,
@@ -381,6 +651,8 @@ $('#generate-btn').addEventListener('click', async () => {
   $('#generate-btn').hidden = true;
   $('#cancel-btn').hidden = false;
   $('#results').innerHTML = '';
+  const metaBox = $('#result-meta');
+  if (metaBox) { metaBox.textContent = ''; metaBox.classList.add('hidden'); }
   $('#stats-box').hidden = true;
   $('#progress-wrap').hidden = false;
   $('#progress-fill').style.width = '0%';
@@ -438,6 +710,7 @@ function pollStatus() {
     // affichage des images au fur et a mesure
     if (j.kind === 'generate' && j.result && j.result.images && j.result.images.length > 0) {
       showResults(j.result.images);
+      renderResultMeta(j.result);
     }
 
     if (!j.busy) {
@@ -491,6 +764,28 @@ function showResults(images) {
     d.querySelector('img').addEventListener('click', e => openLightbox(e.target.src));
     box.appendChild(d);
   });
+}
+
+// Rappel du format reellement utilise (surtout utile en format « image »)
+function renderResultMeta(result) {
+  const box = $('#result-meta');
+  if (!box) return;
+  const w = result && result.width;
+  const h = result && result.height;
+  if (!w || !h) { box.classList.add('hidden'); box.textContent = ''; return; }
+  const si = result.size_info || {};
+  let txt = `📐 Sortie : ${w} × ${h} px`;
+  if (si.mode === 'source') {
+    const label = (SOURCE_MODES[si.size_mode] || {}).label || si.size_mode || '';
+    txt += ` · format de l'image uploadée ${si.source_width} × ${si.source_height} ` +
+           `(${si.source_ratio}) · ${label}`;
+  } else if (si.mode === 'custom') {
+    txt += ' · format libre';
+  } else if (si.ratio) {
+    txt += ` · preset ${si.ratio}`;
+  }
+  box.textContent = txt;
+  box.classList.remove('hidden');
 }
 
 

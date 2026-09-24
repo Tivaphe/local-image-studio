@@ -48,6 +48,10 @@
         </label>
         <input type="hidden" id="source-image-path">
       </div>
+      <div id="source-dims" class="source-dims hidden">
+        <span id="source-dims-text" class="muted small"></span>
+        <button id="use-source-format" class="btn ghost small" type="button">📐 Format d'origine</button>
+      </div>
       <p class="hint">
         <strong>Modèles avec édition :</strong> Qwen-Image 2.1 (édition sémantique), 
         FLUX.2 Klein (édition par référence), SD 3.5 (img2img classique).
@@ -88,6 +92,40 @@
     <div class="field">
       <span>Format</span>
       <div class="ratios" id="ratios"></div>
+
+      <!-- Format « Original » : conserve le format du fichier uploadé -->
+      <div id="source-size-box" class="size-box hidden">
+        <div class="size-line">
+          <span class="muted">Image uploadée</span>
+          <strong id="source-size-detected">—</strong>
+        </div>
+        <div class="size-line target">
+          <span class="muted">Sortie</span>
+          <strong id="source-size-target">—</strong>
+        </div>
+        <label class="size-toggle" for="source-exact-size">
+          <input type="checkbox" id="source-exact-size">
+          <span id="source-exact-label">Taille exacte du fichier</span>
+        </label>
+        <p class="hint" id="source-size-hint"></p>
+      </div>
+
+      <!-- Format libre -->
+      <div id="custom-size-box" class="size-box hidden">
+        <div class="row">
+          <label class="field grow">
+            <span>Largeur (px)</span>
+            <input type="number" id="custom-w" min="256" max="2048" step="16" value="1024">
+          </label>
+          <label class="field grow">
+            <span>Hauteur (px)</span>
+            <input type="number" id="custom-h" min="256" max="2048" step="16" value="1024">
+          </label>
+        </div>
+        <p class="hint" id="custom-size-hint"></p>
+      </div>
+
+      <p class="hint" id="format-hint"></p>
     </div>
 
     <div class="row">
@@ -146,6 +184,8 @@
       <div class="progress-meta"><span id="progress-text">en cours…</span></div>
     </div>
 
+    <div id="result-meta" class="result-meta hidden"></div>
+
     <div id="results" class="results"></div>
 
     <div id="stats-box" class="stats-box" hidden>
@@ -171,6 +211,10 @@
 {% block scripts %}
 <script>
 window.RATIOS = {{ ratios | tojson }};
+window.SOURCE_RATIO = {{ source_ratio | tojson }};
+window.SOURCE_MODES = {{ source_modes | tojson }};
+window.SOURCE_DEFAULT_MODE = {{ source_default_mode | tojson }};
+window.SIZE_LIMITS = {{ size_limits | tojson }};
 window.PAGE = "generate";
 </script>
 <script src="{{ url_for('static', filename='generate.js') }}"></script>

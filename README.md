@@ -74,10 +74,42 @@ Onglet **Générer** :
 1. **Tapez votre description** (prompt) en français ou anglais
 2. Cliquez **🌐 Traduire EN** pour traduire en anglais (langue préférée des modèles)
 3. (Optionnel) Cliquez **✨ Enrichir** pour enrichir votre prompt automatiquement
-4. Choisissez le **nombre d'images** (1 à 4) et le **format** (carré, portrait, paysage…)
+4. Choisissez le **nombre d'images** (1 à 4) et le **format** (carré, portrait, paysage…, **🖼 Original** = format de l'image uploadée, ou **✂ taille libre**)
 5. Cliquez **✨ Générer**
 
 Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
+
+---
+
+### 4️⃣ Modifier une image (img2img / édition)
+
+1. Dépliez **« Image source (img2img / édition) »** et uploadez votre image (PNG, JPG, WEBP)
+2. Décrivez le changement voulu : *"add sunglasses"*, *"make it sunset"*, *"style aquarelle"*…
+3. Prenez un modèle qui sait éditer : **Qwen-Image 2.1** (édition sémantique),
+   **FLUX.2 Klein** (édition par référence) ou **SD 3.5** (img2img classique, réglage *Force*)
+4. Cliquez **✨ Générer**
+
+#### 📐 Choisir le format de sortie
+
+Le champ **Format** propose trois façons de fixer la taille de l'image générée :
+
+| Choix | Résultat |
+|---|---|
+| **1:1 · 3:4 · 4:3 · 9:16 · 16:9** | Formats prédéfinis (base 1024 px) |
+| **🖼 Original** | **Garde le format de l'image uploadée** — sélectionné automatiquement à l'upload |
+| **✂ Libre** | Largeur × hauteur au choix (multiple de 16, de 256 à 2048 px) |
+
+**🖼 Original** conserve exactement le cadrage du fichier et calcule la sortie à ~1 Mpx :
+c'est la résolution native des modèles, la génération reste rapide et tient dans la VRAM.
+*ex. photo 1920×1080 → 1360×768, le 16:9 est conservé*
+
+La case **« Taille exacte du fichier »** (sous la puce) emploie à la place les pixels
+d'origine, plafonnés à 2048 px / ~4 Mpx pour ne pas saturer la VRAM — plus lent,
+plus gourmand. *ex. 1920×1080 → 1920×1088*
+
+> 💡 Les dimensions sont toujours alignées sur un multiple de **16 px** (exigence des
+> VAE/patchs des modèles). Le format réellement utilisé est rappelé au-dessus des résultats
+> et enregistré dans l'historique.
 
 ---
 
@@ -130,13 +162,14 @@ Certains modèles nécessitent un **token Hugging Face gratuit** :
 
 | Fonction | Description |
 |---|---|
-| 🖼️ **Génération** | 1 à 4 images par lot, 5 formats |
+| 🖼️ **Génération** | 1 à 4 images par lot, 5 ratios + puce « Original » (format du fichier uploadé) + taille libre |
 | 🌐 **Traduction** | Traduit votre prompt (FR, ES…) vers l'anglais automatiquement |
 | ✨ **Enrichissement** | Un LLM enrichit votre prompt (style, lumière, composition…) |
 | 📊 **Statistiques** | Temps de génération par modèle, modèle le plus utilisé, etc. |
 | 📚 **Historique** | Toutes vos images avec leur prompt, réutilisables en 1 clic |
 | 💾 **Auto-save** | Images sauvées dans `output/` |
 | 🚫 **Prompt négatif** | Pré-rempli automatiquement (modifiable) |
+| 📐 **Format conservé** | En img2img/édition, la sortie garde le cadrage du fichier uploadé (ou ses pixels exacts) |
 | 📄 **Licences** | Indiquées pour chaque modèle |
 | 🔗 **Liens HF** | Accès direct à la page de chaque modèle |
 
@@ -151,6 +184,7 @@ local-image-studio/
 ├── engine.py              ← Moteur sd-cli + téléchargements
 ├── registry.py            ← Définition des 11 modèles
 ├── prompt_enhancer.py     ← Enrichissement & traduction (LLM)
+├── image_utils.py         ← Dimensions des images + format de sortie (img2img)
 ├── gpu_info.py            ← Détection VRAM
 ├── db.py                  ← Historique & statistiques
 ├── config.py              ← Configuration des chemins
@@ -161,6 +195,7 @@ local-image-studio/
 │   ├── ADD_MODEL_FR.md    ← Comment ajouter un modèle (FR)
 │   └── ADD_MODEL_EN.md    ← How to add a model (EN)
 │
+├── tests/                 ← Tests (python -m unittest discover -s tests)
 ├── bin/                   ← sd-cli.exe (téléchargé auto)
 ├── models/                ← GGUF + VAE + encodeurs (téléchargés auto)
 └── output/                ← Vos images générées
