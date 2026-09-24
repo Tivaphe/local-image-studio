@@ -179,10 +179,10 @@ def _model_present(model_id, quant) -> bool:
 
 
 def _dep_present(dep_id) -> bool:
-    """Une dépendance est présente si elle est dans le manifeste ET le fichier existe."""
+    """Une dépendance est présente si elle est dans le manifeste ET le fichier existe, ou si présente à l'emplacement standard."""
     mf = load_manifest()
-    info = mf.get(dep_id) or {}
-    return bool(info.get("path") and Path(info["path"]).exists())
+    p = _dep_path(mf, dep_id)
+    return bool(p and Path(p).exists())
 
 
 def model_status(model_id):
@@ -387,18 +387,19 @@ class TaskManager:
             batch_id = f"{int(time.time())}_{model_id}"  # pour la DB
             seed = int(p["seed"]) if p.get("seed") not in (None, "") else int(time.time()) % 1000000
 
-            # Générer des noms de fichiers intelligents
+            # Générer des noms de fichiers intelligents et sûrs
             # Format: model_motsprompt_001.png (dans output/ directement)
-            model_name = m["name"].lower().replace(" ", "_").replace("-", "_")
-            # Extraire les premiers mots du prompt (max 3 mots)
+            model_name = re.sub(r'[^a-zA-Z0-9_]', '_', m["name"].lower())
             prompt_words = (p["prompt"] or "").strip().lower()
-            # Supprimer la ponctuation et prendre les premiers mots significatifs
-            clean_prompt = re.sub(r'[^\w\s]', '', prompt_words)
-            words = clean_prompt.split()[:3] if clean_prompt else ["generation"]
-            prompt_part = "_".join(words)[:40]  # max 40 caractères
+            clean_prompt = re.sub(r'[^a-zA-Z0-9]', '_', prompt_words)
+            words = [w for w in clean_prompt.split('_') if w][:3]
+            prompt_part = "_".join(words)[:30] if words else "generation"
 
             # Template de sortie directement dans OUTPUT_DIR
             out_tmpl = str(OUTPUT_DIR / f"{model_name}_{prompt_part}_%03d.png")
+
+            # Mémoriser les fichiers déjà existants pour détecter précisément les nouveaux
+            existing_files = set(OUTPUT_DIR.glob("*.png"))
 
             cmd = build_command(
                 model_id, quant, p["prompt"], p.get("negative", ""),
@@ -408,8 +409,13 @@ class TaskManager:
                 lora_dir=p.get("lora_dir"),
                 strength=p.get("strength"))
 
+            # Vérifier qu'aucun argument n'est None
+            for idx_arg, arg_val in enumerate(cmd):
+                if arg_val is None:
+                    raise RuntimeError(f"Erreur interne : l'argument de commande #{idx_arg} est None.")
+
             self._set(log="Démarrage de la génération…",
-                      total_steps=int(p["steps"]), step=0)
+                      total_steps=int(p["steps"]), step=0, error=None)
 
             creationflags = 0
             if os.name == "nt":
@@ -455,7 +461,7 @@ class TaskManager:
                     self._set(log=line, progress=prog,
                               elapsed=time.time() - t_start)
 
-            self._proc.wait()
+            ret_code = self._proc.wait()
             self._proc = None
             t_end = time.time()
             total_seconds = t_end - t_start
@@ -467,18 +473,42 @@ class TaskManager:
                           result={"type": "generate", "cancelled": True, "images": []})
                 return
 
-            # collecte des images produites (chercher directement dans OUTPUT_DIR)
-            # Pattern: model_nomprompt_NNN.png
-            pattern_start = f"{m['name'].lower().replace(' ', '_').replace('-', '_')}_{prompt_part}"
-            produced = sorted([
-                f for f in OUTPUT_DIR.glob(f"{pattern_start}_*.png")
-                if f.stat().st_mtime > t_start - 5  # fichiers récents (moins de 5s)
-            ])
+            def _extract_err_summary():
+                err_lines = [l for l in last_lines if any(k in l.lower() for k in ("error", "exception", "failed", "unknown", "invalid", "cuda", "cannot", "abort"))]
+                if err_lines:
+                    return "\n".join(err_lines[-6:])
+                return "\n".join(last_lines[-8:]) if last_lines else "Aucun message du moteur."
 
-            # Fallback si aucun fichier trouvé avec le pattern
+            # Vérification du code de retour du processus
+            if ret_code != 0:
+                err_summary = _extract_err_summary()
+                raise RuntimeError(f"Le moteur sd-cli s'est arrêté avec le code d'erreur {ret_code} :\n{err_summary}")
+
+            # Collecte des images produites (chercher directement dans OUTPUT_DIR)
+            # 1) Fichiers créés pendant la génération (non présents dans existing_files)
+            produced = [
+                f for f in OUTPUT_DIR.glob("*.png")
+                if f not in existing_files and f.stat().st_mtime >= t_start - 2
+            ]
+
+            # 2) Fallback si besoin : pattern de fichier récent
             if not produced:
-                produced = sorted(OUTPUT_DIR.glob("*.png"))
-                produced = [f for f in produced if f.stat().st_mtime > t_start - 5]
+                pattern_start = f"{model_name}_{prompt_part}"
+                produced = [
+                    f for f in OUTPUT_DIR.glob(f"{pattern_start}_*.png")
+                    if f.stat().st_mtime >= t_start - 5
+                ]
+
+            # 3) Fallback absolu : n'importe quel fichier PNG créé depuis t_start
+            if not produced:
+                produced = [
+                    f for f in OUTPUT_DIR.glob("*.png")
+                    if f.stat().st_mtime >= t_start - 2
+                ]
+
+            if not produced:
+                err_summary = _extract_err_summary()
+                raise RuntimeError(f"Aucune image n'a été produite par le moteur sd-cli :\n{err_summary}")
 
             # Trier par timestamp de modification pour respecter l'ordre
             produced.sort(key=lambda f: f.stat().st_mtime)
@@ -495,8 +525,8 @@ class TaskManager:
                 images.append({"url": f"/output/{rel}", "filename": rel,
                                "seed": seed + i, "id": None})
 
-            # récupère les ids depuis la DB (derniers insérés du batch)
-            rows = db.list_images(limit=len(produced))
+            # récupère les ids depuis la DB (derniers insérés du batch, inversés car list_images trie DESC)
+            rows = list(reversed(db.list_images(limit=len(produced))))
             for img, row in zip(images, rows):
                 img["id"] = row["id"]
 
@@ -510,12 +540,13 @@ class TaskManager:
                 "it_s": round(last_step_seen / denoise_seconds, 2) if denoise_seconds > 0 else 0,
             }
             self._set(log=f"Génération terminée ✓ ({len(images)} image(s) en {total_seconds:.1f}s)",
-                      progress=1.0, done=True, busy=False,
+                      progress=1.0, done=True, busy=False, error=None,
                       result={"type": "generate", "images": images,
                               "batch_id": batch_id, "cancelled": False,
                               "stats": stats})
         except Exception as e:
-            self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False)
+            self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
+                      result={"type": "generate", "images": [], "error": str(e), "cancelled": False})
 
 
 # instance globale

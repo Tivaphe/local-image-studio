@@ -7,6 +7,7 @@ Registre des modeles + dependances partagees.
 """
 import json
 import re
+from pathlib import Path
 
 from config import (DIFFUSION_DIR, VAE_DIR, TEXTENC_DIR, LLM_DIR, MANIFEST_PATH)
 
@@ -48,7 +49,7 @@ DEPS = {
         "repo": "Comfy-Org/stable-diffusion-3.5-fp8",
         "filename": "text_encoders/clip_g.safetensors",
         "dest": TEXTENC_DIR / "clip_g.safetensors",
-        "size_gb": 3.7,
+        "size_gb": 1.4,
     },
     "t5xxl": {
         "type": "exact",
@@ -59,9 +60,9 @@ DEPS = {
     },
     "qwen3_4b": {
         "type": "gguf",
-        "repo": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+        "repo": "unsloth/Qwen3-4B-GGUF",
         "dest_dir": LLM_DIR,
-        "size_gb": 2.6,
+        "size_gb": 2.5,
     },
     "qwen3_8b": {
         "type": "gguf",
@@ -111,8 +112,6 @@ DEPS = {
         "size_gb": 0.17,
     },
 }
-
-DEFAULT_NEGATIVE = "blurry, low quality, lowres, distorted, deformed, ugly, bad anatomy, extra limbs, missing fingers, watermark, text, signature, jpeg artifacts, cropped, out of frame, duplicate, mutation"
 
 DEFAULT_NEGATIVE = "blurry, low quality, lowres, distorted, deformed, ugly, bad anatomy, extra limbs, missing fingers, watermark, text, signature, jpeg artifacts, cropped, out of frame, duplicate, mutation"
 
@@ -277,7 +276,7 @@ MODELS = {
             "Q5_K_M": "qwen-image-2512-Q5_K_M.gguf",
             "Q6_K":   "qwen-image-2512-Q6_K.gguf",
         },
-        "size_gb": {"Q4_K_M": 8.2, "Q5_K_M": 9.6, "Q6_K": 10.5},
+        "size_gb": {"Q4_K_M": 13.2, "Q5_K_M": 15.0, "Q6_K": 16.8},
         "deps": ["vae_qwen", "qwen25vl_7b"],
         "supports_neg": True,
         "needs_token": False,
@@ -293,14 +292,14 @@ MODELS = {
         "name": "Qwen-Image-2.1",
         "arch": "qwen_image",
         "repo": "unsloth/Qwen-Image-2.1-GGUF",
-        "quants": ["Q4_0", "Q5_0", "Q6_K"],
-        "default_quant": "Q5_0",
+        "quants": ["Q4_K_M", "Q5_K_M", "Q6_K"],
+        "default_quant": "Q5_K_M",
         "file_for_quant": {
-            "Q4_0": "qwen-image-2.1-Q4_0.gguf",
-            "Q5_0": "qwen-image-2.1-Q5_0.gguf",
-            "Q6_K": "qwen-image-2.1-Q6_K.gguf",
+            "Q4_K_M": "qwen-image-2.1-Q4_K_M.gguf",
+            "Q5_K_M": "qwen-image-2.1-Q5_K_M.gguf",
+            "Q6_K":   "qwen-image-2.1-Q6_K.gguf",
         },
-        "size_gb": {"Q4_0": 4.05, "Q5_0": 5.22, "Q6_K": 5.88},
+        "size_gb": {"Q4_K_M": 4.2, "Q5_K_M": 5.4, "Q6_K": 6.3},
         "deps": ["vae_qwen_21", "qwen3vl_8b", "mmproj_qwen3vl_8b"],
         "supports_neg": False,
         "needs_token": False,
@@ -312,10 +311,10 @@ MODELS = {
         "defaults": {"steps": 25, "cfg": 3.5, "sampler": "euler"},
         "min_steps": 10, "max_steps": 50,
         "presets": {
-            "rapide":    {"steps": 15, "cfg": 1.0, "quant": "Q4_0", "label": "⚡ Rapide (15 etapes, Q4_0)"},
-            "equilibre": {"steps": 25, "cfg": 3.5, "quant": "Q5_0", "label": "⚖️ Equilibre (25 etapes, Q5_0)"},
-            "qualite":   {"steps": 40, "cfg": 6.0, "quant": "Q6_K", "label": "✨ Qualite (40 etapes, Q6_K)"},
-            "optimise":  {"steps": 20, "cfg": 1.0, "quant": "Q4_K", "label": "🎯 Optimise edition (20 etapes, Q4_K)"},
+            "rapide":    {"steps": 15, "cfg": 1.0, "quant": "Q4_K_M", "label": "⚡ Rapide (15 etapes, Q4)"},
+            "equilibre": {"steps": 25, "cfg": 3.5, "quant": "Q5_K_M", "label": "⚖️ Equilibre (25 etapes, Q5)"},
+            "qualite":   {"steps": 40, "cfg": 6.0, "quant": "Q6_K",   "label": "✨ Qualite (40 etapes, Q6)"},
+            "optimise":  {"steps": 20, "cfg": 1.0, "quant": "Q4_K_M", "label": "🎯 Optimise edition (20 etapes, Q4)"},
         },
     },
 
@@ -338,10 +337,9 @@ MODELS = {
             "Q5_K_M": "sd3.5_medium-Q5_K_M.gguf",
             "Q6_K":   "sd3.5_medium-Q6_K.gguf",
         },
-        "size_gb": {"Q4_K_M": 2.1, "Q5_K_M": 2.4, "Q6_K": 2.6},
+        "size_gb": {"Q4_K_M": 1.8, "Q5_K_M": 2.1, "Q6_K": 2.3},
         "deps": ["vae_sd3", "clip_l", "clip_g", "t5xxl"],
         "supports_neg": True,
-        "needs_token": False,
         "diffusion_fa": False,
         "license": "Stability AI Community (non-commercial <$1M)",
         "hf_url": "https://huggingface.co/city96/stable-diffusion-3.5-medium-gguf",
@@ -368,10 +366,9 @@ MODELS = {
             "Q5_0": "sd3.5_large-Q5_0.gguf",
             "Q5_1": "sd3.5_large-Q5_1.gguf",
         },
-        "size_gb": {"Q5_0": 5.3, "Q5_1": 5.6},
+        "size_gb": {"Q5_0": 5.8, "Q5_1": 6.3},
         "deps": ["vae_sd3", "clip_l", "clip_g", "t5xxl"],
         "supports_neg": True,
-        "needs_token": False,
         "diffusion_fa": False,
         "license": "Stability AI Community (non-commercial <$1M)",
         "hf_url": "https://huggingface.co/city96/stable-diffusion-3.5-large-gguf",
@@ -398,10 +395,9 @@ MODELS = {
             "Q4_1": "sd3.5_large_turbo-Q4_1.gguf",
             "Q5_1": "sd3.5_large_turbo-Q5_1.gguf",
         },
-        "size_gb": {"Q4_1": 4.5, "Q5_1": 5.6},
+        "size_gb": {"Q4_1": 5.3, "Q5_1": 6.3},
         "deps": ["vae_sd3", "clip_l", "clip_g", "t5xxl"],
         "supports_neg": False,
-        "needs_token": False,
         "diffusion_fa": False,
         "license": "Stability AI Community (non-commercial <$1M)",
         "hf_url": "https://huggingface.co/city96/stable-diffusion-3.5-large-turbo-gguf",
@@ -429,9 +425,10 @@ MODELS = {
             "Q5_K_M": "flux-2-klein-4b-Q5_K_M.gguf",
             "Q6_K":   "flux-2-klein-4b-Q6_K.gguf",
         },
-        "size_gb": {"Q4_K_M": 3.5, "Q5_K_M": 4.1, "Q6_K": 4.5},
+        "size_gb": {"Q4_K_M": 2.6, "Q5_K_M": 2.9, "Q6_K": 3.3},
         "deps": ["vae_flux2", "qwen3_4b"],
         "supports_neg": False,
+        "supports_img2img": True,
         "needs_token": False,
         "license": "Apache 2.0 (libre, commercial OK)",
         "hf_url": "https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF",
@@ -458,9 +455,10 @@ MODELS = {
             "Q5_K_M": "flux-2-klein-9b-Q5_K_M.gguf",
             "Q6_K":   "flux-2-klein-9b-Q6_K.gguf",
         },
-        "size_gb": {"Q4_K_M": 6.0, "Q5_K_M": 6.8, "Q6_K": 7.5},
+        "size_gb": {"Q4_K_M": 5.9, "Q5_K_M": 6.7, "Q6_K": 7.5},
         "deps": ["vae_flux2", "qwen3_8b"],
         "supports_neg": False,
+        "supports_img2img": True,
         "needs_token": True,
         "license": "FLUX Non-Commercial (usage perso uniquement)",
         "hf_url": "https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF",
@@ -483,10 +481,44 @@ def _quant_of(filename: str):
     return None
 
 
+def _is_valid_dep(dep_id: str, p: Path) -> bool:
+    """Verifie qu'un fichier correspond bien a la dependance attendue (evite les collisions)."""
+    name = p.name.lower()
+    if dep_id == "qwen3_4b":
+        return ("qwen3" in name or "qwen_3" in name) and "4b" in name and "vl" not in name and "mmproj" not in name
+    elif dep_id == "qwen3_8b":
+        return ("qwen3" in name or "qwen_3" in name) and "8b" in name and "vl" not in name and "mmproj" not in name
+    elif dep_id == "ministral_3b":
+        return "ministral" in name
+    elif dep_id == "qwen3vl_8b":
+        return ("qwen3" in name or "qwen_3" in name) and "vl" in name and "mmproj" not in name
+    elif dep_id == "qwen25vl_7b":
+        return ("qwen2.5" in name or "qwen2_5" in name or "qwen25" in name) and "vl" in name and "mmproj" not in name
+    elif dep_id == "mmproj_qwen3vl_8b":
+        return "mmproj" in name and ("qwen3" in name or "qwen_3" in name)
+    elif dep_id == "vae_flux":
+        return (("flux" in name and "2" not in name and ("vae" in name or "ae" in name)) or name == "ae.safetensors")
+    elif dep_id == "vae_flux2":
+        return ("flux2" in name or "flux_2" in name) and ("vae" in name or "ae" in name)
+    elif dep_id == "vae_qwen":
+        return "qwen" in name and ("vae" in name or "ae" in name) and "2.1" not in name and "21" not in name
+    elif dep_id == "vae_qwen_21":
+        return "qwen" in name and ("2.1" in name or "21" in name) and ("vae" in name or "ae" in name)
+    elif dep_id == "vae_sd3":
+        return "sd3" in name or name == "diffusion_pytorch_model.safetensors"
+    elif dep_id == "clip_l":
+        return "clip_l" in name or "clip-l" in name
+    elif dep_id == "clip_g":
+        return "clip_g" in name or "clip-g" in name
+    elif dep_id == "t5xxl":
+        return "t5xxl" in name or "t5_xxl" in name or "t5-xxl" in name
+    return True
+
+
 def resolve_dep_gguf(dep_id: str, files: list, priority=None):
     priority = priority or DEP_QUANT_PRIORITY
 
-    ggufs = [f for f in files if f.lower().endswith(".gguf") and "/" not in f]
+    ggufs = [f for f in files if f.lower().endswith(".gguf") and "/" not in f and _is_valid_dep(dep_id, Path(f))]
     plain = {}
     for f in ggufs:
         q = _quant_of(f)
@@ -506,7 +538,18 @@ def resolve_dep_gguf(dep_id: str, files: list, priority=None):
 def load_manifest():
     if MANIFEST_PATH.exists():
         try:
-            return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+            mf = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+            cleaned = False
+            for dep_id in list(mf.keys()):
+                info = mf[dep_id]
+                if isinstance(info, dict) and "path" in info:
+                    p = Path(info["path"])
+                    if not p.exists() or not _is_valid_dep(dep_id, p):
+                        del mf[dep_id]
+                        cleaned = True
+            if cleaned:
+                save_manifest(mf)
+            return mf
         except Exception:
             return {}
     return {}
@@ -561,9 +604,66 @@ def build_ideogram_prompt(text, negative, width, height):
 # --------------------------------------------------------------------------- #
 #  Construction de la commande sd-cli
 # --------------------------------------------------------------------------- #
+def _find_dep_on_disk(dep_id: str) -> Path | None:
+    """Recherche sur le disque un fichier correspondant precisement a dep_id."""
+    if dep_id not in DEPS:
+        return None
+    dep = DEPS[dep_id]
+    if dep.get("type") == "exact":
+        dest = dep.get("dest")
+        if dest and dest.exists() and _is_valid_dep(dep_id, dest):
+            return dest
+
+    search_dirs = []
+    if dep.get("dest_dir"):
+        search_dirs.append(dep["dest_dir"])
+    if dep.get("dest") and dep["dest"].parent not in search_dirs:
+        search_dirs.append(dep["dest"].parent)
+    if "llm" in dep_id or "qwen" in dep_id or "ministral" in dep_id:
+        if LLM_DIR not in search_dirs:
+            search_dirs.append(LLM_DIR)
+        if TEXTENC_DIR not in search_dirs:
+            search_dirs.append(TEXTENC_DIR)
+    elif "vae" in dep_id:
+        if VAE_DIR not in search_dirs:
+            search_dirs.append(VAE_DIR)
+    elif "clip" in dep_id or "t5" in dep_id:
+        if TEXTENC_DIR not in search_dirs:
+            search_dirs.append(TEXTENC_DIR)
+
+    candidates = []
+    for d in search_dirs:
+        if not d or not d.exists():
+            continue
+        for f in d.iterdir():
+            if f.is_file() and _is_valid_dep(dep_id, f):
+                candidates.append(f)
+
+    if not candidates:
+        return None
+
+    plain = {}
+    for f in candidates:
+        q = _quant_of(f.name)
+        if q and not ("-UD-" in f.name or "-IQ" in f.name):
+            plain.setdefault(q, f)
+    for q in DEP_QUANT_PRIORITY:
+        if q in plain:
+            return plain[q]
+    if plain:
+        return next(iter(plain.values()))
+    return candidates[0]
+
+
 def _dep_path(manifest, dep_id):
     info = manifest.get(dep_id) or {}
-    return info.get("path")
+    path = info.get("path")
+    if path and Path(path).exists() and _is_valid_dep(dep_id, Path(path)):
+        return str(path)
+    found = _find_dep_on_disk(dep_id)
+    if found:
+        return str(found)
+    return None
 
 
 def _diffusion_path(model_id, quant):
@@ -579,7 +679,8 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     args = [sd_cli]
 
     # Modele de diffusion
-    args += ["--diffusion-model", _diffusion_path(model_id, quant)]
+    diff_file = _diffusion_path(model_id, quant)
+    args += ["--diffusion-model", diff_file]
 
     # Modele uncond (Ideogram)
     if arch == "ideogram":
@@ -597,29 +698,54 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
             vae_key = "vae_qwen_21" if model_id == "qwen-image-2.1" else "vae_qwen"
         else:
             vae_key = "vae_flux"
-        args += ["--vae", _dep_path(manifest, vae_key)]
+        vpath = _dep_path(manifest, vae_key)
+        if vpath:
+            args += ["--vae", str(vpath)]
 
     # Encodeurs de texte
     if arch == "flux":
-        args += ["--clip_l", _dep_path(manifest, "clip_l"),
-                 "--t5xxl",  _dep_path(manifest, "t5xxl")]
+        cl = _dep_path(manifest, "clip_l")
+        t5 = _dep_path(manifest, "t5xxl")
+        if cl:
+            args += ["--clip_l", str(cl)]
+        if t5:
+            args += ["--t5xxl", str(t5)]
     elif arch == "sd3":
-        args += ["--clip_l", _dep_path(manifest, "clip_l"),
-                 "--clip_g", _dep_path(manifest, "clip_g"),
-                 "--t5xxl",  _dep_path(manifest, "t5xxl")]
+        cl = _dep_path(manifest, "clip_l")
+        cg = _dep_path(manifest, "clip_g")
+        t5 = _dep_path(manifest, "t5xxl")
+        if cl:
+            args += ["--clip_l", str(cl)]
+        if cg:
+            args += ["--clip_g", str(cg)]
+        if t5:
+            args += ["--t5xxl", str(t5)]
     elif arch == "flux2":
-        args += ["--llm", _dep_path(manifest, "qwen3_4b" if model_id == "flux2-klein-4b" else "qwen3_8b")]
+        llm = _dep_path(manifest, "qwen3_4b" if model_id == "flux2-klein-4b" else "qwen3_8b")
+        if llm:
+            args += ["--llm", str(llm)]
     elif arch == "zimage":
-        args += ["--llm", _dep_path(manifest, "qwen3_4b")]
+        llm = _dep_path(manifest, "qwen3_4b")
+        if llm:
+            args += ["--llm", str(llm)]
     elif arch == "ernie":
-        args += ["--llm", _dep_path(manifest, "ministral_3b")]
+        llm = _dep_path(manifest, "ministral_3b")
+        if llm:
+            args += ["--llm", str(llm)]
     elif arch == "ideogram":
-        args += ["--llm", _dep_path(manifest, "qwen3vl_8b")]
+        llm = _dep_path(manifest, "qwen3vl_8b")
+        if llm:
+            args += ["--llm", str(llm)]
     elif arch == "qwen_image":
-        args += ["--llm", _dep_path(manifest, "qwen25vl_7b")]
+        llm_key = "qwen3vl_8b" if model_id == "qwen-image-2.1" else "qwen25vl_7b"
+        llm = _dep_path(manifest, llm_key)
+        if llm:
+            args += ["--llm", str(llm)]
         # mmproj pour l'edition (Qwen-Image-2.1)
-        if model_id == "qwen-image-2.1" and manifest.get("mmproj_qwen3vl_8b"):
-            args += ["--llm_vision", _dep_path(manifest, "mmproj_qwen3vl_8b")]
+        if model_id == "qwen-image-2.1":
+            mmproj = _dep_path(manifest, "mmproj_qwen3vl_8b")
+            if mmproj:
+                args += ["--llm_vision", str(mmproj)]
 
     # Prompt
     if arch == "ideogram":
@@ -631,7 +757,12 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
 
     # Image source (img2img / edition)
     if source_image:
-        args += ["-r", source_image]
+        if arch in ("sd3", "sd"):
+            args += ["-i", source_image]
+        else:
+            args += ["-r", source_image]
+        if strength is not None:
+            args += ["--strength", f"{strength}"]
 
     # Parametres
     args += ["--cfg-scale", f"{cfg}",
@@ -654,17 +785,20 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     if arch in ("flux", "sd3"):
         args += ["--clip-on-cpu"]
 
-    # --flow-shift pour les architectures Wan
-    if arch in ("qwen_image", "ernie"):
+    # --flow-shift pour Wan (Qwen-Image 2512 et ERNIE) ; Qwen-Image 2.1 utilise un flow schedule automatique
+    if arch == "ernie" or model_id == "qwen-image-2512":
         args += ["--flow-shift", "3"]
 
-    # --qwen-image-zero-cond-t : meilleure qualite d'edition Qwen-Image-2.1
+    # zero-cond-t pour meilleure qualite d'edition Qwen-Image-2.1
     if model_id == "qwen-image-2.1" and source_image:
-        args += ["--qwen-image-zero-cond-t"]
+        args += ["--model-args", "qwen_image_zero_cond_t=true"]
 
-    # LoRA : dossier de poids (sd-cli scanne automatiquement)
+    # LoRA : --lora-model-dir (option officielle sd-cli, pas --lora-dir)
     if lora_dir:
-        args += ["--lora-dir", lora_dir]
+        lora_p = Path(lora_dir)
+        if "<lora:" in (prompt or "") or (lora_p.exists() and any(lora_p.glob("*.safetensors"))):
+            lora_p.mkdir(parents=True, exist_ok=True)
+            args += ["--lora-model-dir", str(lora_p)]
 
     return args
 
