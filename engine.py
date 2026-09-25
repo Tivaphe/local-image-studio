@@ -370,8 +370,9 @@ class TaskManager:
             if missing:
                 raise RuntimeError("Dépendances manquantes: " + ", ".join(missing))
 
-            # Vérification spécifique pour Qwen-Image-2.1 avec édition
-            if model_id == "qwen-image-2.1" and p.get("source_image"):
+            # Vérification spécifique pour Qwen-Image-2.1 avec édition (ref_images ou source_image)
+            has_edit_images = bool(p.get("source_image") or p.get("ref_images") or p.get("init_image"))
+            if model_id == "qwen-image-2.1" and has_edit_images:
                 mmproj_path = _dep_path(manifest, "mmproj_qwen3vl_8b")
                 if not mmproj_path or not Path(mmproj_path).exists():
                     raise RuntimeError(
@@ -401,13 +402,52 @@ class TaskManager:
             # Mémoriser les fichiers déjà existants pour détecter précisément les nouveaux
             existing_files = set(OUTPUT_DIR.glob("*.png"))
 
+            # --- Résolution des chemins d'images en absolu pour sd-cli ---
+            def _resolve_img(path_str):
+                if not path_str:
+                    return None
+                # Si déjà absolu, garder
+                pp = Path(path_str)
+                if pp.is_absolute():
+                    return str(pp)
+                # Sinon, résoudre depuis ROOT
+                abs_p = (ROOT / path_str).resolve()
+                return str(abs_p) if abs_p.exists() else str(ROOT / path_str)
+
+            def _resolve_img_list(lst):
+                if not lst:
+                    return None
+                res = []
+                for item in lst:
+                    if not item:
+                        continue
+                    r = _resolve_img(item)
+                    if r:
+                        res.append(r)
+                return res if res else None
+
+            # Récupération des nouveaux champs multi-images
+            ref_images_abs = _resolve_img_list(p.get("ref_images"))
+            init_image_abs = _resolve_img(p.get("init_image"))
+            control_image_abs = _resolve_img(p.get("control_image"))
+            mask_image_abs = _resolve_img(p.get("mask_image"))
+            ip_adapter_image_abs = _resolve_img(p.get("ip_adapter_image"))
+            source_image_abs = _resolve_img(p.get("source_image"))
+
             cmd = build_command(
                 model_id, quant, p["prompt"], p.get("negative", ""),
                 int(p["width"]), int(p["height"]), int(p["steps"]), float(p["cfg"]),
                 seed, batch, out_tmpl, str(sd), manifest,
-                source_image=p.get("source_image"),
+                source_image=source_image_abs,
                 lora_dir=p.get("lora_dir"),
-                strength=p.get("strength"))
+                strength=p.get("strength"),
+                ref_images=ref_images_abs,
+                init_image=init_image_abs,
+                control_image=control_image_abs,
+                mask_image=mask_image_abs,
+                ip_adapter_image=ip_adapter_image_abs,
+                control_strength=p.get("control_strength"),
+                ip_adapter_strength=p.get("ip_adapter_strength"))
 
             # Vérifier qu'aucun argument n'est None
             for idx_arg, arg_val in enumerate(cmd):

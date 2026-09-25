@@ -15,6 +15,7 @@ from config import (DIFFUSION_DIR, VAE_DIR, TEXTENC_DIR, LLM_DIR, MANIFEST_PATH)
 # --------------------------------------------------------------------------- #
 #  Dependances partagees (telechargees une fois, reutilisees par les modeles)
 # --------------------------------------------------------------------------- #
+
 DEPS = {
     "vae_flux": {
         "type": "exact",
@@ -121,354 +122,393 @@ DEP_QUANT_PRIORITY = ["Q4_K_M", "Q5_K_M", "Q6_K"]
 # --------------------------------------------------------------------------- #
 #  Modeles de generation d'images
 # --------------------------------------------------------------------------- #
-# diffusion_fa : False pour ERNIE (bug officiel #1447 -> image blanche)
-# needs_vae    : False pour SD3 (VAE integre dans le modele)
 MODELS = {
     "flux-schnell": {
-
         "presets": {
-            "rapide":    {"steps": 4,  "cfg": 1.0, "quant": "Q4_K_M", "label": "⚡ Rapide (4 etapes, Q4)"},
-            "equilibre": {"steps": 4,  "cfg": 1.0, "quant": "Q5_K_M", "label": "⚡ Rapide+ (4 etapes, Q5)"},
-            "qualite":   {"steps": 8,  "cfg": 2.0, "quant": "Q6_K",   "label": "✨ Qualite (8 etapes, Q6)"},
+            "rapide": {'steps': 4, 'cfg': 1.0, 'quant': 'Q4_K_M', 'label': '⚡ Rapide (4 etapes, Q4)'},
+            "equilibre": {'steps': 4, 'cfg': 1.0, 'quant': 'Q5_K_M', 'label': '⚡ Rapide+ (4 etapes, Q5)'},
+            "qualite": {'steps': 8, 'cfg': 2.0, 'quant': 'Q6_K', 'label': '✨ Qualite (8 etapes, Q6)'},
         },
-        "name": "FLUX.1 schnell",
-        "arch": "flux",
-        "repo": "unsloth/FLUX.1-schnell-GGUF",
-        "quants": ["Q4_K_M", "Q5_K_M", "Q6_K"],
-        "default_quant": "Q5_K_M",
-        "file_for_quant": {
-            "Q4_K_M": "flux1-schnell-Q4_K_M.gguf",
-            "Q5_K_M": "flux1-schnell-Q5_K_M.gguf",
-            "Q6_K":   "flux1-schnell-Q6_K.gguf",
-        },
-        "size_gb": {"Q4_K_M": 6.9, "Q5_K_M": 8.4, "Q6_K": 9.8},
-        "deps": ["vae_flux", "clip_l", "t5xxl"],
+        "name": 'FLUX.1 schnell',
+        "arch": 'flux',
+        "repo": 'unsloth/FLUX.1-schnell-GGUF',
+        "quants": ['Q4_K_M', 'Q5_K_M', 'Q6_K'],
+        "default_quant": 'Q5_K_M',
+        "file_for_quant": {'Q4_K_M': 'flux1-schnell-Q4_K_M.gguf', 'Q5_K_M': 'flux1-schnell-Q5_K_M.gguf', 'Q6_K': 'flux1-schnell-Q6_K.gguf'},
+        "size_gb": {'Q4_K_M': 6.9, 'Q5_K_M': 8.4, 'Q6_K': 9.8},
+        "deps": ['vae_flux', 'clip_l', 't5xxl'],
         "supports_neg": False,
         "needs_token": False,
-        "license": "Apache 2.0 (libre, commercial OK)",
-        "hf_url": "https://huggingface.co/unsloth/FLUX.1-schnell-GGUF",
+        "supports_init": True,
+        "supports_ref": False,
+        "max_ref_images": 0,
+        "supports_control": False,
+        "supports_mask": False,
+        "supports_ip_adapter": False,
+        "license": 'Apache 2.0 (libre, commercial OK)',
+        "hf_url": 'https://huggingface.co/unsloth/FLUX.1-schnell-GGUF',
         "vram_min_gb": 6,
-        "desc": "Tres rapide (4 etapes), excellent pour des tests expressifs.",
-        "defaults": {"steps": 4,  "cfg": 1.0, "sampler": "euler"},
-        "min_steps": 1, "max_steps": 8,
+        "desc": 'Tres rapide (4 etapes), excellent pour des tests expressifs.',
+        "defaults": {'steps': 4, 'cfg': 1.0, 'sampler': 'euler'},
+        "min_steps": 1,
+        "max_steps": 8,
     },
-    "z-image": {
 
+    "z-image": {
         "presets": {
-            "rapide":    {"steps": 14, "cfg": 3.0, "quant": "Q4_K_M", "label": "⚡ Rapide (14 etapes, Q4)"},
-            "equilibre": {"steps": 28, "cfg": 4.0, "quant": "Q5_K_M", "label": "⚖️ Equilibre (28 etapes, Q5)"},
-            "qualite":   {"steps": 40, "cfg": 5.0, "quant": "Q6_K",   "label": "✨ Qualite (40 etapes, Q6)"},
+            "rapide": {'steps': 14, 'cfg': 3.0, 'quant': 'Q4_K_M', 'label': '⚡ Rapide (14 etapes, Q4)'},
+            "equilibre": {'steps': 28, 'cfg': 4.0, 'quant': 'Q5_K_M', 'label': '⚖️ Equilibre (28 etapes, Q5)'},
+            "qualite": {'steps': 40, 'cfg': 5.0, 'quant': 'Q6_K', 'label': '✨ Qualite (40 etapes, Q6)'},
         },
-        "name": "Z-Image",
-        "arch": "zimage",
-        "repo": "unsloth/Z-Image-GGUF",
-        "quants": ["Q4_K_M", "Q5_K_M", "Q6_K"],
-        "default_quant": "Q5_K_M",
-        "file_for_quant": {
-            "Q4_K_M": "z-image-Q4_K_M.gguf",
-            "Q5_K_M": "z-image-Q5_K_M.gguf",
-            "Q6_K":   "z-image-Q6_K.gguf",
-        },
-        "size_gb": {"Q4_K_M": 5.1, "Q5_K_M": 5.6, "Q6_K": 6.1},
-        "deps": ["vae_flux", "qwen3_4b"],
+        "name": 'Z-Image',
+        "arch": 'zimage',
+        "repo": 'unsloth/Z-Image-GGUF',
+        "quants": ['Q4_K_M', 'Q5_K_M', 'Q6_K'],
+        "default_quant": 'Q5_K_M',
+        "file_for_quant": {'Q4_K_M': 'z-image-Q4_K_M.gguf', 'Q5_K_M': 'z-image-Q5_K_M.gguf', 'Q6_K': 'z-image-Q6_K.gguf'},
+        "size_gb": {'Q4_K_M': 5.1, 'Q5_K_M': 5.6, 'Q6_K': 6.1},
+        "deps": ['vae_flux', 'qwen3_4b'],
         "supports_neg": True,
         "needs_token": False,
-        "license": "Apache 2.0 (libre, commercial OK)",
-        "hf_url": "https://huggingface.co/unsloth/Z-Image-GGUF",
+        "supports_init": True,
+        "supports_ref": False,
+        "max_ref_images": 0,
+        "supports_control": False,
+        "supports_mask": False,
+        "supports_ip_adapter": False,
+        "license": 'Apache 2.0 (libre, commercial OK)',
+        "hf_url": 'https://huggingface.co/unsloth/Z-Image-GGUF',
         "vram_min_gb": 4,
-        "desc": "Modele fondamental polyvalent, excellent respect du prompt.",
-        "defaults": {"steps": 28, "cfg": 4.0, "sampler": "euler"},
-        "min_steps": 10, "max_steps": 50,
+        "desc": 'Modele fondamental polyvalent, excellent respect du prompt.',
+        "defaults": {'steps': 28, 'cfg': 4.0, 'sampler': 'euler'},
+        "min_steps": 10,
+        "max_steps": 50,
     },
+
     "ernie-turbo": {
-
         "presets": {
-            "rapide":    {"steps": 8,  "cfg": 1.0, "quant": "Q4_K_M", "label": "⚡ Rapide (8 etapes, Q4)"},
-            "equilibre": {"steps": 12, "cfg": 2.0, "quant": "Q5_K_M", "label": "⚖️ Equilibre (12 etapes, Q5)"},
-            "qualite":   {"steps": 20, "cfg": 3.5, "quant": "Q6_K",   "label": "✨ Qualite (20 etapes, Q6)"},
+            "rapide": {'steps': 8, 'cfg': 1.0, 'quant': 'Q4_K_M', 'label': '⚡ Rapide (8 etapes, Q4)'},
+            "equilibre": {'steps': 12, 'cfg': 2.0, 'quant': 'Q5_K_M', 'label': '⚖️ Equilibre (12 etapes, Q5)'},
+            "qualite": {'steps': 20, 'cfg': 3.5, 'quant': 'Q6_K', 'label': '✨ Qualite (20 etapes, Q6)'},
         },
-        "name": "ERNIE-Image Turbo",
-        "arch": "ernie",
-        "repo": "unsloth/ERNIE-Image-Turbo-GGUF",
-        "quants": ["Q4_K_M", "Q5_K_M", "Q6_K"],
-        "default_quant": "Q5_K_M",
-        "file_for_quant": {
-            "Q4_K_M": "ernie-image-turbo-Q4_K_M.gguf",
-            "Q5_K_M": "ernie-image-turbo-Q5_K_M.gguf",
-            "Q6_K":   "ernie-image-turbo-Q6_K.gguf",
-        },
-        "size_gb": {"Q4_K_M": 5.0, "Q5_K_M": 5.6, "Q6_K": 6.1},
-        "deps": ["vae_flux2", "ministral_3b"],
+        "name": 'ERNIE-Image Turbo',
+        "arch": 'ernie',
+        "repo": 'unsloth/ERNIE-Image-Turbo-GGUF',
+        "quants": ['Q4_K_M', 'Q5_K_M', 'Q6_K'],
+        "default_quant": 'Q5_K_M',
+        "file_for_quant": {'Q4_K_M': 'ernie-image-turbo-Q4_K_M.gguf', 'Q5_K_M': 'ernie-image-turbo-Q5_K_M.gguf', 'Q6_K': 'ernie-image-turbo-Q6_K.gguf'},
+        "size_gb": {'Q4_K_M': 5.0, 'Q5_K_M': 5.6, 'Q6_K': 6.1},
+        "deps": ['vae_flux2', 'ministral_3b'],
         "supports_neg": False,
         "needs_token": False,
-        "license": "Apache 2.0 (libre, commercial OK)",
-        "hf_url": "https://huggingface.co/unsloth/ERNIE-Image-Turbo-GGUF",
+        "supports_init": True,
+        "supports_ref": False,
+        "max_ref_images": 0,
+        "supports_control": False,
+        "supports_mask": False,
+        "supports_ip_adapter": False,
+        "license": 'Apache 2.0 (libre, commercial OK)',
+        "hf_url": 'https://huggingface.co/unsloth/ERNIE-Image-Turbo-GGUF',
         "vram_min_gb": 4,
-        "diffusion_fa": False,
         "desc": "Rapide (8 etapes), tres bon pour le texte dans l'image.",
-        "defaults": {"steps": 8, "cfg": 1.0, "sampler": "euler"},
-        "min_steps": 4, "max_steps": 20,
+        "defaults": {'steps': 8, 'cfg': 1.0, 'sampler': 'euler'},
+        "min_steps": 4,
+        "max_steps": 20,
+        "diffusion_fa": False,
     },
-    "ideogram4": {
 
+    "ideogram4": {
         "presets": {
-            "rapide":    {"steps": 8,  "cfg": 3.0, "quant": "Q4_0", "label": "⚡ Rapide (8 etapes)"},
-            "equilibre": {"steps": 12, "cfg": 4.0, "quant": "Q4_0", "label": "⚖️ Equilibre (12 etapes)"},
-            "qualite":   {"steps": 20, "cfg": 5.0, "quant": "Q4_0", "label": "✨ Qualite (20 etapes)"},
+            "rapide": {'steps': 8, 'cfg': 3.0, 'quant': 'Q4_0', 'label': '⚡ Rapide (8 etapes)'},
+            "equilibre": {'steps': 12, 'cfg': 4.0, 'quant': 'Q4_0', 'label': '⚖️ Equilibre (12 etapes)'},
+            "qualite": {'steps': 20, 'cfg': 5.0, 'quant': 'Q4_0', 'label': '✨ Qualite (20 etapes)'},
         },
-        "name": "Ideogram 4",
-        "arch": "ideogram",
-        "repo": "leejet/ideogram-4-GGUF",
-        "quants": ["Q4_0"],
-        "default_quant": "Q4_0",
-        "file_for_quant": {"Q4_0": "ideogram4-Q4_0.gguf"},
-        "uncond_file_for_quant": {"Q4_0": "ideogram4_uncond-Q4_0.gguf"},
-        "size_gb": {"Q4_0": 11.3},
-        "deps": ["vae_flux2", "qwen3vl_8b"],
+        "name": 'Ideogram 4',
+        "arch": 'ideogram',
+        "repo": 'leejet/ideogram-4-GGUF',
+        "quants": ['Q4_0'],
+        "default_quant": 'Q4_0',
+        "file_for_quant": {'Q4_0': 'ideogram4-Q4_0.gguf'},
+        "uncond_file_for_quant": {'Q4_0': 'ideogram4_uncond-Q4_0.gguf'},
+        "size_gb": {'Q4_0': 11.3},
+        "deps": ['vae_flux2', 'qwen3vl_8b'],
         "supports_neg": False,
         "needs_token": False,
-        "license": "Ideogram (lire les conditions)",
-        "hf_url": "https://huggingface.co/leejet/ideogram-4-GGUF",
+        "supports_init": True,
+        "supports_ref": False,
+        "max_ref_images": 0,
+        "supports_control": False,
+        "supports_mask": False,
+        "supports_ip_adapter": False,
+        "license": 'Ideogram (lire les conditions)',
+        "hf_url": 'https://huggingface.co/leejet/ideogram-4-GGUF',
         "vram_min_gb": 10,
-        "desc": "Rendu de texte top mais Q4_0 limite la qualite. Prompt converti en JSON automatiquement.",
-        "defaults": {"steps": 12, "cfg": 4.0, "sampler": "euler"},
-        "min_steps": 4, "max_steps": 30,
+        "desc": 'Rendu de texte top mais Q4_0 limite la qualite. Prompt converti en JSON automatiquement.',
+        "defaults": {'steps': 12, 'cfg': 4.0, 'sampler': 'euler'},
+        "min_steps": 4,
+        "max_steps": 30,
     },
-    "fhdr": {
 
+    "fhdr": {
         "presets": {
-            "rapide":    {"steps": 12, "cfg": 2.5, "quant": "Q4_K_M", "label": "⚡ Rapide (12 etapes)"},
-            "equilibre": {"steps": 20, "cfg": 3.5, "quant": "Q4_K_M", "label": "⚖️ Equilibre (20 etapes)"},
-            "qualite":   {"steps": 35, "cfg": 4.5, "quant": "Q4_K_M", "label": "✨ Qualite (35 etapes)"},
+            "rapide": {'steps': 12, 'cfg': 2.5, 'quant': 'Q4_K_M', 'label': '⚡ Rapide (12 etapes)'},
+            "equilibre": {'steps': 20, 'cfg': 3.5, 'quant': 'Q4_K_M', 'label': '⚖️ Equilibre (20 etapes)'},
+            "qualite": {'steps': 35, 'cfg': 4.5, 'quant': 'Q4_K_M', 'label': '✨ Qualite (35 etapes)'},
         },
-        "name": "FHDR Uncensored (FLUX-dev)",
-        "arch": "flux",
-        "repo": "kpsss34/FHDR_Uncensored",
-        "quants": ["Q4_K_M"],
-        "default_quant": "Q4_K_M",
-        "file_for_quant": {"Q4_K_M": "FHDR_ComfyUI-Q4_K_M.gguf"},
-        "size_gb": {"Q4_K_M": 6.9},
-        "deps": ["vae_flux", "clip_l", "t5xxl"],
+        "name": 'FHDR Uncensored (FLUX-dev)',
+        "arch": 'flux',
+        "repo": 'kpsss34/FHDR_Uncensored',
+        "quants": ['Q4_K_M'],
+        "default_quant": 'Q4_K_M',
+        "file_for_quant": {'Q4_K_M': 'FHDR_ComfyUI-Q4_K_M.gguf'},
+        "size_gb": {'Q4_K_M': 6.9},
+        "deps": ['vae_flux', 'clip_l', 't5xxl'],
         "supports_neg": True,
         "needs_token": True,
-        "license": "FLUX.1-dev Non-Commercial (usage perso uniquement)",
-        "hf_url": "https://huggingface.co/kpsss34/FHDR_Uncensored",
+        "supports_init": True,
+        "supports_ref": False,
+        "max_ref_images": 0,
+        "supports_control": False,
+        "supports_mask": False,
+        "supports_ip_adapter": False,
+        "license": 'FLUX.1-dev Non-Commercial (usage perso uniquement)',
+        "hf_url": 'https://huggingface.co/kpsss34/FHDR_Uncensored',
         "vram_min_gb": 6,
-        "desc": "FLUX.1-dev sans censure. Necessite un token Hugging Face.",
-        "defaults": {"steps": 20, "cfg": 3.5, "sampler": "euler"},
-        "min_steps": 8, "max_steps": 40,
+        "desc": 'FLUX.1-dev sans censure. Necessite un token Hugging Face.',
+        "defaults": {'steps': 20, 'cfg': 3.5, 'sampler': 'euler'},
+        "min_steps": 8,
+        "max_steps": 40,
     },
-    "qwen-image-2512": {
 
+    "qwen-image-2512": {
         "presets": {
-            "rapide":    {"steps": 15, "cfg": 2.0, "quant": "Q4_K_M", "label": "⚡ Rapide (15 etapes, Q4)"},
-            "equilibre": {"steps": 30, "cfg": 4.0, "quant": "Q5_K_M", "label": "⚖️ Equilibre (30 etapes, Q5)"},
-            "qualite":   {"steps": 50, "cfg": 5.0, "quant": "Q6_K",   "label": "✨ Qualite (50 etapes, Q6)"},
-            "optimise":  {"steps": 25, "cfg": 3.5, "quant": "Q5_K_M", "label": "🎯 Optimise edition (25 etapes)"},
+            "rapide": {'steps': 15, 'cfg': 2.0, 'quant': 'Q4_K_M', 'label': '⚡ Rapide (15 etapes, Q4)'},
+            "equilibre": {'steps': 30, 'cfg': 4.0, 'quant': 'Q5_K_M', 'label': '⚖️ Equilibre (30 etapes, Q5)'},
+            "qualite": {'steps': 50, 'cfg': 5.0, 'quant': 'Q6_K', 'label': '✨ Qualite (50 etapes, Q6)'},
+            "optimise": {'steps': 25, 'cfg': 3.5, 'quant': 'Q5_K_M', 'label': '🎯 Optimise edition (25 etapes)'},
         },
-        "name": "Qwen-Image 2512",
-        "arch": "qwen_image",
-        "repo": "unsloth/Qwen-Image-2512-GGUF",
-        "quants": ["Q4_K_M", "Q5_K_M", "Q6_K"],
-        "default_quant": "Q5_K_M",
-        "file_for_quant": {
-            "Q4_K_M": "qwen-image-2512-Q4_K_M.gguf",
-            "Q5_K_M": "qwen-image-2512-Q5_K_M.gguf",
-            "Q6_K":   "qwen-image-2512-Q6_K.gguf",
-        },
-        "size_gb": {"Q4_K_M": 13.2, "Q5_K_M": 15.0, "Q6_K": 16.8},
-        "deps": ["vae_qwen", "qwen25vl_7b"],
+        "name": 'Qwen-Image 2512',
+        "arch": 'qwen_image',
+        "repo": 'unsloth/Qwen-Image-2512-GGUF',
+        "quants": ['Q4_K_M', 'Q5_K_M', 'Q6_K'],
+        "default_quant": 'Q5_K_M',
+        "file_for_quant": {'Q4_K_M': 'qwen-image-2512-Q4_K_M.gguf', 'Q5_K_M': 'qwen-image-2512-Q5_K_M.gguf', 'Q6_K': 'qwen-image-2512-Q6_K.gguf'},
+        "size_gb": {'Q4_K_M': 13.2, 'Q5_K_M': 15.0, 'Q6_K': 16.8},
+        "deps": ['vae_qwen', 'qwen25vl_7b'],
         "supports_neg": True,
         "needs_token": False,
-        "license": "Apache 2.0 (libre, commercial OK)",
-        "hf_url": "https://huggingface.co/unsloth/Qwen-Image-2512-GGUF",
+        "supports_init": False,
+        "supports_ref": True,
+        "max_ref_images": 3,
+        "supports_control": False,
+        "supports_mask": False,
+        "supports_ip_adapter": False,
+        "license": 'Apache 2.0 (libre, commercial OK)',
+        "hf_url": 'https://huggingface.co/unsloth/Qwen-Image-2512-GGUF',
         "vram_min_gb": 8,
-        "desc": "Realisme humain ameliore, details naturels et rendu de texte.",
-        "defaults": {"steps": 30, "cfg": 4.0, "sampler": "euler"},
-        "min_steps": 10, "max_steps": 60,
+        "desc": 'Realisme humain ameliore, details naturels et rendu de texte.',
+        "defaults": {'steps': 30, 'cfg': 4.0, 'sampler': 'euler'},
+        "min_steps": 10,
+        "max_steps": 60,
     },
 
     "qwen-image-2.1": {
-        "name": "Qwen-Image-2.1",
-        "arch": "qwen_image",
-        "repo": "unsloth/Qwen-Image-2.1-GGUF",
-        "quants": ["Q4_K_M", "Q5_K_M", "Q6_K"],
-        "default_quant": "Q5_K_M",
-        "file_for_quant": {
-            "Q4_K_M": "qwen-image-2.1-Q4_K_M.gguf",
-            "Q5_K_M": "qwen-image-2.1-Q5_K_M.gguf",
-            "Q6_K":   "qwen-image-2.1-Q6_K.gguf",
+        "presets": {
+            "rapide": {'steps': 15, 'cfg': 1.0, 'quant': 'Q4_K_M', 'label': '⚡ Rapide (15 etapes, Q4)'},
+            "equilibre": {'steps': 25, 'cfg': 3.5, 'quant': 'Q5_K_M', 'label': '⚖️ Equilibre (25 etapes, Q5)'},
+            "qualite": {'steps': 40, 'cfg': 6.0, 'quant': 'Q6_K', 'label': '✨ Qualite (40 etapes, Q6)'},
+            "optimise": {'steps': 20, 'cfg': 1.0, 'quant': 'Q4_K_M', 'label': '🎯 Optimise edition (20 etapes, Q4)'},
         },
-        "size_gb": {"Q4_K_M": 4.2, "Q5_K_M": 5.4, "Q6_K": 6.3},
-        "deps": ["vae_qwen_21", "qwen3vl_8b", "mmproj_qwen3vl_8b"],
+        "name": 'Qwen-Image-2.1',
+        "arch": 'qwen_image',
+        "repo": 'unsloth/Qwen-Image-2.1-GGUF',
+        "quants": ['Q4_K_M', 'Q5_K_M', 'Q6_K'],
+        "default_quant": 'Q5_K_M',
+        "file_for_quant": {'Q4_K_M': 'qwen-image-2.1-Q4_K_M.gguf', 'Q5_K_M': 'qwen-image-2.1-Q5_K_M.gguf', 'Q6_K': 'qwen-image-2.1-Q6_K.gguf'},
+        "size_gb": {'Q4_K_M': 4.2, 'Q5_K_M': 5.4, 'Q6_K': 6.3},
+        "deps": ['vae_qwen_21', 'qwen3vl_8b', 'mmproj_qwen3vl_8b'],
         "supports_neg": False,
         "needs_token": False,
         "supports_img2img": True,
-        "license": "Qwen Research License (usage non-commercial)",
-        "hf_url": "https://huggingface.co/unsloth/Qwen-Image-2.1-GGUF",
+        "supports_init": False,
+        "supports_ref": True,
+        "max_ref_images": 10,
+        "supports_control": False,
+        "supports_mask": False,
+        "supports_ip_adapter": False,
+        "supports_transparency": True,
+        "license": 'Qwen Research License (usage non-commercial)',
+        "hf_url": 'https://huggingface.co/unsloth/Qwen-Image-2.1-GGUF',
         "vram_min_gb": 8,
-        "desc": "Image editing (semantic) + text2image. mmproj requis pour l'editions.",
-        "defaults": {"steps": 25, "cfg": 3.5, "sampler": "euler"},
-        "min_steps": 10, "max_steps": 50,
-        "presets": {
-            "rapide":    {"steps": 15, "cfg": 1.0, "quant": "Q4_K_M", "label": "⚡ Rapide (15 etapes, Q4)"},
-            "equilibre": {"steps": 25, "cfg": 3.5, "quant": "Q5_K_M", "label": "⚖️ Equilibre (25 etapes, Q5)"},
-            "qualite":   {"steps": 40, "cfg": 6.0, "quant": "Q6_K",   "label": "✨ Qualite (40 etapes, Q6)"},
-            "optimise":  {"steps": 20, "cfg": 1.0, "quant": "Q4_K_M", "label": "🎯 Optimise edition (20 etapes, Q4)"},
-        },
+        "desc": "Edition multi-images jusqu'a 10 refs + transparence RGBA + text2image. mmproj requis pour edition.",
+        "defaults": {'steps': 25, 'cfg': 3.5, 'sampler': 'euler'},
+        "min_steps": 10,
+        "max_steps": 50,
     },
 
-    # ---- NOUVEAUX MODELES ----
     "sd3.5-medium": {
-
-
         "presets": {
-            "rapide":    {"steps": 15, "cfg": 3.5, "quant": "Q4_K_M", "label": "⚡ Rapide (15 etapes, Q4)"},
-            "equilibre": {"steps": 30, "cfg": 4.5, "quant": "Q5_K_M", "label": "⚖️ Equilibre (30 etapes, Q5)"},
-            "qualite":   {"steps": 45, "cfg": 5.5, "quant": "Q6_K",   "label": "✨ Qualite (45 etapes, Q6)"},
+            "rapide": {'steps': 15, 'cfg': 3.5, 'quant': 'Q4_K_M', 'label': '⚡ Rapide (15 etapes, Q4)'},
+            "equilibre": {'steps': 30, 'cfg': 4.5, 'quant': 'Q5_K_M', 'label': '⚖️ Equilibre (30 etapes, Q5)'},
+            "qualite": {'steps': 45, 'cfg': 5.5, 'quant': 'Q6_K', 'label': '✨ Qualite (45 etapes, Q6)'},
         },
-        "name": "Stable Diffusion 3.5 Medium",
-        "arch": "sd3",
-        "repo": "city96/stable-diffusion-3.5-medium-gguf",
-        "quants": ["Q4_K_M", "Q5_K_M", "Q6_K"],
-        "default_quant": "Q5_K_M",
-        "file_for_quant": {
-            "Q4_K_M": "sd3.5_medium-Q4_K_M.gguf",
-            "Q5_K_M": "sd3.5_medium-Q5_K_M.gguf",
-            "Q6_K":   "sd3.5_medium-Q6_K.gguf",
-        },
-        "size_gb": {"Q4_K_M": 1.8, "Q5_K_M": 2.1, "Q6_K": 2.3},
-        "deps": ["vae_sd3", "clip_l", "clip_g", "t5xxl"],
+        "name": 'Stable Diffusion 3.5 Medium',
+        "arch": 'sd3',
+        "repo": 'city96/stable-diffusion-3.5-medium-gguf',
+        "quants": ['Q4_K_M', 'Q5_K_M', 'Q6_K'],
+        "default_quant": 'Q5_K_M',
+        "file_for_quant": {'Q4_K_M': 'sd3.5_medium-Q4_K_M.gguf', 'Q5_K_M': 'sd3.5_medium-Q5_K_M.gguf', 'Q6_K': 'sd3.5_medium-Q6_K.gguf'},
+        "size_gb": {'Q4_K_M': 1.8, 'Q5_K_M': 2.1, 'Q6_K': 2.3},
+        "deps": ['vae_sd3', 'clip_l', 'clip_g', 't5xxl'],
         "supports_neg": True,
-        "diffusion_fa": False,
-        "license": "Stability AI Community (non-commercial <$1M)",
-        "hf_url": "https://huggingface.co/city96/stable-diffusion-3.5-medium-gguf",
-        "vram_min_gb": 4,
         "needs_token": True,
-        "desc": "Modele compact 2.5B, VAE SD3 requis (gated). Bon equilibre qualite/vitesse.",
-        "defaults": {"steps": 30, "cfg": 4.5, "sampler": "euler"},
-        "min_steps": 10, "max_steps": 50,
+        "supports_init": True,
+        "supports_ref": False,
+        "max_ref_images": 0,
+        "supports_control": True,
+        "supports_mask": True,
+        "supports_ip_adapter": True,
+        "license": 'Stability AI Community (non-commercial <$1M)',
+        "hf_url": 'https://huggingface.co/city96/stable-diffusion-3.5-medium-gguf',
+        "vram_min_gb": 4,
+        "desc": 'Modele compact 2.5B, VAE SD3 requis (gated). Bon equilibre qualite/vitesse.',
+        "defaults": {'steps': 30, 'cfg': 4.5, 'sampler': 'euler'},
+        "min_steps": 10,
+        "max_steps": 50,
+        "diffusion_fa": False,
     },
+
     "sd3.5-large": {
-
-
         "presets": {
-            "rapide":    {"steps": 15, "cfg": 3.5, "quant": "Q5_0", "label": "⚡ Rapide (15 etapes, Q5_0)"},
-            "equilibre": {"steps": 30, "cfg": 4.5, "quant": "Q5_1", "label": "⚖️ Equilibre (30 etapes, Q5_1)"},
-            "qualite":   {"steps": 45, "cfg": 5.5, "quant": "Q5_1", "label": "✨ Qualite (45 etapes, Q5_1)"},
+            "rapide": {'steps': 15, 'cfg': 3.5, 'quant': 'Q5_0', 'label': '⚡ Rapide (15 etapes, Q5_0)'},
+            "equilibre": {'steps': 30, 'cfg': 4.5, 'quant': 'Q5_1', 'label': '⚖️ Equilibre (30 etapes, Q5_1)'},
+            "qualite": {'steps': 45, 'cfg': 5.5, 'quant': 'Q5_1', 'label': '✨ Qualite (45 etapes, Q5_1)'},
         },
-        "name": "Stable Diffusion 3.5 Large",
-        "arch": "sd3",
-        "repo": "city96/stable-diffusion-3.5-large-gguf",
-        "quants": ["Q5_0", "Q5_1"],
-        "default_quant": "Q5_1",
-        "file_for_quant": {
-            "Q5_0": "sd3.5_large-Q5_0.gguf",
-            "Q5_1": "sd3.5_large-Q5_1.gguf",
-        },
-        "size_gb": {"Q5_0": 5.8, "Q5_1": 6.3},
-        "deps": ["vae_sd3", "clip_l", "clip_g", "t5xxl"],
+        "name": 'Stable Diffusion 3.5 Large',
+        "arch": 'sd3',
+        "repo": 'city96/stable-diffusion-3.5-large-gguf',
+        "quants": ['Q5_0', 'Q5_1'],
+        "default_quant": 'Q5_1',
+        "file_for_quant": {'Q5_0': 'sd3.5_large-Q5_0.gguf', 'Q5_1': 'sd3.5_large-Q5_1.gguf'},
+        "size_gb": {'Q5_0': 5.8, 'Q5_1': 6.3},
+        "deps": ['vae_sd3', 'clip_l', 'clip_g', 't5xxl'],
         "supports_neg": True,
-        "diffusion_fa": False,
-        "license": "Stability AI Community (non-commercial <$1M)",
-        "hf_url": "https://huggingface.co/city96/stable-diffusion-3.5-large-gguf",
-        "vram_min_gb": 6,
         "needs_token": True,
-        "desc": "Modele 8B haute qualite. VAE SD3 requis (gated).",
-        "defaults": {"steps": 30, "cfg": 4.5, "sampler": "euler"},
-        "min_steps": 10, "max_steps": 50,
+        "supports_init": True,
+        "supports_ref": False,
+        "max_ref_images": 0,
+        "supports_control": True,
+        "supports_mask": True,
+        "supports_ip_adapter": True,
+        "license": 'Stability AI Community (non-commercial <$1M)',
+        "hf_url": 'https://huggingface.co/city96/stable-diffusion-3.5-large-gguf',
+        "vram_min_gb": 6,
+        "desc": 'Modele 8B haute qualite. VAE SD3 requis (gated).',
+        "defaults": {'steps': 30, 'cfg': 4.5, 'sampler': 'euler'},
+        "min_steps": 10,
+        "max_steps": 50,
+        "diffusion_fa": False,
     },
+
     "sd3.5-large-turbo": {
-
-
         "presets": {
-            "rapide":    {"steps": 4,  "cfg": 0.4, "quant": "Q4_1", "label": "⚡ Ultra-rapide (4 etapes, Q4_1)"},
-            "equilibre": {"steps": 4,  "cfg": 0.4, "quant": "Q5_1", "label": "⚖️ Equilibre (4 etapes, Q5_1)"},
-            "qualite":   {"steps": 6,  "cfg": 0.6, "quant": "Q5_1", "label": "✨ Qualite (6 etapes, Q5_1)"},
+            "rapide": {'steps': 4, 'cfg': 0.4, 'quant': 'Q4_1', 'label': '⚡ Ultra-rapide (4 etapes, Q4_1)'},
+            "equilibre": {'steps': 4, 'cfg': 0.4, 'quant': 'Q5_1', 'label': '⚖️ Equilibre (4 etapes, Q5_1)'},
+            "qualite": {'steps': 6, 'cfg': 0.6, 'quant': 'Q5_1', 'label': '✨ Qualite (6 etapes, Q5_1)'},
         },
-        "name": "Stable Diffusion 3.5 Large Turbo",
-        "arch": "sd3",
-        "repo": "city96/stable-diffusion-3.5-large-turbo-gguf",
-        "quants": ["Q4_1", "Q5_1"],
-        "default_quant": "Q5_1",
-        "file_for_quant": {
-            "Q4_1": "sd3.5_large_turbo-Q4_1.gguf",
-            "Q5_1": "sd3.5_large_turbo-Q5_1.gguf",
-        },
-        "size_gb": {"Q4_1": 5.3, "Q5_1": 6.3},
-        "deps": ["vae_sd3", "clip_l", "clip_g", "t5xxl"],
+        "name": 'Stable Diffusion 3.5 Large Turbo',
+        "arch": 'sd3',
+        "repo": 'city96/stable-diffusion-3.5-large-turbo-gguf',
+        "quants": ['Q4_1', 'Q5_1'],
+        "default_quant": 'Q5_1',
+        "file_for_quant": {'Q4_1': 'sd3.5_large_turbo-Q4_1.gguf', 'Q5_1': 'sd3.5_large_turbo-Q5_1.gguf'},
+        "size_gb": {'Q4_1': 5.3, 'Q5_1': 6.3},
+        "deps": ['vae_sd3', 'clip_l', 'clip_g', 't5xxl'],
         "supports_neg": False,
-        "diffusion_fa": False,
-        "license": "Stability AI Community (non-commercial <$1M)",
-        "hf_url": "https://huggingface.co/city96/stable-diffusion-3.5-large-turbo-gguf",
+        "needs_token": True,
+        "supports_init": True,
+        "supports_ref": False,
+        "max_ref_images": 0,
+        "supports_control": False,
+        "supports_mask": True,
+        "supports_ip_adapter": False,
+        "license": 'Stability AI Community (non-commercial <$1M)',
+        "hf_url": 'https://huggingface.co/city96/stable-diffusion-3.5-large-turbo-gguf',
         "vram_min_gb": 6,
-        "needs_token": True,
-        "desc": "Version distillee (4 etapes). VAE SD3 requis (gated). Ultra-rapide.",
-        "defaults": {"steps": 4, "cfg": 0.4, "sampler": "euler"},
-        "min_steps": 1, "max_steps": 8,
+        "desc": 'Version distillee (4 etapes). VAE SD3 requis (gated). Ultra-rapide.',
+        "defaults": {'steps': 4, 'cfg': 0.4, 'sampler': 'euler'},
+        "min_steps": 1,
+        "max_steps": 8,
+        "diffusion_fa": False,
     },
+
     "flux2-klein-4b": {
-
         "presets": {
-            "rapide":    {"steps": 4,  "cfg": 1.0, "quant": "Q4_K_M", "label": "⚡ Ultra-rapide (4 etapes, Q4)"},
-            "equilibre": {"steps": 4,  "cfg": 1.0, "quant": "Q5_K_M", "label": "⚖️ Equilibre (4 etapes, Q5)"},
-            "qualite":   {"steps": 6,  "cfg": 2.0, "quant": "Q6_K",   "label": "✨ Qualite (6 etapes, Q6)"},
-            "optimise":  {"steps": 4,  "cfg": 1.0, "quant": "Q4_K_M", "label": "🎯 Optimise edition (4 etapes, Q4)"},
+            "rapide": {'steps': 4, 'cfg': 1.0, 'quant': 'Q4_K_M', 'label': '⚡ Ultra-rapide (4 etapes, Q4)'},
+            "equilibre": {'steps': 4, 'cfg': 1.0, 'quant': 'Q5_K_M', 'label': '⚖️ Equilibre (4 etapes, Q5)'},
+            "qualite": {'steps': 6, 'cfg': 2.0, 'quant': 'Q6_K', 'label': '✨ Qualite (6 etapes, Q6)'},
+            "optimise": {'steps': 4, 'cfg': 1.0, 'quant': 'Q4_K_M', 'label': '🎯 Optimise edition (4 etapes, Q4)'},
         },
-        "name": "FLUX.2 Klein 4B",
-        "arch": "flux2",
-        "repo": "unsloth/FLUX.2-klein-4B-GGUF",
-        "quants": ["Q4_K_M", "Q5_K_M", "Q6_K"],
-        "default_quant": "Q5_K_M",
-        "file_for_quant": {
-            "Q4_K_M": "flux-2-klein-4b-Q4_K_M.gguf",
-            "Q5_K_M": "flux-2-klein-4b-Q5_K_M.gguf",
-            "Q6_K":   "flux-2-klein-4b-Q6_K.gguf",
-        },
-        "size_gb": {"Q4_K_M": 2.6, "Q5_K_M": 2.9, "Q6_K": 3.3},
-        "deps": ["vae_flux2", "qwen3_4b"],
+        "name": 'FLUX.2 Klein 4B',
+        "arch": 'flux2',
+        "repo": 'unsloth/FLUX.2-klein-4B-GGUF',
+        "quants": ['Q4_K_M', 'Q5_K_M', 'Q6_K'],
+        "default_quant": 'Q5_K_M',
+        "file_for_quant": {'Q4_K_M': 'flux-2-klein-4b-Q4_K_M.gguf', 'Q5_K_M': 'flux-2-klein-4b-Q5_K_M.gguf', 'Q6_K': 'flux-2-klein-4b-Q6_K.gguf'},
+        "size_gb": {'Q4_K_M': 2.6, 'Q5_K_M': 2.9, 'Q6_K': 3.3},
+        "deps": ['vae_flux2', 'qwen3_4b'],
         "supports_neg": False,
-        "supports_img2img": True,
         "needs_token": False,
-        "license": "Apache 2.0 (libre, commercial OK)",
-        "hf_url": "https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF",
-        "vram_min_gb": 4,
-        "desc": "Ultra-rapide (4 etapes), sous la seconde. Generation + edition unifies.",
-        "defaults": {"steps": 4, "cfg": 1.0, "sampler": "euler"},
-        "min_steps": 1, "max_steps": 10,
-    },
-    "flux2-klein-9b": {
-
-        "presets": {
-            "rapide":    {"steps": 4,  "cfg": 1.0, "quant": "Q4_K_M", "label": "⚡ Ultra-rapide (4 etapes, Q4)"},
-            "equilibre": {"steps": 4,  "cfg": 1.0, "quant": "Q5_K_M", "label": "⚖️ Equilibre (4 etapes, Q5)"},
-            "qualite":   {"steps": 6,  "cfg": 2.0, "quant": "Q6_K",   "label": "✨ Qualite (6 etapes, Q6)"},
-            "optimise":  {"steps": 4,  "cfg": 1.0, "quant": "Q4_K_M", "label": "🎯 Optimise edition (4 etapes, Q4)"},
-        },
-        "name": "FLUX.2 Klein 9B",
-        "arch": "flux2",
-        "repo": "unsloth/FLUX.2-klein-9B-GGUF",
-        "quants": ["Q4_K_M", "Q5_K_M", "Q6_K"],
-        "default_quant": "Q5_K_M",
-        "file_for_quant": {
-            "Q4_K_M": "flux-2-klein-9b-Q4_K_M.gguf",
-            "Q5_K_M": "flux-2-klein-9b-Q5_K_M.gguf",
-            "Q6_K":   "flux-2-klein-9b-Q6_K.gguf",
-        },
-        "size_gb": {"Q4_K_M": 5.9, "Q5_K_M": 6.7, "Q6_K": 7.5},
-        "deps": ["vae_flux2", "qwen3_8b"],
-        "supports_neg": False,
         "supports_img2img": True,
-        "needs_token": True,
-        "license": "FLUX Non-Commercial (usage perso uniquement)",
-        "hf_url": "https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF",
-        "vram_min_gb": 8,
-        "desc": "Modele phare BFL. Qualite top en sous-seconde (4 etapes). Non-commercial.",
-        "defaults": {"steps": 4, "cfg": 1.0, "sampler": "euler"},
-        "min_steps": 1, "max_steps": 10,
+        "supports_init": True,
+        "supports_ref": True,
+        "max_ref_images": 4,
+        "supports_control": False,
+        "supports_mask": False,
+        "supports_ip_adapter": False,
+        "license": 'Apache 2.0 (libre, commercial OK)',
+        "hf_url": 'https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF',
+        "vram_min_gb": 4,
+        "desc": "Ultra-rapide (4 etapes) + edition multi-ref (jusqu'a 4 images) + img2img.",
+        "defaults": {'steps': 4, 'cfg': 1.0, 'sampler': 'euler'},
+        "min_steps": 1,
+        "max_steps": 10,
     },
-}
 
+    "flux2-klein-9b": {
+        "presets": {
+            "rapide": {'steps': 4, 'cfg': 1.0, 'quant': 'Q4_K_M', 'label': '⚡ Ultra-rapide (4 etapes, Q4)'},
+            "equilibre": {'steps': 4, 'cfg': 1.0, 'quant': 'Q5_K_M', 'label': '⚖️ Equilibre (4 etapes, Q5)'},
+            "qualite": {'steps': 6, 'cfg': 2.0, 'quant': 'Q6_K', 'label': '✨ Qualite (6 etapes, Q6)'},
+            "optimise": {'steps': 4, 'cfg': 1.0, 'quant': 'Q4_K_M', 'label': '🎯 Optimise edition (4 etapes, Q4)'},
+        },
+        "name": 'FLUX.2 Klein 9B',
+        "arch": 'flux2',
+        "repo": 'unsloth/FLUX.2-klein-9B-GGUF',
+        "quants": ['Q4_K_M', 'Q5_K_M', 'Q6_K'],
+        "default_quant": 'Q5_K_M',
+        "file_for_quant": {'Q4_K_M': 'flux-2-klein-9b-Q4_K_M.gguf', 'Q5_K_M': 'flux-2-klein-9b-Q5_K_M.gguf', 'Q6_K': 'flux-2-klein-9b-Q6_K.gguf'},
+        "size_gb": {'Q4_K_M': 5.9, 'Q5_K_M': 6.7, 'Q6_K': 7.5},
+        "deps": ['vae_flux2', 'qwen3_8b'],
+        "supports_neg": False,
+        "needs_token": True,
+        "supports_img2img": True,
+        "supports_init": True,
+        "supports_ref": True,
+        "max_ref_images": 4,
+        "supports_control": False,
+        "supports_mask": False,
+        "supports_ip_adapter": False,
+        "license": 'FLUX Non-Commercial (usage perso uniquement)',
+        "hf_url": 'https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF',
+        "vram_min_gb": 8,
+        "desc": 'Modele phare BFL + edition multi-ref (4 images) + img2img. Non-commercial.',
+        "defaults": {'steps': 4, 'cfg': 1.0, 'sampler': 'euler'},
+        "min_steps": 1,
+        "max_steps": 10,
+    },
+
+}
 
 # --------------------------------------------------------------------------- #
 #  Resolution de quant (pour les dependances GGUF)
@@ -671,12 +711,35 @@ def _diffusion_path(model_id, quant):
     return str(DIFFUSION_DIR / m["file_for_quant"][quant])
 
 
+
 def build_command(model_id, quant, prompt, negative, width, height, steps,
                   cfg, seed, batch, out_template, sd_cli, manifest,
-                  source_image=None, lora_dir=None, strength=None):
+                  source_image=None, lora_dir=None, strength=None,
+                  ref_images=None, init_image=None, control_image=None,
+                  mask_image=None, ip_adapter_image=None,
+                  control_strength=None, ip_adapter_strength=None):
+    """
+    Construit la commande sd-cli.
+    - source_image : legacy, pour compatibilité (mappe vers init ou ref selon arch)
+    - ref_images : liste d'images de référence (édition multi-images, Qwen-Image 2.1 jusqu'à 10, FLUX.2 Klein)
+    - init_image : image initiale pour img2img classique (SD3.5, FLUX, etc)
+    - control_image : image de contrôle / pose (ControlNet)
+    - mask_image : masque pour inpainting
+    - ip_adapter_image : image pour IP-Adapter (style / référence)
+    - strength : force img2img (0..1)
+    - control_strength : force du control
+    - ip_adapter_strength : force IP-Adapter
+    """
     m = MODELS[model_id]
     arch = m["arch"]
     args = [sd_cli]
+
+    # Compatibilité ascendante : si source_image fourni mais pas ref/init, mapper selon arch
+    if source_image and not ref_images and not init_image:
+        if arch in ("sd3", "sd") or m.get("supports_init") and not m.get("supports_ref"):
+            init_image = source_image
+        else:
+            ref_images = [source_image]
 
     # Modele de diffusion
     diff_file = _diffusion_path(model_id, quant)
@@ -755,14 +818,46 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
         if negative and m.get("supports_neg"):
             args += ["-n", negative]
 
-    # Image source (img2img / edition)
-    if source_image:
-        if arch in ("sd3", "sd"):
-            args += ["-i", source_image]
-        else:
-            args += ["-r", source_image]
+    # --- Images d'entrée (nouvelle API multi-images) ---
+    # Image initiale (img2img classique)
+    if init_image:
+        args += ["-i", init_image]
         if strength is not None:
             args += ["--strength", f"{strength}"]
+
+    # Images de référence (édition multi-images) - Qwen-Image 2.1 supporte jusqu'à 10 via -r répété
+    if ref_images:
+        # Limiter au max supporté par le modèle (sécurité)
+        max_ref = m.get("max_ref_images", 10) or 10
+        # Si max_ref == 0, on autorise quand même 1 pour compatibilité (certains modèles supportent ref sans l'annoncer)
+        if max_ref == 0:
+            max_ref = 4
+        for img_path in ref_images[:max_ref]:
+            args += ["-r", img_path]
+        # Si ref_images présent et strength fourni mais pas d'init_image, strength s'applique parfois à l'édition ?
+        # Pour Qwen-Image 2.1, strength n'est pas utilisé, mais on le garde pour d'autres modèles
+        if not init_image and strength is not None and arch in ("sd3", "sd"):
+            # Dans le cas où l'utilisateur a fourni ref_images mais voulait init, on a déjà géré via compatibilité
+            pass
+
+    # Image de contrôle / pose (ControlNet)
+    if control_image:
+        args += ["--control-image", control_image]
+        if control_strength is not None:
+            args += ["--control-strength", f"{control_strength}"]
+
+    # Masque (inpainting)
+    if mask_image:
+        args += ["--mask", mask_image]
+
+    # IP-Adapter image (style / référence supplémentaire)
+    if ip_adapter_image:
+        args += ["--ip-adapter-image", ip_adapter_image]
+        if ip_adapter_strength is not None:
+            args += ["--ip-adapter-strength", f"{ip_adapter_strength}"]
+
+    # Legacy: si source_image encore présent après mapping et pas déjà traité (cas où ref_images et init_image déjà traités)
+    # On ne refait rien, déjà mappé
 
     # Parametres
     args += ["--cfg-scale", f"{cfg}",
@@ -789,8 +884,9 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     if arch == "ernie" or model_id == "qwen-image-2512":
         args += ["--flow-shift", "3"]
 
-    # zero-cond-t pour meilleure qualite d'edition Qwen-Image-2.1
-    if model_id == "qwen-image-2.1" and source_image:
+    # zero-cond-t pour meilleure qualite d'edition Qwen-Image-2.1 quand ref_images présent
+    has_ref = bool(ref_images) or bool(source_image)
+    if model_id == "qwen-image-2.1" and has_ref:
         args += ["--model-args", "qwen_image_zero_cond_t=true"]
 
     # LoRA : --lora-model-dir (option officielle sd-cli, pas --lora-dir)
@@ -801,6 +897,7 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
             args += ["--lora-model-dir", str(lora_p)]
 
     return args
+
 
 
 # --------------------------------------------------------------------------- #

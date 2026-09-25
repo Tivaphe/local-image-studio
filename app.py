@@ -132,6 +132,15 @@ def api_models():
             "deps": m["deps"],
             "presets": m.get("presets", {}),
             "status": st,
+            # nouvelles capacites multi-images
+            "supports_init": m.get("supports_init", m.get("supports_img2img", False)),
+            "supports_ref": m.get("supports_ref", False),
+            "max_ref_images": m.get("max_ref_images", 0),
+            "supports_control": m.get("supports_control", False),
+            "supports_mask": m.get("supports_mask", False),
+            "supports_ip_adapter": m.get("supports_ip_adapter", False),
+            "supports_transparency": m.get("supports_transparency", False),
+            "supports_img2img": m.get("supports_img2img", False),
         }
     return jsonify(out)
 
@@ -178,6 +187,21 @@ def api_generate():
     if data.get("width") and data.get("height"):
         w, h = int(data["width"]), int(data["height"])
 
+    # Normalisation des images : support legacy source_image + nouveau multi-images
+    ref_images = data.get("ref_images")  # liste
+    if isinstance(ref_images, str):
+        ref_images = [ref_images]
+    # Filtrer les valeurs vides
+    if ref_images:
+        ref_images = [x for x in ref_images if x]
+        if not ref_images:
+            ref_images = None
+    # Pour compatibilité, si source_image est une liste, la traiter comme ref_images
+    src = data.get("source_image")
+    if isinstance(src, list):
+        ref_images = (ref_images or []) + src
+        src = None
+
     params = {
         "model_id": mid,
         "quant": quant,
@@ -188,12 +212,25 @@ def api_generate():
         "cfg": float(data.get("cfg") or m["defaults"]["cfg"]),
         "seed": data.get("seed"),
         "batch": max(1, min(4, int(data.get("batch") or 1))),
-        "source_image": data.get("source_image"),
+        # legacy
+        "source_image": src,
+        # nouveau multi-images
+        "ref_images": ref_images,
+        "init_image": data.get("init_image"),
+        "control_image": data.get("control_image"),
+        "mask_image": data.get("mask_image"),
+        "ip_adapter_image": data.get("ip_adapter_image"),
         "strength": data.get("strength"),
+        "control_strength": data.get("control_strength"),
+        "ip_adapter_strength": data.get("ip_adapter_strength"),
         "lora_dir": data.get("lora_dir"),
     }
     if not params["prompt"]:
         return jsonify({"ok": False, "error": "Le prompt est vide."}), 400
+    # Validation du nombre de ref_images selon le modèle
+    max_ref = m.get("max_ref_images", 0)
+    if ref_images and max_ref and len(ref_images) > max_ref:
+        return jsonify({"ok": False, "error": f"Ce modèle supporte au maximum {max_ref} images de référence (reçu {len(ref_images)})."}), 400
     try:
         tasks.start_generate(params)
     except RuntimeError as e:
@@ -319,22 +356,106 @@ def api_enrich():
 
 
 # --------------------------------------------------------------------------- #
-#  API : upload d'image source (pour img2img / edition)
+#  Fichiers source (images de référence, init, pose, etc.)
 # --------------------------------------------------------------------------- #
-@app.route("/api/upload-source-image", methods=["POST"])
-def api_upload_source_image():
-    """Upload une image source pour img2img/edition. Renvoie le path relatif."""
-    if "image" not in request.files:
-        return jsonify({"ok": False, "error": "Aucune image fournie."}), 400
-    f = request.files["image"]
-    if not f.filename or not f.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-        return jsonify({"ok": False, "error": "Format non supporté. Utilisez PNG, JPG ou WEBP."}), 400
-    ext = Path(f.filename).suffix.lower()
+@app.route("/source-images/<path:filename>")
+def serve_source_images(filename):
+    return send_from_directory(str(config.SOURCE_IMAGES_DIR), filename)
+
+
+# --------------------------------------------------------------------------- #
+#  API : upload d'images (multi-images pour Qwen-Image 2.1, FLUX.2, etc.)
+# --------------------------------------------------------------------------- #
+def _save_uploaded_image(file_storage):
+    """Sauvegarde un fichier uploadé et renvoie (rel_path, url, filename)."""
+    if not file_storage.filename or not file_storage.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp")):
+        raise ValueError("Format non supporté. Utilisez PNG, JPG, WEBP ou BMP.")
+    ext = Path(file_storage.filename).suffix.lower() or ".png"
     unique_name = f"{uuid.uuid4().hex[:12]}{ext}"
     dest = config.SOURCE_IMAGES_DIR / unique_name
-    f.save(str(dest))
+    file_storage.save(str(dest))
     rel = dest.relative_to(config.ROOT).as_posix()
-    return jsonify({"ok": True, "filename": rel, "url": f"/source-images/{unique_name}"})
+    return rel, f"/source-images/{unique_name}", unique_name
+
+
+@app.route("/api/upload-source-image", methods=["POST"])
+def api_upload_source_image():
+    """Upload une image source pour img2img/edition. Renvoie le path relatif. (legacy, 1 image)"""
+    if "image" not in request.files:
+        return jsonify({"ok": False, "error": "Aucune image fournie."}), 400
+    try:
+        rel, url, _ = _save_uploaded_image(request.files["image"])
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    return jsonify({"ok": True, "filename": rel, "url": url})
+
+
+@app.route("/api/upload-images", methods=["POST"])
+def api_upload_images():
+    """Upload multiple images (jusqu'à 10) pour édition multi-références.
+    Accepte :
+      - champ 'images' avec plusieurs fichiers
+      - ou champ 'image' avec un seul fichier
+    Renvoie liste de {filename, url}
+    """
+    files = []
+    # Flask: getlist pour champ multiple
+    if "images" in request.files:
+        files = request.files.getlist("images")
+    elif "image" in request.files:
+        files = request.files.getlist("image")
+    else:
+        # fallback: tous les fichiers envoyés
+        files = list(request.files.values())
+
+    if not files:
+        return jsonify({"ok": False, "error": "Aucune image fournie."}), 400
+
+    if len(files) > 10:
+        return jsonify({"ok": False, "error": "Maximum 10 images à la fois."}), 400
+
+    results = []
+    for f in files:
+        if not f or not f.filename:
+            continue
+        try:
+            rel, url, _ = _save_uploaded_image(f)
+            results.append({"filename": rel, "url": url})
+        except ValueError as e:
+            return jsonify({"ok": False, "error": f"{f.filename}: {e}"}), 400
+
+    if not results:
+        return jsonify({"ok": False, "error": "Aucune image valide."}), 400
+
+    return jsonify({"ok": True, "images": results, "count": len(results)})
+
+
+@app.route("/api/upload-image", methods=["POST"])
+def api_upload_single_generic():
+    """Upload générique pour init, control, mask, ip_adapter.
+    Param 'type' optionnel pour log (init, control, mask, ref, ip_adapter)
+    """
+    # Accepte 'image' ou 'file' ou premier fichier
+    file_obj = None
+    if "image" in request.files:
+        file_obj = request.files["image"]
+    elif "file" in request.files:
+        file_obj = request.files["file"]
+    else:
+        # premier fichier quelconque
+        vals = list(request.files.values())
+        if vals:
+            file_obj = vals[0]
+
+    if not file_obj:
+        return jsonify({"ok": False, "error": "Aucune image fournie."}), 400
+    try:
+        rel, url, _ = _save_uploaded_image(file_obj)
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+    img_type = request.form.get("type") or request.args.get("type") or "image"
+    return jsonify({"ok": True, "filename": rel, "url": url, "type": img_type})
 
 # --------------------------------------------------------------------------- #
 #  API : statistiques

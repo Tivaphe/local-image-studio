@@ -24,34 +24,42 @@
       <textarea id="negative" rows="2" placeholder="ce qu'il faut éviter : blurry, low quality, extra fingers"></textarea>
     </label>
 
-    <!-- Image source pour img2img / edition -->
-    <details class="advanced">
-      <summary>Image source (img2img / édition)</summary>
+    <div class="field" id="transparency-field" style="display:none;">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+        <input type="checkbox" id="transparency-check" style="width:auto;">
+        <span>Image transparente (RGBA) - fond transparent <em>Qwen-Image 2.1 uniquement</em></span>
+      </label>
+      <small class="muted">Ajoute automatiquement "This is an RGBA image with transparency..." au prompt pour générer des assets, stickers, logos avec fond transparent.</small>
+    </div>
+
+    <!-- ===================== MULTI-IMAGES ===================== -->
+    <div class="field multi-images-section">
+      <span style="font-weight:600; margin-bottom:6px; display:block;">Images d'entrée (selon modèle)</span>
+      <div id="model-capabilities-hint" class="hint" style="margin-bottom:10px;"></div>
+    </div>
+
+    <!-- Images de référence (multi, Qwen-Image 2.1 jusqu'à 10) -->
+    <details class="advanced" id="ref-images-details" open>
+      <summary>🖼️ Images de référence (édition multi-images) <span id="ref-count-badge" class="badge">0</span></summary>
       <div class="img-source-row">
         <label class="field">
-          <span>Uploader une image</span>
-          <div class="file-upload" id="file-upload-area">
-            <input type="file" id="source-image-input" accept="image/png,image/jpeg,image/webp" hidden>
-            <div class="upload-placeholder" id="upload-placeholder">
+          <span>Uploader 1 à 10 images de référence</span>
+          <div class="file-upload" id="ref-images-upload-area">
+            <input type="file" id="ref-images-input" accept="image/png,image/jpeg,image/webp,image/bmp" multiple hidden>
+            <div class="upload-placeholder" id="ref-upload-placeholder">
               <i class="icon">📁</i>
-              <span>Cliquez ou glissez une image ici</span>
-              <small class="muted">PNG, JPG, WEBP - pour l'édition avec Qwen-Image 2.1</small>
-            </div>
-            <div class="upload-preview hidden" id="upload-preview">
-              <img id="preview-img" alt="Aperçu">
-              <div class="preview-info">
-                <span id="preview-name"></span>
-                <button id="remove-image" class="btn ghost small">Retirer</button>
-              </div>
+              <span>Cliquez ou glissez jusqu'à 10 images ici</span>
+              <small class="muted">PNG, JPG, WEBP - Qwen-Image 2.1 supporte jusqu'à 10 images, FLUX.2 Klein jusqu'à 4</small>
             </div>
           </div>
         </label>
-        <input type="hidden" id="source-image-path">
       </div>
+      <div id="ref-images-grid" class="ref-grid"></div>
       <p class="hint">
-        <strong>Modèles avec édition :</strong> Qwen-Image 2.1 (édition sémantique), 
-        FLUX.2 Klein (édition par référence), SD 3.5 (img2img classique).
-        <br>Exemple : "make it sunset", "add sunglasses", "change style to watercolor".
+        <strong>Qwen-Image 2.1 :</strong> Image 1 = sujet principal à éditer, Images 2..N = références (tenue, style, décor, personnage...).<br>
+        Exemples : "Habille le modèle de l'image 2 avec la tenue de l'image 1", "Remplace le fond de l'image 1 par le décor de l'image 2", "Combine ces 3 personnages autour d'un feu de camp".<br>
+        <strong>FLUX.2 Klein :</strong> 1 image de référence pour édition rapide (change background, add object...).<br>
+        <em>Astuce : nommez vos images dans le prompt comme "image 1", "image 2" ou "input_image" pour Qwen.</em>
       </p>
       <div id="mmproj-status" class="mmproj-notice hidden">
         <span id="mmproj-msg">Vérification...</span>
@@ -59,12 +67,108 @@
           Télécharger mmproj (requis pour l'édition)
         </button>
       </div>
+    </details>
+
+    <!-- Image initiale (img2img classique) -->
+    <details class="advanced" id="init-image-details">
+      <summary>🎨 Image initiale (img2img classique)</summary>
+      <div class="img-source-row">
+        <label class="field">
+          <span>Image de départ pour transformation</span>
+          <div class="file-upload" id="init-upload-area">
+            <input type="file" id="init-image-input" accept="image/png,image/jpeg,image/webp" hidden>
+            <div class="upload-placeholder" id="init-upload-placeholder">
+              <i class="icon">🖼️</i>
+              <span>Cliquez ou glissez une image initiale</span>
+              <small class="muted">SD 3.5, FLUX, Z-Image - transforme une image existante</small>
+            </div>
+            <div class="upload-preview hidden" id="init-upload-preview">
+              <img id="init-preview-img" alt="Aperçu init">
+              <div class="preview-info">
+                <span id="init-preview-name"></span>
+                <button id="remove-init-image" class="btn ghost small">Retirer</button>
+              </div>
+            </div>
+          </div>
+        </label>
+        <input type="hidden" id="init-image-path">
+      </div>
       <label class="field" id="strength-field" style="display:none;">
-        <span>Force (strength) <em>pour SD 3.5</em></span>
+        <span>Force img2img (strength) <em>0 = conserve, 1 = régénère</em></span>
         <input type="number" id="strength" min="0" max="1" step="0.05" placeholder="0.75" value="0.75">
-        <small class="muted">0 = image originale conservée, 1 = re-generer completement</small>
+        <small class="muted">0 = image originale conservée, 1 = re-générer complètement. Pour SD 3.5 et FLUX.</small>
       </label>
     </details>
+
+    <!-- Image de pose / contrôle -->
+    <details class="advanced" id="control-image-details">
+      <summary>🧍 Image de pose / contrôle (ControlNet)</summary>
+      <div class="img-source-row">
+        <label class="field">
+          <span>Image de pose ou de contrôle</span>
+          <div class="file-upload" id="control-upload-area">
+            <input type="file" id="control-image-input" accept="image/png,image/jpeg,image/webp" hidden>
+            <div class="upload-placeholder" id="control-upload-placeholder">
+              <i class="icon">🧍</i>
+              <span>Cliquez ou glissez une image de pose</span>
+              <small class="muted">Pose OpenPose, depth, canny - pour contrôler la posture/composition</small>
+            </div>
+            <div class="upload-preview hidden" id="control-upload-preview">
+              <img id="control-preview-img" alt="Aperçu control">
+              <div class="preview-info">
+                <span id="control-preview-name"></span>
+                <button id="remove-control-image" class="btn ghost small">Retirer</button>
+              </div>
+            </div>
+          </div>
+        </label>
+        <input type="hidden" id="control-image-path">
+      </div>
+      <label class="field" id="control-strength-field" style="display:none;">
+        <span>Force du contrôle</span>
+        <input type="number" id="control-strength" min="0" max="1" step="0.05" value="0.9">
+        <small class="muted">0 = faible influence, 1 = suit strictement la pose</small>
+      </label>
+      <p class="hint">
+        <strong>Note :</strong> Le contrôle de pose fonctionne surtout avec SD 3.5 et modèles UNet. Pour Qwen-Image 2.1 / FLUX.2, utilisez plutôt les images de référence avec un prompt du type "change pose of girl in image 1 to pose of character in image 2".
+      </p>
+    </details>
+
+    <!-- Masque -->
+    <details class="advanced" id="mask-image-details">
+      <summary>🎭 Masque (inpainting)</summary>
+      <div class="img-source-row">
+        <label class="field">
+          <span>Masque noir et blanc</span>
+          <div class="file-upload" id="mask-upload-area">
+            <input type="file" id="mask-image-input" accept="image/png,image/jpeg,image/webp" hidden>
+            <div class="upload-placeholder" id="mask-upload-placeholder">
+              <i class="icon">🎭</i>
+              <span>Cliquez ou glissez un masque</span>
+              <small class="muted">Blanc = zone à régénérer, Noir = conserver. Pour SD 3.5 inpainting.</small>
+            </div>
+            <div class="upload-preview hidden" id="mask-upload-preview">
+              <img id="mask-preview-img" alt="Aperçu mask">
+              <div class="preview-info">
+                <span id="mask-preview-name"></span>
+                <button id="remove-mask-image" class="btn ghost small">Retirer</button>
+              </div>
+            </div>
+          </div>
+        </label>
+        <input type="hidden" id="mask-image-path">
+      </div>
+    </details>
+
+    <!-- Legacy single image (caché, pour compatibilité) -->
+    <input type="hidden" id="source-image-path">
+    <div class="file-upload hidden" id="file-upload-area">
+      <input type="file" id="source-image-input" accept="image/png,image/jpeg,image/webp" hidden>
+      <div class="upload-placeholder hidden" id="upload-placeholder"></div>
+      <div class="upload-preview hidden" id="upload-preview">
+        <img id="preview-img" alt="Aperçu"><div class="preview-info"><span id="preview-name"></span><button id="remove-image" class="btn ghost small">Retirer</button></div>
+      </div>
+    </div>
 
     <div class="row">
       <label class="field grow">

@@ -233,3 +233,19 @@ small{color:var(--muted)}
 /* téléchargement modèles (page modèles) */
 .dl-quant{flex:1;min-width:0}
 .dl-btn{min-width:120px}
+
+/* ===== Multi-images (Qwen-Image 2.1, FLUX.2) ===== */
+.multi-images-section{margin-bottom:4px}
+.badge{font-size:11px;padding:2px 8px;border-radius:10px;background:var(--accent);color:#fff;font-weight:700;margin-left:6px}
+.ref-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:12px}
+.ref-item{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg2);position:relative}
+.ref-thumb{height:100px;background:#000;display:grid;place-items:center;overflow:hidden}
+.ref-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.ref-meta{padding:6px 8px;display:flex;flex-direction:column;gap:4px}
+.ref-index{font-size:11px;font-weight:700;color:var(--accent2)}
+.ref-name{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ref-remove{font-size:11px;padding:2px 8px}
+.ref-item:hover{border-color:var(--accent)}
+.file-upload .badge{position:absolute;top:6px;right:6px}
+#ref-images-upload-area{min-height:90px}
+#model-capabilities-hint{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px}
