@@ -183,7 +183,13 @@ def api_generate():
     m = MODELS[mid]
     quant = data.get("quant") or m["default_quant"]
     ratio = data.get("ratio", "1:1")
-    w, h = RATIOS.get(ratio, RATIOS["1:1"])
+    use_source_format = data.get("use_source_format") or data.get("keep_input_format") or ratio == "source"
+
+    # Dimensions par défaut selon ratio
+    if ratio == "source":
+        w, h = (0, 0)
+    else:
+        w, h = RATIOS.get(ratio, RATIOS["1:1"])
     if data.get("width") and data.get("height"):
         w, h = int(data["width"]), int(data["height"])
 
@@ -191,16 +197,51 @@ def api_generate():
     ref_images = data.get("ref_images")  # liste
     if isinstance(ref_images, str):
         ref_images = [ref_images]
-    # Filtrer les valeurs vides
     if ref_images:
         ref_images = [x for x in ref_images if x]
         if not ref_images:
             ref_images = None
-    # Pour compatibilité, si source_image est une liste, la traiter comme ref_images
     src = data.get("source_image")
     if isinstance(src, list):
         ref_images = (ref_images or []) + src
         src = None
+
+    # --- Résolution du format source si demandé ---
+    if use_source_format or ratio == "source":
+        first_img_path = None
+        candidates = []
+        if ref_images:
+            candidates.extend(ref_images)
+        if data.get("init_image"):
+            candidates.append(data.get("init_image"))
+        if src:
+            candidates.append(src)
+        if data.get("control_image"):
+            candidates.append(data.get("control_image"))
+
+        from pathlib import Path
+        from registry import get_rounded_dimensions_for_model, get_image_dimensions
+        for cand in candidates:
+            if not cand:
+                continue
+            p = Path(cand)
+            if not p.is_absolute():
+                p = (config.ROOT / cand).resolve()
+            if p.exists():
+                first_img_path = str(p)
+                break
+
+        if first_img_path:
+            dims = get_rounded_dimensions_for_model(first_img_path, model_id=mid)
+            if dims:
+                w, h = dims
+            else:
+                raw = get_image_dimensions(first_img_path)
+                if raw:
+                    from registry import round16
+                    w, h = round16(raw[0]), round16(raw[1])
+        if w == 0 or h == 0:
+            w, h = RATIOS["1:1"]
 
     params = {
         "model_id": mid,

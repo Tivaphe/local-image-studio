@@ -906,6 +906,33 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
 def round16(x):
     return max(16, (int(x) // 16) * 16)
 
+def round32(x):
+    return max(32, (int(x) // 32) * 32)
+
+
+def get_image_dimensions(image_path):
+    """Retourne (width, height) d'une image, arrondi à 16px (32 pour Qwen)."""
+    try:
+        from PIL import Image
+        with Image.open(image_path) as im:
+            w, h = im.size
+            return w, h
+    except Exception:
+        return None
+
+
+def get_rounded_dimensions_for_model(image_path, model_id=None):
+    """Retourne dimensions arrondies selon le modèle (32 pour Qwen-Image 2.1, 16 sinon)."""
+    dims = get_image_dimensions(image_path)
+    if not dims:
+        return None
+    w, h = dims
+    # Qwen-Image 2.1 nécessite dimensions divisibles par 32
+    if model_id == "qwen-image-2.1":
+        return round32(w), round32(h)
+    else:
+        return round16(w), round16(h)
+
 
 RATIOS = {
     "1:1":  (1024, 1024),
@@ -913,4 +940,5 @@ RATIOS = {
     "4:3":  (1152, 896),
     "9:16": (768, 1344),
     "16:9": (1344, 768),
+    "source": (0, 0),  # format de l'image d'entrée (auto)
 }

@@ -98,8 +98,32 @@ async function loadModels() {
 
   buildRatios();
   if (prefs.ratio && RATIOS[prefs.ratio]) currentRatio = prefs.ratio;
+    buildRatios();
   buildRatiosApply();
-  onModelChange();
+
+  // Restauration checkbox conserver format
+  const keepChk = $('#keep-input-format');
+  if (keepChk) {
+    const prefsKeep = loadPrefs();
+    if (prefsKeep.keep_input_format) keepChk.checked = true;
+    if (currentRatio === 'source') keepChk.checked = true;
+    keepChk.addEventListener('change', () => {
+      savePrefs({ keep_input_format: keepChk.checked });
+      if (keepChk.checked) {
+        currentRatio = 'source';
+        buildRatiosApply();
+      } else {
+        if (currentRatio === 'source') {
+          currentRatio = '1:1';
+          buildRatiosApply();
+          savePrefs({ ratio: currentRatio });
+        }
+      }
+      if (typeof updateSourceFormatHint === 'function') updateSourceFormatHint();
+    });
+  }
+
+  onModelChange();;
 
   const reuse = sessionStorage.getItem('reuse');
   if (reuse) {
@@ -122,17 +146,26 @@ function buildRatios() {
   for (const [name, [w, h]] of Object.entries(RATIOS)) {
     const d = document.createElement('div');
     d.className = 'ratio' + (name === currentRatio ? ' sel' : '');
-    d.title = `${name}  (${w}x${h})`;
     d.dataset.name = name;
-    const max = 26;
-    const sc = max / Math.max(w, h);
-    const iw = Math.round(w * sc), ih = Math.round(h * sc);
-    d.innerHTML = `<i style="width:${iw}px;height:${ih}px"></i>`;
+    if (name === 'source') {
+      d.title = `Source - format de l'image d'entrée (auto)`;
+      d.innerHTML = `<i style="width:26px;height:26px;display:grid;place-items:center;font-size:10px;font-weight:700;color:var(--accent2);background:transparent;border:1px dashed var(--accent2);">SRC</i>`;
+    } else {
+      d.title = `${name}  (${w}x${h})`;
+      const max = 26;
+      const sc = max / Math.max(w, h);
+      const iw = Math.round(w * sc), ih = Math.round(h * sc);
+      d.innerHTML = `<i style="width:${iw}px;height:${ih}px"></i>`;
+    }
     d.addEventListener('click', () => {
       currentRatio = name;
       savePrefs({ ratio: name });
       $$('.ratio').forEach(x => x.classList.remove('sel'));
       d.classList.add('sel');
+      if (name === 'source') {
+        const keepChk = $('#keep-input-format');
+        if (keepChk) keepChk.checked = true;
+      }
     });
     box.appendChild(d);
   }
@@ -313,16 +346,49 @@ function renderRefGrid() {
     `;
     grid.appendChild(div);
   });
-  // Events remove
   grid.querySelectorAll('.ref-remove').forEach(btn => {
     btn.addEventListener('click', () => {
       const i = parseInt(btn.dataset.idx);
       refImages.splice(i, 1);
       renderRefGrid();
       updateRefBadge();
+      if (typeof updateSourceFormatHint === 'function') updateSourceFormatHint();
     });
   });
   updateRefBadge();
+  if (typeof updateSourceFormatHint === 'function') updateSourceFormatHint();
+}
+
+function updateSourceFormatHint() {
+  const hint = $('#model-capabilities-hint');
+  if (!hint) return;
+  let first = null;
+  if (refImages.length > 0) first = refImages[0];
+  else if (initImage) first = initImage;
+  else if (controlImage) first = controlImage;
+  const keepChk = $('#keep-input-format');
+  const keepChecked = keepChk?.checked;
+  if (first && first.url) {
+    const img = new Image();
+    img.onload = () => {
+      const w = img.width, h = img.height;
+      const roundedW = Math.floor(w/16)*16, roundedH = Math.floor(h/16)*16;
+      const modelId = $('#model')?.value;
+      const isQwen21 = modelId === 'qwen-image-2.1';
+      const finalW = isQwen21 ? Math.floor(w/32)*32 : roundedW;
+      const finalH = isQwen21 ? Math.floor(h/32)*32 : roundedH;
+      const info = document.createElement('div');
+      info.style.marginTop = '6px';
+      info.style.fontSize = '12px';
+      info.style.color = 'var(--muted)';
+      info.innerHTML = `📐 Image d'entrée détectée : <strong>${w}x${h}</strong> → génération : <strong>${finalW}x${finalH}</strong> ${isQwen21 ? '(arrondi 32px pour Qwen-Image 2.1)' : '(arrondi 16px)'} ${keepChecked ? '✅ format conservé' : '⚠️ cocher \"Conserver le format\" pour utiliser'}`;
+      const old = hint.querySelector('.source-dims-info');
+      if (old) old.remove();
+      info.className = 'source-dims-info';
+      hint.appendChild(info);
+    };
+    img.src = first.url;
+  }
 }
 
 async function handleRefFiles(files) {
@@ -400,6 +466,7 @@ async function handleInitFile(file) {
     // compat legacy
     uploadedImagePath = j.filename;
     $('#source-image-path').value = j.filename;
+    if (typeof updateSourceFormatHint === 'function') updateSourceFormatHint();
   } catch (e) { alert(e.message); }
 }
 
@@ -515,6 +582,7 @@ async function handleLegacyFile(file) {
     legacyUploadedPath = j.filename;
     uploadedImagePath = j.filename;
     $('#source-image-path').value = j.filename;
+    if (typeof updateSourceFormatHint === 'function') updateSourceFormatHint();
     const imgEl = $('#preview-img');
     if (imgEl) {
       imgEl.src = URL.createObjectURL(file);
@@ -597,6 +665,12 @@ $('#generate-btn')?.addEventListener('click', async () => {
     strength: (m.supports_init || m.arch === 'sd3' || m.supports_ref) && strengthVal ? parseFloat(strengthVal) : null,
     control_strength: controlStrengthVal ? parseFloat(controlStrengthVal) : null,
   };
+
+  // Ajout format source
+  const keepInputFormat = $('#keep-input-format')?.checked || currentRatio === 'source';
+  body.ratio = keepInputFormat ? 'source' : currentRatio;
+  body.use_source_format = keepInputFormat;
+  body.keep_input_format = keepInputFormat;
 
   const r = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const j = await r.json();

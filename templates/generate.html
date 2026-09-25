@@ -192,6 +192,11 @@
     <div class="field">
       <span>Format</span>
       <div class="ratios" id="ratios"></div>
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:10px;">
+        <input type="checkbox" id="keep-input-format" style="width:auto;">
+        <span>Conserver le format de l'image d'entrée (1ère image de référence / initiale)</span>
+      </label>
+      <small class="muted">Si coché, la génération utilisera les dimensions de la première image uploadée (arrondi à 16px, 32px pour Qwen-Image 2.1). Idéal pour l'édition sans changer le ratio.</small>
     </div>
 
     <div class="row">
