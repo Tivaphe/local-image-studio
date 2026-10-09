@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Local Image Studio — interface web simple pour générer des images en local
-avec les modèles GGUF (FLUX schnell, Z-Image, ERNIE-Turbo, Ideogram 4, FHDR).
+avec les modèles GGUF et certains checkpoints safetensors via stable-diffusion.cpp.
 
 Démarrage :  python app.py   (puis ouvrir http://127.0.0.1:7860)
 """

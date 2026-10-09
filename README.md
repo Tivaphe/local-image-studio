@@ -32,7 +32,7 @@ Interface web simple pour générer des images avec les modèles d'IA les plus r
 | **RAM** | 16 Go | 32 Go |
 | **Python** | 3.10+ | 3.11 |
 | **OS** | Windows 10/11 | Windows 11 |
-| **Stockage** | ~5 Go (1 modèle) | ~50 Go (tous) |
+| **Stockage** | ~5 Go (1 modèle léger) | ~65 Go (tous) |
 
 > 💡 L'application détecte automatiquement votre VRAM et vous indique quels modèles peuvent tourner.
 
@@ -82,7 +82,7 @@ Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
 
 ---
 
-## 🧠 Modèles disponibles (13)
+## 🧠 Modèles disponibles (14)
 
 | Modèle | Vitesse | Licence | Idéal pour |
 |---|---|---|---|
@@ -97,17 +97,21 @@ Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
 | **Qwen-Image 2512** | 30 étapes | Apache 2.0 ✅ | Réalisme humain |
 | **Qwen-Image 2.1** | 25 étapes | Qwen Research ⚠️ | Édition + transparence |
 | **Qwen-Image 2.1 Turbo** | ⚡ 8 étapes, CFG 1 | Qwen Research ⚠️ | Génération + édition rapide |
+| **Iris-3B** | 100 étapes | Apache 2.0 ✅ | Génération en espace pixel |
 | **Ideogram 4** | 12 étapes | Ideogram | Rendu de texte |
 | **FHDR Uncensored** | 20 étapes | Non-commercial | Sans censure |
 
 > ✅ = usage commercial autorisé · ⚠️ = usage personnel/non-commercial
 >
-> **Qwen-Image 2.1 Turbo** nécessite le moteur `sd-cli` du 6 octobre 2026 ou plus récent et utilise toujours 8 étapes avec CFG 1 (le moteur peut être réinstallé depuis l'onglet Modèles).
+> **Qwen-Image 2.1 Turbo** nécessite `sd-cli` `c150a6b` ou plus récent (8 étapes, CFG 1).
+> **Iris-3B** nécessite `sd-cli` `f89d9b1` ou plus récent; ses poids font ~12 Go, plus l'encodeur Qwen3-VL-4B. Réinstalle le moteur depuis l'onglet Modèles si nécessaire.
+> Fichiers : `models/diffusion/model.safetensors` (checkpoint officiel) et `models/llm/Qwen3VL-4B-Instruct-Q4_K_M.gguf`; aucun VAE.
 
 ### 💡 Quel modèle choisir ?
 
 - **Vous débutez ?** → **FLUX.1 schnell** (le plus rapide)
 - **Meilleure qualité rapide ?** → **FLUX.2 Klein 9B**, **Qwen-Image 2512** ou **Qwen-Image 2.1 Turbo**
+- **Génération en espace pixel ?** → **Iris-3B** (100 étapes)
 - **Édition d'images ?** → **Qwen-Image 2.1 / 2.1 Turbo** (édition sémantique) ou **FLUX.2 Klein** (édition rapide)
 - **Img2img classique ?** → **SD 3.5 Medium/Large** (contrôle de la force)
 - **Texte lisible dans l'image ?** → **ERNIE-Image Turbo** ou **Ideogram 4**
@@ -151,7 +155,7 @@ local-image-studio/
 ├── start.bat              ← Double-clic pour lancer
 ├── app.py                 ← Serveur web (Flask)
 ├── engine.py              ← Moteur sd-cli + téléchargements
-├── registry.py            ← Définition des 13 modèles
+├── registry.py            ← Définition des 14 modèles
 ├── prompt_enhancer.py     ← Enrichissement & traduction (LLM)
 ├── gpu_info.py            ← Détection VRAM
 ├── db.py                  ← Historique & statistiques
@@ -164,7 +168,7 @@ local-image-studio/
 │   └── ADD_MODEL_EN.md    ← How to add a model (EN)
 │
 ├── bin/                   ← sd-cli.exe (téléchargé auto)
-├── models/                ← GGUF + VAE + encodeurs (téléchargés auto)
+├── models/                ← GGUF/safetensors + VAE + encodeurs (téléchargés auto)
 └── output/                ← Vos images générées
 ```
 
@@ -172,8 +176,9 @@ local-image-studio/
 
 ## ➕ Ajouter un modèle
 
-L'application est conçue pour être **extensible**. Vous pouvez ajouter n'importe
-quel modèle GGUF compatible avec `stable-diffusion.cpp`.
+L'application est conçue pour être **extensible**. Vous pouvez ajouter des modèles
+GGUF compatibles avec `stable-diffusion.cpp` et certains checkpoints dans d'autres
+formats acceptés par le moteur, comme les safetensors d'Iris-3B.
 
 📖 **Voir le guide complet : [docs/ADD_MODEL_FR.md](./docs/ADD_MODEL_FR.md)**
 
@@ -200,8 +205,9 @@ En résumé : éditez `registry.py` → ajoutez une entrée dans le dictionnaire
 
 L'application pilote **`sd-cli.exe`** (le moteur C/C++ de
 [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) par leejet).
-Ce moteur est reconnu pour faire tourner FLUX, Qwen-Image, Stable Diffusion 3.5,
-Z-Image, ERNIE, Ideogram 4 et bien d'autres au format **GGUF** (quantifié).
+Ce moteur fait tourner FLUX, Qwen-Image, Stable Diffusion 3.5, Z-Image, ERNIE,
+Ideogram 4 et d'autres modèles au format **GGUF**; Iris-3B utilise ses poids
+**safetensors** (sans VAE).
 
 L'interface web (Flask) construit automatiquement la bonne ligne de commande pour
 chaque modèle, gère les téléchargements, et affiche tout derrière une page simple.

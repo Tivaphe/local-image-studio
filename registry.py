@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Registre des modeles + dependances partagees.
-- Chaque modele indique son fichier GGUF par niveau de quant (Q4..Q6).
+- Chaque modele indique ses fichiers de poids par variante (GGUF ou safetensors).
 - Les dependances (VAE, encodeurs de texte) sont telechargees une seule fois.
 - build_command() construit la ligne de commande sd-cli adaptee a chaque modele.
 """
@@ -61,6 +61,12 @@ DEPS = {
     "qwen3_4b": {
         "type": "gguf",
         "repo": "unsloth/Qwen3-4B-GGUF",
+        "dest_dir": LLM_DIR,
+        "size_gb": 2.5,
+    },
+    "qwen3vl_4b": {
+        "type": "gguf",
+        "repo": "Qwen/Qwen3-VL-4B-Instruct-GGUF",
         "dest_dir": LLM_DIR,
         "size_gb": 2.5,
     },
@@ -364,6 +370,25 @@ MODELS = {
             "qualite":   {"steps": 8, "cfg": 1.0, "quant": "AD-Q6_K", "label": "✨ Qualité (AD-Q6_K)"},
         },
     },
+    "iris-3b": {
+        "name": "Iris-3B",
+        "arch": "iris",
+        "repo": "speridlabs/iris-3b",
+        "quants": ["F32"],
+        "default_quant": "F32",
+        "file_for_quant": {"F32": "model.safetensors"},
+        "size_gb": {"F32": 12.0},
+        "deps": ["qwen3vl_4b"],
+        "supports_neg": True,
+        "needs_token": False,
+        "needs_vae": False,
+        "license": "Apache 2.0",
+        "hf_url": "https://huggingface.co/speridlabs/iris-3b",
+        "vram_min_gb": 12,
+        "desc": "Iris-3B en espace pixel (~12 Go safetensors), sans VAE. Qwen3-VL-4B requis; CFG 3, 100 étapes, prompts ≤300 tokens. Requiert sd-cli f89d9b1+.",
+        "defaults": {"steps": 100, "cfg": 3.0, "sampler": "euler"},
+        "min_steps": 10, "max_steps": 200,
+    },
 
     # ---- NOUVEAUX MODELES ----
     "sd3.5-medium": {
@@ -537,8 +562,10 @@ def _is_valid_dep(dep_id: str, p: Path) -> bool:
         return ("qwen3" in name or "qwen_3" in name) and "8b" in name and "vl" not in name and "mmproj" not in name
     elif dep_id == "ministral_3b":
         return "ministral" in name
+    elif dep_id == "qwen3vl_4b":
+        return ("qwen3" in name or "qwen_3" in name) and "4b" in name and "vl" in name and "mmproj" not in name
     elif dep_id == "qwen3vl_8b":
-        return ("qwen3" in name or "qwen_3" in name) and "vl" in name and "mmproj" not in name
+        return ("qwen3" in name or "qwen_3" in name) and "8b" in name and "vl" in name and "mmproj" not in name
     elif dep_id == "qwen25vl_7b":
         return ("qwen2.5" in name or "qwen2_5" in name or "qwen25" in name) and "vl" in name and "mmproj" not in name
     elif dep_id == "mmproj_qwen3vl_8b":
@@ -781,6 +808,10 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
             args += ["--llm", str(llm)]
     elif arch == "ideogram":
         llm = _dep_path(manifest, "qwen3vl_8b")
+        if llm:
+            args += ["--llm", str(llm)]
+    elif arch == "iris":
+        llm = _dep_path(manifest, "qwen3vl_4b")
         if llm:
             args += ["--llm", str(llm)]
     elif arch == "qwen_image":

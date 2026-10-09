@@ -1,19 +1,20 @@
 # ➕ Comment ajouter un modèle manuellement
 
-Ce guide explique comment ajouter **n'importe quel modèle GGUF compatible** avec
-`stable-diffusion.cpp` (le moteur de cette application).
+Ce guide explique comment ajouter **un modèle compatible** avec `stable-diffusion.cpp`
+(le moteur de cette application), en GGUF ou dans un autre format pris en charge par
+son architecture.
 
 ---
 
 ## Étape 1 : Vérifier la compatibilité
 
 Le modèle doit :
-1. Être au format **GGUF** (`.gguf`)
+1. Être au format **GGUF** (`.gguf`) ou un autre format accepté par son architecture (`.safetensors` pour Iris-3B)
 2. Être supporté par `stable-diffusion.cpp`. Consultez la liste officielle :
    **https://github.com/leejet/stable-diffusion.cpp** → section *Supported models*
 
 Les architectures actuellement supportées : `flux`, `flux2`, `sd3`, `zimage`,
-`ernie`, `ideogram`, `qwen_image`, `wan`, `chroma`, `hidream`, `anima`, etc.
+`ernie`, `ideogram`, `qwen_image`, `iris`, `wan`, `chroma`, `hidream`, `anima`, etc.
 
 ---
 
@@ -61,6 +62,7 @@ en copiant le modèle d'un modèle existant qui a la **même architecture**.
 | `zimage`     | `qwen3_4b`                         | `vae_flux`    | Z-Image |
 | `ernie`      | `ministral_3b`                     | `vae_flux2`   | ERNIE-Image Turbo |
 | `qwen_image` | `qwen25vl_7b` (standard) / `qwen3vl_8b` (2.1/Turbo) | `vae_qwen` / `vae_qwen_21` | Qwen-Image |
+| `iris` | `qwen3vl_4b` | Aucun | Iris-3B (safetensors) |
 | `ideogram`   | `qwen3vl_8b`                       | `vae_flux2`   | Ideogram 4 (needs uncond) |
 
 > **Astuce** : trouvez la doc officielle du modèle sur

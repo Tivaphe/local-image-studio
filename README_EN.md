@@ -32,7 +32,7 @@ A simple web interface to generate images with the latest AI models (FLUX, Qwen-
 | **RAM** | 16 GB | 32 GB |
 | **Python** | 3.10+ | 3.11 |
 | **OS** | Windows 10/11 | Windows 11 |
-| **Storage** | ~5 GB (1 model) | ~50 GB (all) |
+| **Storage** | ~5 GB (1 small model) | ~65 GB (all) |
 
 > 💡 The app auto-detects your VRAM and tells you which models can run.
 
@@ -82,7 +82,7 @@ Your images are **automatically saved** in the `output/` folder.
 
 ---
 
-## 🧠 Available models (13)
+## 🧠 Available models (14)
 
 | Model | Speed | License | Best for |
 |---|---|---|---|
@@ -97,17 +97,21 @@ Your images are **automatically saved** in the `output/` folder.
 | **Qwen-Image 2512** | 30 steps | Apache 2.0 ✅ | Human realism |
 | **Qwen-Image 2.1** | 25 steps | Qwen Research ⚠️ | Editing + transparency |
 | **Qwen-Image 2.1 Turbo** | ⚡ 8 steps, CFG 1 | Qwen Research ⚠️ | Fast generation + editing |
+| **Iris-3B** | 100 steps | Apache 2.0 ✅ | Pixel-space generation |
 | **Ideogram 4** | 12 steps | Ideogram | Text rendering |
 | **FHDR Uncensored** | 20 steps | Non-commercial | Uncensored |
 
 > ✅ = commercial use allowed · ⚠️ = personal/non-commercial use
 >
-> **Qwen-Image 2.1 Turbo** requires `sd-cli` built on or after October 6, 2026, and always uses 8 steps at CFG 1 (reinstall the engine from the Models tab if needed).
+> **Qwen-Image 2.1 Turbo** requires `sd-cli` `c150a6b` or newer (8 steps, CFG 1).
+> **Iris-3B** requires `sd-cli` `f89d9b1` or newer; its weights are about 12 GB, plus the Qwen3-VL-4B encoder. Reinstall the engine from the Models tab if needed.
+> Files: `models/diffusion/model.safetensors` (official checkpoint) and `models/llm/Qwen3VL-4B-Instruct-Q4_K_M.gguf`; no VAE.
 
 ### 💡 Which model to choose?
 
 - **Just starting?** → **FLUX.1 schnell** (fastest)
 - **Best fast quality?** → **FLUX.2 Klein 9B**, **Qwen-Image 2512**, or **Qwen-Image 2.1 Turbo**
+- **Pixel-space generation?** → **Iris-3B** (100 steps)
 - **Image editing?** → **Qwen-Image 2.1 / 2.1 Turbo** (semantic editing) or **FLUX.2 Klein** (fast editing)
 - **Classic img2img?** → **SD 3.5 Medium/Large** (strength control)
 - **Readable text in image?** → **ERNIE-Image Turbo** or **Ideogram 4**
@@ -151,7 +155,7 @@ local-image-studio/
 ├── start.bat              ← Double-click to launch
 ├── app.py                 ← Web server (Flask)
 ├── engine.py              ← sd-cli engine + downloads
-├── registry.py            ← 13 model definitions
+├── registry.py            ← 14 model definitions
 ├── prompt_enhancer.py     ← Enrichment & translation (LLM)
 ├── gpu_info.py            ← VRAM detection
 ├── db.py                  ← History & statistics
@@ -164,7 +168,7 @@ local-image-studio/
 │   └── ADD_MODEL_EN.md    ← How to add a model (EN)
 │
 ├── bin/                   ← sd-cli.exe (auto-downloaded)
-├── models/                ← GGUF + VAE + encoders (auto-downloaded)
+├── models/                ← GGUF/safetensors + VAE + encoders (auto-downloaded)
 └── output/                ← Your generated images
 ```
 
@@ -172,8 +176,9 @@ local-image-studio/
 
 ## ➕ Add a model
 
-The app is designed to be **extensible**. You can add any GGUF model compatible
-with `stable-diffusion.cpp`.
+The app is designed to be **extensible**. You can add GGUF models supported by
+`stable-diffusion.cpp`, as well as some other formats accepted by the engine,
+such as Iris-3B's safetensors checkpoint.
 
 📖 **Full guide: [docs/ADD_MODEL_EN.md](./docs/ADD_MODEL_EN.md)**
 
@@ -201,7 +206,8 @@ In short: edit `registry.py` → add an entry to the `MODELS` dictionary → res
 The app drives **`sd-cli.exe`** (the C/C++ engine from
 [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) by leejet).
 This engine runs FLUX, Qwen-Image, Stable Diffusion 3.5, Z-Image, ERNIE,
-Ideogram 4 and more in **GGUF** (quantized) format.
+Ideogram 4 and other **GGUF** models; Iris-3B uses its **safetensors** weights
+(without a VAE).
 
 The web interface (Flask) automatically builds the correct command line for each
 model, manages downloads, and displays everything behind a simple page.
