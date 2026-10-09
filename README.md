@@ -74,7 +74,8 @@ Onglet **Générer** :
 1. **Tapez votre description** (prompt) en français ou anglais
 2. Cliquez **🌐 Traduire EN** pour traduire en anglais (langue préférée des modèles)
 3. (Optionnel) Cliquez **✨ Enrichir** pour enrichir votre prompt automatiquement
-4. Choisissez le **nombre d'images** (1 à 4) et le **format** (carré, portrait, paysage…)
+4. Choisissez le **nombre d'images** (1 à 4) et le **format** (carré, portrait, paysage…).
+   Avec une image source, sélectionnez **Original** pour conserver ses proportions.
 5. Cliquez **✨ Générer**
 
 Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
@@ -131,7 +132,7 @@ Certains modèles nécessitent un **token Hugging Face gratuit** :
 
 | Fonction | Description |
 |---|---|
-| 🖼️ **Génération** | 1 à 4 images par lot, 5 formats |
+| 🖼️ **Génération** | 1 à 4 images par lot, 5 formats + proportions originales en édition |
 | 🌐 **Traduction** | Traduit votre prompt (FR, ES…) vers l'anglais automatiquement |
 | ✨ **Enrichissement** | Un LLM enrichit votre prompt (style, lumière, composition…) |
 | 📊 **Statistiques** | Temps de génération par modèle, modèle le plus utilisé, etc. |

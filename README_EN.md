@@ -74,7 +74,8 @@ In the same tab, click **"Download"** on a model.
 1. **Type your description** (prompt) in any language
 2. Click **🌐 Translate EN** to translate to English (models work best in English)
 3. (Optional) Click **✨ Enrich** to automatically enrich your prompt
-4. Choose the **number of images** (1 to 4) and the **format** (square, portrait, landscape…)
+4. Choose the **number of images** (1 to 4) and the **format** (square, portrait, landscape…).
+   With a source image, select **Original** to preserve its proportions.
 5. Click **✨ Generate**
 
 Your images are **automatically saved** in the `output/` folder.
@@ -131,7 +132,7 @@ Some models require a **free Hugging Face token**:
 
 | Feature | Description |
 |---|---|
-| 🖼️ **Generation** | 1 to 4 images per batch, 5 formats |
+| 🖼️ **Generation** | 1 to 4 images per batch, 5 formats + original aspect ratio when editing |
 | 🌐 **Translation** | Translates your prompt (FR, ES…) to English |
 | ✨ **Enrichment** | An LLM enriches your prompt (style, lighting, composition…) |
 | 📊 **Statistics** | Generation time per model, most used model, etc. |
