@@ -35,7 +35,7 @@
             <div class="upload-placeholder" id="upload-placeholder">
               <i class="icon">📁</i>
               <span>Cliquez ou glissez une image ici</span>
-              <small class="muted">PNG, JPG, WEBP - pour l'édition avec Qwen-Image 2.1</small>
+              <small class="muted">PNG, JPG, WEBP — édition avec Qwen-Image 2.1 et 2.1 Turbo</small>
             </div>
             <div class="upload-preview hidden" id="upload-preview">
               <img id="preview-img" alt="Aperçu">
@@ -49,7 +49,7 @@
         <input type="hidden" id="source-image-path">
       </div>
       <p class="hint">
-        <strong>Modèles avec édition :</strong> Qwen-Image 2.1 (édition sémantique), 
+        <strong>Modèles avec édition :</strong> Qwen-Image 2.1 / 2.1 Turbo (édition sémantique),
         FLUX.2 Klein (édition par référence), SD 3.5 (img2img classique).
         <br>Exemple : "make it sunset", "add sunglasses", "change style to watercolor".
       </p>
@@ -88,6 +88,7 @@
     <div class="field">
       <span>Format</span>
       <div class="ratios" id="ratios"></div>
+      <small id="original-ratio-info" class="muted" hidden></small>
     </div>
 
     <div class="row">

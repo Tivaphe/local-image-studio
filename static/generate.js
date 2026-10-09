@@ -15,6 +15,9 @@ const RATIOS = window.RATIOS || { "1:1": [1024, 1024] };
 
 let MODELS = {};
 let currentRatio = "1:1";
+let ratioBeforeOriginal = "1:1";
+let sourceImageSize = null;
+let sourcePreviewUrl = null;
 let pollTimer = null;
 
 // ---------- memoire de la selection (FIX 4) ----------
@@ -88,7 +91,10 @@ async function loadModels() {
 
   buildRatios();
   // restauration du ratio
-  if (prefs.ratio && RATIOS[prefs.ratio]) currentRatio = prefs.ratio;
+  if (prefs.ratio && RATIOS[prefs.ratio]) {
+    currentRatio = prefs.ratio;
+    ratioBeforeOriginal = prefs.ratio;
+  }
   buildRatiosApply();
   onModelChange();
 
@@ -107,31 +113,99 @@ async function loadModels() {
   }
 }
 
+function getOriginalOutputSize() {
+  if (!sourceImageSize) return null;
+  const { width, height } = sourceImageSize;
+  // Garde les proportions de la source sans demander une résolution démesurée.
+  const scaleToArea = Math.sqrt((1024 * 1024) / (width * height));
+  const scaleToMaxSide = 1344 / Math.max(width, height);
+  const scale = Math.min(scaleToArea, scaleToMaxSide);
+  const roundDown16 = value => Math.max(16, Math.floor(value / 16) * 16);
+  return {
+    width: roundDown16(width * scale),
+    height: roundDown16(height * scale),
+  };
+}
+
+function updateOriginalRatioInfo() {
+  const info = $('#original-ratio-info');
+  if (!info) return;
+  if (currentRatio !== 'original' || !sourceImageSize) {
+    info.hidden = true;
+    info.textContent = '';
+    return;
+  }
+  const outputSize = getOriginalOutputSize();
+  info.textContent = `Proportions source ${sourceImageSize.width} × ${sourceImageSize.height} — sortie ${outputSize.width} × ${outputSize.height}`;
+  info.hidden = false;
+}
+
 function buildRatios() {
   const box = $('#ratios');
   box.innerHTML = '';
-  for (const [name, [w, h]] of Object.entries(RATIOS)) {
+  const options = Object.entries(RATIOS).map(([id, [width, height]]) => ({
+    id, label: id, width, height,
+  }));
+  if (sourceImageSize) {
+    const outputSize = getOriginalOutputSize();
+    options.unshift({
+      id: 'original',
+      label: 'Original',
+      width: outputSize.width,
+      height: outputSize.height,
+      title: `Format source ${sourceImageSize.width} × ${sourceImageSize.height} — sortie ${outputSize.width} × ${outputSize.height}`,
+    });
+  }
+
+  for (const option of options) {
+    const { id, label, width, height } = option;
     const d = document.createElement('div');
-    d.className = 'ratio' + (name === currentRatio ? ' sel' : '');
-    d.title = `${name}  (${w}x${h})`;
-    d.dataset.name = name;
+    d.className = 'ratio' + (id === currentRatio ? ' sel' : '');
+    if (id === 'original') d.classList.add('ratio-original');
+    d.title = option.title || `${label} (${width} × ${height})`;
+    d.dataset.name = id;
+    d.setAttribute('role', 'button');
+    d.setAttribute('aria-label', d.title);
+    d.setAttribute('aria-pressed', id === currentRatio ? 'true' : 'false');
+    d.tabIndex = 0;
     const max = 26;
-    const sc = max / Math.max(w, h);
-    const iw = Math.round(w * sc), ih = Math.round(h * sc);
-    d.innerHTML = `<i style="width:${iw}px;height:${ih}px"></i>`;
-    d.addEventListener('click', () => {
-      currentRatio = name;
-      savePrefs({ ratio: name });
-      $$('.ratio').forEach(x => x.classList.remove('sel'));
-      d.classList.add('sel');
+    const scale = max / Math.max(width, height);
+    const iconWidth = Math.round(width * scale), iconHeight = Math.round(height * scale);
+    d.innerHTML = `<i style="width:${iconWidth}px;height:${iconHeight}px"></i>${id === 'original' ? '<span>Original</span>' : ''}`;
+
+    const selectRatio = () => {
+      if (id === 'original') {
+        if (currentRatio !== 'original') ratioBeforeOriginal = currentRatio;
+      } else {
+        ratioBeforeOriginal = id;
+        savePrefs({ ratio: id });
+      }
+      currentRatio = id;
+      $$('.ratio').forEach(x => {
+        const selected = x === d;
+        x.classList.toggle('sel', selected);
+        x.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      });
+      updateOriginalRatioInfo();
+    };
+    d.addEventListener('click', selectRatio);
+    d.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        selectRatio();
+      }
     });
     box.appendChild(d);
   }
+  updateOriginalRatioInfo();
 }
 function buildRatiosApply() {
   $$('.ratio').forEach(x => {
-    x.classList.toggle('sel', x.dataset.name === currentRatio);
+    const selected = x.dataset.name === currentRatio;
+    x.classList.toggle('sel', selected);
+    x.setAttribute('aria-pressed', selected ? 'true' : 'false');
   });
+  updateOriginalRatioInfo();
 }
 
 function onModelChange() {
@@ -181,6 +255,12 @@ function onModelChange() {
   }
 
   $('#steps').min = m.min_steps; $('#steps').max = m.max_steps;
+  const hasFixedSteps = m.fixed_steps !== null && m.fixed_steps !== undefined;
+  const hasFixedCfg = m.fixed_cfg !== null && m.fixed_cfg !== undefined;
+  $('#steps').readOnly = hasFixedSteps;
+  $('#cfg').readOnly = hasFixedCfg;
+  if (hasFixedSteps) $('#steps').value = m.fixed_steps;
+  if (hasFixedCfg) $('#cfg').value = m.fixed_cfg;
   $('#negative').parentElement.style.display = m.supports_neg ? '' : 'none';
   // pre-remplir le negative par defaut si vide
   const negEl = $('#negative');
@@ -202,8 +282,8 @@ function onModelChange() {
   $('#gen-error').hidden = !warn;
 
   // Activer l'upload pour les modeles avec support d'edition/img2img
-  const isEditModel = modelId === 'qwen-image-2.1' 
-    || m.arch === 'flux2' 
+  const isEditModel = Boolean(m.supports_img2img)
+    || m.arch === 'flux2'
     || m.arch === 'sd3';
   const uploadArea = $('#file-upload-area');
   if (uploadArea) {
@@ -245,6 +325,15 @@ $('#batch').addEventListener('input', e => {
 // ---------- Gestion de l'upload d'image source (img2img) ----------
 let uploadedImagePath = null;
 
+function readImageDimensions(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    image.onerror = () => reject(new Error("Impossible de lire les dimensions de l'image."));
+    image.src = src;
+  });
+}
+
 async function handleFileSelect(file) {
   if (!file) return;
   const validTypes = ['image/png', 'image/jpeg', 'image/webp'];
@@ -253,9 +342,20 @@ async function handleFileSelect(file) {
     return;
   }
 
+  const previewUrl = URL.createObjectURL(file);
+  let dimensions;
+  try {
+    dimensions = await readImageDimensions(previewUrl);
+  } catch (e) {
+    URL.revokeObjectURL(previewUrl);
+    alert(e.message);
+    return;
+  }
+
   // Upload vers le serveur
   const formData = new FormData();
   formData.append('image', file);
+  let uploaded = false;
 
   try {
     const r = await fetch('/api/upload-source-image', { method: 'POST', body: formData });
@@ -265,15 +365,25 @@ async function handleFileSelect(file) {
       return;
     }
     uploadedImagePath = j.filename;
+    sourceImageSize = dimensions;
     $('#source-image-path').value = j.filename;
 
-    // Afficher l'aperçu
-    $('#preview-img').src = URL.createObjectURL(file);
-    $('#preview-name').textContent = file.name;
+    if (sourcePreviewUrl) URL.revokeObjectURL(sourcePreviewUrl);
+    sourcePreviewUrl = previewUrl;
+    $('#preview-img').src = sourcePreviewUrl;
+    $('#preview-name').textContent = `${file.name} (${dimensions.width} × ${dimensions.height})`;
     $('#upload-placeholder').classList.add('hidden');
     $('#upload-preview').classList.remove('hidden');
+
+    // À l'upload, sélectionner le format de la source par défaut.
+    if (currentRatio !== 'original') ratioBeforeOriginal = currentRatio;
+    currentRatio = 'original';
+    buildRatios();
+    uploaded = true;
   } catch (e) {
     alert('Erreur: ' + e.message);
+  } finally {
+    if (!uploaded) URL.revokeObjectURL(previewUrl);
   }
 }
 
@@ -316,11 +426,18 @@ if (uploadArea) {
 // Retirer l'image
 $('#remove-image')?.addEventListener('click', () => {
   uploadedImagePath = null;
+  sourceImageSize = null;
+  if (sourcePreviewUrl) URL.revokeObjectURL(sourcePreviewUrl);
+  sourcePreviewUrl = null;
   $('#source-image-path').value = '';
   $('#source-image-input').value = '';
   $('#upload-placeholder').classList.remove('hidden');
   $('#upload-preview').classList.add('hidden');
   $('#preview-img').src = '';
+  if (currentRatio === 'original') {
+    currentRatio = RATIOS[ratioBeforeOriginal] ? ratioBeforeOriginal : '1:1';
+  }
+  buildRatios();
 });
 
 // ---------- generation ----------
@@ -359,7 +476,7 @@ $('#generate-btn').addEventListener('click', async () => {
     quant: $('#quant').value,
     prompt: finalPrompt,
     negative: $('#negative').value,
-    ratio: currentRatio,
+    ratio: currentRatio === 'original' ? '1:1' : currentRatio,
     steps: $('#steps').value,
     cfg: $('#cfg').value,
     seed: $('#seed').value || null,
@@ -368,6 +485,11 @@ $('#generate-btn').addEventListener('click', async () => {
     lora_dir: $('#lora-dir').value || null,
     strength: (m.arch === 'sd3' && strengthVal) ? parseFloat(strengthVal) : null,
   };
+  if (currentRatio === 'original' && sourceImageSize) {
+    const outputSize = getOriginalOutputSize();
+    body.width = outputSize.width;
+    body.height = outputSize.height;
+  }
 
   const r = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const j = await r.json();
@@ -568,7 +690,7 @@ async function doTranslate() {
 }
 $('#translate-btn')?.addEventListener('click', doTranslate);
 
-// ---------- vérification mmproj pour Qwen-Image-2.1 ----------
+// ---------- vérification mmproj pour les modèles Qwen-Image ----------
 function checkMmprojStatus() {
   const btn = $('#mmproj-download-btn');
   const msg = $('#mmproj-msg');
@@ -616,13 +738,14 @@ $('#mmproj-download-btn')?.addEventListener('click', async () => {
   }
 });
 
-// Vérification du statut mmproj (uniquement Qwen-Image-2.1)
+// Vérification du statut mmproj pour les modèles qui déclarent cette dépendance
 async function checkMmproj() {
   const currentModel = $('#model') ? $('#model').value : null;
-  const isQwen21 = currentModel === 'qwen-image-2.1';
+  const model = MODELS[currentModel];
+  const needsMmproj = Boolean(model && model.mmproj_dep);
   const statusDiv = $('#mmproj-status');
   if (!statusDiv) return;
-  if (!isQwen21) {
+  if (!needsMmproj) {
     statusDiv.classList.add('hidden');
     return;
   }
