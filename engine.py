@@ -370,17 +370,14 @@ class TaskManager:
             if missing:
                 raise RuntimeError("Dépendances manquantes: " + ", ".join(missing))
 
-            # Vérification spécifique pour Qwen-Image-2.1 avec édition
-            if model_id == "qwen-image-2.1" and p.get("source_image"):
-                mmproj_path = _dep_path(manifest, "mmproj_qwen3vl_8b")
+            # Certains modeles Qwen-VL exigent le mmproj pour traiter une image source.
+            mmproj_dep = m.get("mmproj_dep")
+            if mmproj_dep and p.get("source_image"):
+                mmproj_path = _dep_path(manifest, mmproj_dep)
                 if not mmproj_path or not Path(mmproj_path).exists():
                     raise RuntimeError(
-                        "Pour ÉDITER avec Qwen-Image-2.1, le fichier mmproj est requis. "
-                        "Sans lui, vous pouvez seulement GÉNÉRER des images (pas modifier). "
-                        "Téléchargez-le via le bouton 'Télécharger mmproj' dans l'interface, "
-                        "ou manuellement depuis: "
-                        "https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF/resolve/main/mmproj-Qwen3VL-8B-Instruct-F16.gguf "
-                        "dans le dossier models/llm/"
+                        f"Pour éditer avec {m['name']}, le fichier mmproj est requis. "
+                        "Téléchargez-le depuis le bouton 'Télécharger mmproj' dans l'interface."
                     )
 
             batch = max(1, min(4, int(p["batch"])))

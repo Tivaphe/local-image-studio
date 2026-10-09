@@ -304,6 +304,10 @@ MODELS = {
         "supports_neg": False,
         "needs_token": False,
         "supports_img2img": True,
+        "vae_dep": "vae_qwen_21",
+        "llm_dep": "qwen3vl_8b",
+        "mmproj_dep": "mmproj_qwen3vl_8b",
+        "zero_cond_t_on_edit": True,
         "license": "Qwen Research License (usage non-commercial)",
         "hf_url": "https://huggingface.co/unsloth/Qwen-Image-2.1-GGUF",
         "vram_min_gb": 8,
@@ -315,6 +319,49 @@ MODELS = {
             "equilibre": {"steps": 25, "cfg": 3.5, "quant": "Q5_K_M", "label": "⚖️ Equilibre (25 etapes, Q5)"},
             "qualite":   {"steps": 40, "cfg": 6.0, "quant": "Q6_K",   "label": "✨ Qualite (40 etapes, Q6)"},
             "optimise":  {"steps": 20, "cfg": 1.0, "quant": "Q4_K_M", "label": "🎯 Optimise edition (20 etapes, Q4)"},
+        },
+    },
+    "qwen-image-2.1-turbo": {
+        "name": "Qwen-Image-2.1 Turbo",
+        "arch": "qwen_image",
+        "repo": "AtomicChat/Qwen-Image-2.1-Turbo-GGUF",
+        "quants": ["AD-Q2_K", "AD-Q3_K", "AD-Q4_K", "AD-Q5_K", "AD-Q6_K", "Q8_0", "BF16"],
+        "default_quant": "AD-Q4_K",
+        "file_for_quant": {
+            "AD-Q2_K": "Qwen-Image-2.1-Turbo-AD-Q2_K.gguf",
+            "AD-Q3_K": "Qwen-Image-2.1-Turbo-AD-Q3_K.gguf",
+            "AD-Q4_K": "Qwen-Image-2.1-Turbo-AD-Q4_K.gguf",
+            "AD-Q5_K": "Qwen-Image-2.1-Turbo-AD-Q5_K.gguf",
+            "AD-Q6_K": "Qwen-Image-2.1-Turbo-AD-Q6_K.gguf",
+            "Q8_0": "Qwen-Image-2.1-Turbo-Q8_0.gguf",
+            "BF16": "Qwen-Image-2.1-Turbo-BF16.gguf",
+        },
+        "size_gb": {
+            "AD-Q2_K": 2.55, "AD-Q3_K": 3.6, "AD-Q4_K": 4.2,
+            "AD-Q5_K": 5.4, "AD-Q6_K": 6.71, "Q8_0": 7.59, "BF16": 14.2,
+        },
+        "deps": ["vae_qwen_21", "qwen3vl_8b"],
+        "supports_neg": False,
+        "needs_token": False,
+        "supports_img2img": True,
+        "vae_dep": "vae_qwen_21",
+        "llm_dep": "qwen3vl_8b",
+        "mmproj_dep": "mmproj_qwen3vl_8b",
+        "mmproj_for_img2img_only": True,
+        "zero_cond_t_on_edit": True,
+        "fixed_steps": 8,
+        "fixed_cfg": 1.0,
+        "sigmas": "1.0,0.978453,0.95418,0.926626,0.89508,0.845148,0.704534,0.414568,0.0",
+        "license": "Qwen Research License (usage non-commercial)",
+        "hf_url": "https://huggingface.co/AtomicChat/Qwen-Image-2.1-Turbo-GGUF",
+        "vram_min_gb": 8,
+        "desc": "Turbo distillé (8 étapes, CFG 1, sigmas dédiés), génération + édition. Requiert sd-cli c150a6b (6 oct. 2026) ou plus récent.",
+        "defaults": {"steps": 8, "cfg": 1.0, "sampler": "euler"},
+        "min_steps": 8, "max_steps": 8,
+        "presets": {
+            "compact":   {"steps": 8, "cfg": 1.0, "quant": "AD-Q3_K", "label": "💾 Léger (AD-Q3_K)"},
+            "equilibre": {"steps": 8, "cfg": 1.0, "quant": "AD-Q4_K", "label": "⚖️ Équilibre (AD-Q4_K)"},
+            "qualite":   {"steps": 8, "cfg": 1.0, "quant": "AD-Q6_K", "label": "✨ Qualité (AD-Q6_K)"},
         },
     },
 
@@ -695,7 +742,7 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
         elif arch in ("ernie", "ideogram", "flux2"):
             vae_key = "vae_flux2"
         elif arch == "qwen_image":
-            vae_key = "vae_qwen_21" if model_id == "qwen-image-2.1" else "vae_qwen"
+            vae_key = m.get("vae_dep", "vae_qwen")
         else:
             vae_key = "vae_flux"
         vpath = _dep_path(manifest, vae_key)
@@ -737,13 +784,15 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
         if llm:
             args += ["--llm", str(llm)]
     elif arch == "qwen_image":
-        llm_key = "qwen3vl_8b" if model_id == "qwen-image-2.1" else "qwen25vl_7b"
+        llm_key = m.get("llm_dep", "qwen25vl_7b")
         llm = _dep_path(manifest, llm_key)
         if llm:
             args += ["--llm", str(llm)]
-        # mmproj pour l'edition (Qwen-Image-2.1)
-        if model_id == "qwen-image-2.1":
-            mmproj = _dep_path(manifest, "mmproj_qwen3vl_8b")
+        # Certains modèles ne chargent le mmproj que pour l'édition avec image source.
+        mmproj_key = m.get("mmproj_dep")
+        need_mmproj = source_image or not m.get("mmproj_for_img2img_only", False)
+        if mmproj_key and need_mmproj:
+            mmproj = _dep_path(manifest, mmproj_key)
             if mmproj:
                 args += ["--llm_vision", str(mmproj)]
 
@@ -764,7 +813,9 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
         if strength is not None:
             args += ["--strength", f"{strength}"]
 
-    # Parametres
+    # Parametres (certains checkpoints Turbo imposent un nombre d'etapes/CFG fixe)
+    cfg = m.get("fixed_cfg", cfg)
+    steps = m.get("fixed_steps", steps)
     args += ["--cfg-scale", f"{cfg}",
              "--steps", f"{int(steps)}",
              "--sampling-method", m["defaults"]["sampler"],
@@ -776,6 +827,8 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
              "-o", out_template,
              "-v",
              "--offload-to-cpu"]
+    if m.get("sigmas"):
+        args += ["--sigmas", m["sigmas"]]
 
     # --diffusion-fa : FIX ERNIE (bug #1447 -> image blanche)
     if m.get("diffusion_fa", True):
@@ -785,12 +838,12 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     if arch in ("flux", "sd3"):
         args += ["--clip-on-cpu"]
 
-    # --flow-shift pour Wan (Qwen-Image 2512 et ERNIE) ; Qwen-Image 2.1 utilise un flow schedule automatique
+    # --flow-shift pour ERNIE et Qwen-Image 2512 ; Turbo utilise ses sigmas fixes.
     if arch == "ernie" or model_id == "qwen-image-2512":
         args += ["--flow-shift", "3"]
 
-    # zero-cond-t pour meilleure qualite d'edition Qwen-Image-2.1
-    if model_id == "qwen-image-2.1" and source_image:
+    # zero-cond-t pour l'edition des modeles Qwen-Image 2.1
+    if m.get("zero_cond_t_on_edit") and source_image:
         args += ["--model-args", "qwen_image_zero_cond_t=true"]
 
     # LoRA : --lora-model-dir (option officielle sd-cli, pas --lora-dir)

@@ -129,7 +129,10 @@ def api_models():
             "needs_token": m.get("needs_token", False),
             "defaults": m["defaults"],
             "min_steps": m.get("min_steps", 1), "max_steps": m.get("max_steps", 50),
+            "fixed_steps": m.get("fixed_steps"), "fixed_cfg": m.get("fixed_cfg"),
             "deps": m["deps"],
+            "supports_img2img": m.get("supports_img2img", False),
+            "mmproj_dep": m.get("mmproj_dep"),
             "presets": m.get("presets", {}),
             "status": st,
         }
@@ -184,8 +187,8 @@ def api_generate():
         "prompt": (data.get("prompt") or "").strip(),
         "negative": (data.get("negative") or "").strip(),
         "width": w, "height": h,
-        "steps": int(data.get("steps") or m["defaults"]["steps"]),
-        "cfg": float(data.get("cfg") or m["defaults"]["cfg"]),
+        "steps": int(m.get("fixed_steps", data.get("steps") or m["defaults"]["steps"])),
+        "cfg": float(m.get("fixed_cfg", data.get("cfg") or m["defaults"]["cfg"])),
         "seed": data.get("seed"),
         "batch": max(1, min(4, int(data.get("batch") or 1))),
         "source_image": data.get("source_image"),
@@ -208,11 +211,11 @@ def api_cancel():
 
 
 # --------------------------------------------------------------------------- #
-#  API : téléchargement mmproj (pour édition Qwen-Image-2.1)
+#  API : téléchargement mmproj (pour l'édition des modèles Qwen-Image)
 # --------------------------------------------------------------------------- #
 @app.route("/api/download-mmproj", methods=["POST"])
 def api_download_mmproj():
-    """Télécharge le fichier mmproj pour l'édition Qwen-Image-2.1."""
+    """Télécharge le fichier mmproj partagé par les modèles Qwen-Image."""
     from registry import DEPS
     from registry import load_manifest
     from engine import ensure_dep, hf_token

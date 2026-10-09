@@ -60,7 +60,7 @@ en copiant le modèle d'un modèle existant qui a la **même architecture**.
 | `sd3`        | `clip_l` + `clip_g` + `t5xxl`     | `vae_sd3`     | Stable Diffusion 3.5 |
 | `zimage`     | `qwen3_4b`                         | `vae_flux`    | Z-Image |
 | `ernie`      | `ministral_3b`                     | `vae_flux2`   | ERNIE-Image Turbo |
-| `qwen_image` | `qwen25vl_7b`                      | `vae_qwen`    | Qwen-Image |
+| `qwen_image` | `qwen25vl_7b` (standard) / `qwen3vl_8b` (2.1/Turbo) | `vae_qwen` / `vae_qwen_21` | Qwen-Image |
 | `ideogram`   | `qwen3vl_8b`                       | `vae_flux2`   | Ideogram 4 (needs uncond) |
 
 > **Astuce** : trouvez la doc officielle du modèle sur
@@ -100,9 +100,13 @@ Ajoutez `"diffusion_fa": False` dans la définition du modèle.
 Ajoutez un champ `uncond_file_for_quant` comme Ideogram 4.
 
 ### Modèle avec paramètre `--flow-shift`
-Les architectures type Wan (ERNIE, Qwen-Image) nécessitent `--flow-shift 3`.
-C'est géré automatiquement si `arch` est `ernie` ou `qwen_image`.
-Pour d'autres architectures, ajoutez la logique dans `build_command()`.
+ERNIE et Qwen-Image 2512 nécessitent `--flow-shift 3`; ce n'est pas universel à tous les modèles Qwen-Image.
+C'est géré automatiquement pour ERNIE et Qwen-Image 2512 dans `build_command()`.
+
+### Modèle avec sigmas et nombre d'étapes fixes
+Qwen-Image-2.1 Turbo exige la liste `--sigmas` fournie sur sa fiche et exactement 8 étapes avec CFG 1.
+Le correctif de `stable-diffusion.cpp` nécessaire aux sigmas personnalisés est inclus dans les builds du 6 octobre 2026 ou plus récents.
+Ajoutez les valeurs fixes au registre et transmettez `--sigmas` depuis `build_command()`.
 
 ---
 

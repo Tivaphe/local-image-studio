@@ -81,32 +81,33 @@ Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
 
 ---
 
-## 🧠 Modèles disponibles (12)
+## 🧠 Modèles disponibles (13)
 
 | Modèle | Vitesse | Licence | Idéal pour |
 |---|---|---|---|
 | **FLUX.1 schnell** | ⚡ 4 étapes | Apache 2.0 ✅ | Tests rapides |
-| **FLUX.2 Klein 4B** | ⚡ 4 étapes | Apache 2.0 ✅ | Rapide + qualité |
-| **FLUX.2 Klein 9B** | ⚡ 4 étapes | Non-commercial | Qualité maximale rapide |
+| **FLUX.2 Klein 4B** | ⚡ 4 étapes | Apache 2.0 ✅ | Rapide + édition |
+| **FLUX.2 Klein 9B** | ⚡ 4 étapes | Non-commercial | Qualité + édition |
 | **SD 3.5 Large Turbo** | ⚡ 4 étapes | Stability AI ⚠️ | Rapidité |
 | **SD 3.5 Medium** | 30 étapes | Stability AI ⚠️ | Polyvalent léger |
 | **SD 3.5 Large** | 30 étapes | Stability AI ⚠️ | Haute qualité |
 | **ERNIE-Image Turbo** | ⚡ 8 étapes | Apache 2.0 ✅ | Texte dans l'image |
 | **Z-Image** | 28 étapes | Apache 2.0 ✅ | Qualité polyvalente |
 | **Qwen-Image 2512** | 30 étapes | Apache 2.0 ✅ | Réalisme humain |
-| **Qwen-Image 2.1** | 25 étapes | Qwen Research ⚠️ | Edition + transparence |
-| **FLUX.2 Klein 4B** | ⚡ 4 étapes | Apache 2.0 ✅ | Rapide + edition |
-| **FLUX.2 Klein 9B** | ⚡ 4 étapes | Non-commercial | Qualité + edition |
+| **Qwen-Image 2.1** | 25 étapes | Qwen Research ⚠️ | Édition + transparence |
+| **Qwen-Image 2.1 Turbo** | ⚡ 8 étapes, CFG 1 | Qwen Research ⚠️ | Génération + édition rapide |
 | **Ideogram 4** | 12 étapes | Ideogram | Rendu de texte |
 | **FHDR Uncensored** | 20 étapes | Non-commercial | Sans censure |
 
 > ✅ = usage commercial autorisé · ⚠️ = usage personnel/non-commercial
+>
+> **Qwen-Image 2.1 Turbo** nécessite le moteur `sd-cli` du 6 octobre 2026 ou plus récent et utilise toujours 8 étapes avec CFG 1 (le moteur peut être réinstallé depuis l'onglet Modèles).
 
 ### 💡 Quel modèle choisir ?
 
 - **Vous débutez ?** → **FLUX.1 schnell** (le plus rapide)
-- **Meilleure qualité rapide ?** → **FLUX.2 Klein 9B** ou **Qwen-Image 2512**
-- **Edition d'images ?** → **Qwen-Image 2.1** (édition avancée) ou **FLUX.2 Klein** (édition rapide)
+- **Meilleure qualité rapide ?** → **FLUX.2 Klein 9B**, **Qwen-Image 2512** ou **Qwen-Image 2.1 Turbo**
+- **Édition d'images ?** → **Qwen-Image 2.1 / 2.1 Turbo** (édition sémantique) ou **FLUX.2 Klein** (édition rapide)
 - **Img2img classique ?** → **SD 3.5 Medium/Large** (contrôle de la force)
 - **Texte lisible dans l'image ?** → **ERNIE-Image Turbo** ou **Ideogram 4**
 - **Le plus léger ?** → **SD 3.5 Medium** (~2 Go)
@@ -149,7 +150,7 @@ local-image-studio/
 ├── start.bat              ← Double-clic pour lancer
 ├── app.py                 ← Serveur web (Flask)
 ├── engine.py              ← Moteur sd-cli + téléchargements
-├── registry.py            ← Définition des 11 modèles
+├── registry.py            ← Définition des 13 modèles
 ├── prompt_enhancer.py     ← Enrichissement & traduction (LLM)
 ├── gpu_info.py            ← Détection VRAM
 ├── db.py                  ← Historique & statistiques

@@ -81,13 +81,13 @@ Your images are **automatically saved** in the `output/` folder.
 
 ---
 
-## 🧠 Available models (12)
+## 🧠 Available models (13)
 
 | Model | Speed | License | Best for |
 |---|---|---|---|
 | **FLUX.1 schnell** | ⚡ 4 steps | Apache 2.0 ✅ | Quick tests |
-| **FLUX.2 Klein 4B** | ⚡ 4 steps | Apache 2.0 ✅ | Fast + quality |
-| **FLUX.2 Klein 9B** | ⚡ 4 steps | Non-commercial | Top quality, fast |
+| **FLUX.2 Klein 4B** | ⚡ 4 steps | Apache 2.0 ✅ | Fast + editing |
+| **FLUX.2 Klein 9B** | ⚡ 4 steps | Non-commercial | Quality + editing |
 | **SD 3.5 Large Turbo** | ⚡ 4 steps | Stability AI ⚠️ | Speed |
 | **SD 3.5 Medium** | 30 steps | Stability AI ⚠️ | Lightweight all-rounder |
 | **SD 3.5 Large** | 30 steps | Stability AI ⚠️ | High quality |
@@ -95,18 +95,19 @@ Your images are **automatically saved** in the `output/` folder.
 | **Z-Image** | 28 steps | Apache 2.0 ✅ | Versatile quality |
 | **Qwen-Image 2512** | 30 steps | Apache 2.0 ✅ | Human realism |
 | **Qwen-Image 2.1** | 25 steps | Qwen Research ⚠️ | Editing + transparency |
-| **FLUX.2 Klein 4B** | ⚡ 4 steps | Apache 2.0 ✅ | Fast + editing |
-| **FLUX.2 Klein 9B** | ⚡ 4 steps | Non-commercial | Quality + editing |
+| **Qwen-Image 2.1 Turbo** | ⚡ 8 steps, CFG 1 | Qwen Research ⚠️ | Fast generation + editing |
 | **Ideogram 4** | 12 steps | Ideogram | Text rendering |
 | **FHDR Uncensored** | 20 steps | Non-commercial | Uncensored |
 
 > ✅ = commercial use allowed · ⚠️ = personal/non-commercial use
+>
+> **Qwen-Image 2.1 Turbo** requires `sd-cli` built on or after October 6, 2026, and always uses 8 steps at CFG 1 (reinstall the engine from the Models tab if needed).
 
 ### 💡 Which model to choose?
 
 - **Just starting?** → **FLUX.1 schnell** (fastest)
-- **Best fast quality?** → **FLUX.2 Klein 9B** or **Qwen-Image 2512**
-- **Image editing?** → **Qwen-Image 2.1** (advanced editing) or **FLUX.2 Klein** (fast editing)
+- **Best fast quality?** → **FLUX.2 Klein 9B**, **Qwen-Image 2512**, or **Qwen-Image 2.1 Turbo**
+- **Image editing?** → **Qwen-Image 2.1 / 2.1 Turbo** (semantic editing) or **FLUX.2 Klein** (fast editing)
 - **Classic img2img?** → **SD 3.5 Medium/Large** (strength control)
 - **Readable text in image?** → **ERNIE-Image Turbo** or **Ideogram 4**
 - **Smallest?** → **SD 3.5 Medium** (~2 GB)
@@ -149,7 +150,7 @@ local-image-studio/
 ├── start.bat              ← Double-click to launch
 ├── app.py                 ← Web server (Flask)
 ├── engine.py              ← sd-cli engine + downloads
-├── registry.py            ← 11 model definitions
+├── registry.py            ← 13 model definitions
 ├── prompt_enhancer.py     ← Enrichment & translation (LLM)
 ├── gpu_info.py            ← VRAM detection
 ├── db.py                  ← History & statistics

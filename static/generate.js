@@ -181,6 +181,12 @@ function onModelChange() {
   }
 
   $('#steps').min = m.min_steps; $('#steps').max = m.max_steps;
+  const hasFixedSteps = m.fixed_steps !== null && m.fixed_steps !== undefined;
+  const hasFixedCfg = m.fixed_cfg !== null && m.fixed_cfg !== undefined;
+  $('#steps').readOnly = hasFixedSteps;
+  $('#cfg').readOnly = hasFixedCfg;
+  if (hasFixedSteps) $('#steps').value = m.fixed_steps;
+  if (hasFixedCfg) $('#cfg').value = m.fixed_cfg;
   $('#negative').parentElement.style.display = m.supports_neg ? '' : 'none';
   // pre-remplir le negative par defaut si vide
   const negEl = $('#negative');
@@ -202,8 +208,8 @@ function onModelChange() {
   $('#gen-error').hidden = !warn;
 
   // Activer l'upload pour les modeles avec support d'edition/img2img
-  const isEditModel = modelId === 'qwen-image-2.1' 
-    || m.arch === 'flux2' 
+  const isEditModel = Boolean(m.supports_img2img)
+    || m.arch === 'flux2'
     || m.arch === 'sd3';
   const uploadArea = $('#file-upload-area');
   if (uploadArea) {
@@ -568,7 +574,7 @@ async function doTranslate() {
 }
 $('#translate-btn')?.addEventListener('click', doTranslate);
 
-// ---------- vérification mmproj pour Qwen-Image-2.1 ----------
+// ---------- vérification mmproj pour les modèles Qwen-Image ----------
 function checkMmprojStatus() {
   const btn = $('#mmproj-download-btn');
   const msg = $('#mmproj-msg');
@@ -616,13 +622,14 @@ $('#mmproj-download-btn')?.addEventListener('click', async () => {
   }
 });
 
-// Vérification du statut mmproj (uniquement Qwen-Image-2.1)
+// Vérification du statut mmproj pour les modèles qui déclarent cette dépendance
 async function checkMmproj() {
   const currentModel = $('#model') ? $('#model').value : null;
-  const isQwen21 = currentModel === 'qwen-image-2.1';
+  const model = MODELS[currentModel];
+  const needsMmproj = Boolean(model && model.mmproj_dep);
   const statusDiv = $('#mmproj-status');
   if (!statusDiv) return;
-  if (!isQwen21) {
+  if (!needsMmproj) {
     statusDiv.classList.add('hidden');
     return;
   }
