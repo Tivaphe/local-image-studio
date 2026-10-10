@@ -310,6 +310,21 @@ MODELS = {
         "supports_neg": False,
         "needs_token": False,
         "supports_img2img": True,
+        # --- Edition multi-images (cf. docs/ADD_MODEL_FR.md) ---
+        "supports_ref_images": True,
+        "input_modes": ["ref"],
+        "max_ref_images": 10,
+        "ref_tag_syntax": "<image{n}>",
+        "ref_needs_vlm": True,
+        "ref_hint": ("Le moteur annote automatiquement chaque image pour le VLM : adresse-les "
+                     "dans le prompt avec <image1>, <image2>… Image 1 = celle que l'on modifie, "
+                     "les autres fournissent le contenu (vêtement, objet, style)."),
+        "ref_examples": [
+            "Keep the character and pose in <image1> unchanged, put the denim shirt from <image2> "
+            "on the character, preserve the original face, hair and background",
+            "Replace the text on the sign in <image1> with the exact text from <image2>, "
+            "same font, same lighting",
+        ],
         "vae_dep": "vae_qwen_21",
         "llm_dep": "qwen3vl_8b",
         "mmproj_dep": "mmproj_qwen3vl_8b",
@@ -317,7 +332,7 @@ MODELS = {
         "license": "Qwen Research License (usage non-commercial)",
         "hf_url": "https://huggingface.co/unsloth/Qwen-Image-2.1-GGUF",
         "vram_min_gb": 8,
-        "desc": "Image editing (semantic) + text2image. mmproj requis pour l'editions.",
+        "desc": "Édition sémantique multi-images (jusqu'à 10) + text2image. mmproj requis pour l'édition.",
         "defaults": {"steps": 25, "cfg": 3.5, "sampler": "euler"},
         "min_steps": 10, "max_steps": 50,
         "presets": {
@@ -355,6 +370,18 @@ MODELS = {
         "mmproj_dep": "mmproj_qwen3vl_8b",
         "mmproj_for_img2img_only": True,
         "zero_cond_t_on_edit": True,
+        # --- Edition multi-images ---
+        "supports_ref_images": True,
+        "input_modes": ["ref"],
+        "max_ref_images": 10,
+        "ref_tag_syntax": "<image{n}>",
+        "ref_needs_vlm": True,
+        "ref_hint": ("Même syntaxe que Qwen-Image 2.1 : <image1>, <image2>… (image 1 = le canvas). "
+                     "Version distillée : restez à 2-3 images si la VRAM est serrée."),
+        "ref_examples": [
+            "Remove the background of <image1>, keep the logo from <image2> as RGBA",
+            "Keep the person in <image1> unchanged, dress them with the coat from <image2>",
+        ],
         "fixed_steps": 8,
         "fixed_cfg": 1.0,
         "sigmas": "1.0,0.978453,0.95418,0.926626,0.89508,0.845148,0.704534,0.414568,0.0",
@@ -414,6 +441,10 @@ MODELS = {
         "supports_neg": True,
         "diffusion_fa": False,
         "license": "Stability AI Community (non-commercial <$1M)",
+        "supports_img2img": True,
+        # Img2img classique : une seule image de depart + force (pas de references multiples).
+        "input_modes": ["init"],
+        "max_ref_images": 1,
         "hf_url": "https://huggingface.co/city96/stable-diffusion-3.5-medium-gguf",
         "vram_min_gb": 4,
         "needs_token": True,
@@ -443,6 +474,10 @@ MODELS = {
         "supports_neg": True,
         "diffusion_fa": False,
         "license": "Stability AI Community (non-commercial <$1M)",
+        "supports_img2img": True,
+        # Img2img classique : une seule image de depart + force (pas de references multiples).
+        "input_modes": ["init"],
+        "max_ref_images": 1,
         "hf_url": "https://huggingface.co/city96/stable-diffusion-3.5-large-gguf",
         "vram_min_gb": 6,
         "needs_token": True,
@@ -472,6 +507,10 @@ MODELS = {
         "supports_neg": False,
         "diffusion_fa": False,
         "license": "Stability AI Community (non-commercial <$1M)",
+        "supports_img2img": True,
+        # Img2img classique : une seule image de depart + force (pas de references multiples).
+        "input_modes": ["init"],
+        "max_ref_images": 1,
         "hf_url": "https://huggingface.co/city96/stable-diffusion-3.5-large-turbo-gguf",
         "vram_min_gb": 6,
         "needs_token": True,
@@ -501,11 +540,26 @@ MODELS = {
         "deps": ["vae_flux2", "qwen3_4b"],
         "supports_neg": False,
         "supports_img2img": True,
+        # --- Edition multi-images ---
+        "supports_ref_images": True,
+        "input_modes": ["ref"],
+        "max_ref_images": 10,
+        "ref_tag_syntax": None,
+        "ref_needs_vlm": False,
+        "ref_hint": ("Klein ne « voit » pas les images avec son encodeur de texte : les références "
+                     "vont directement au DiT. N'utilisez PAS de balise <image1> — désignez chaque "
+                     "image par sa position en langage naturel (« the man in image 1 »). "
+                     "4B = 4 Go de poids : restez à 2-3 références, sinon baissez le budget pixels."),
+        "ref_examples": [
+            "Place the watch from image 2 on the desk in image 1, keep the morning light and the "
+            "wood texture of image 1",
+            "Replace the child in image 1 with the cat from image 2, same pose and same framing",
+        ],
         "needs_token": False,
         "license": "Apache 2.0 (libre, commercial OK)",
         "hf_url": "https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF",
         "vram_min_gb": 4,
-        "desc": "Ultra-rapide (4 etapes), sous la seconde. Generation + edition unifies.",
+        "desc": "Ultra-rapide (4 etapes), sous la seconde. Generation + edition unifiees (jusqu'à 10 references).",
         "defaults": {"steps": 4, "cfg": 1.0, "sampler": "euler"},
         "min_steps": 1, "max_steps": 10,
     },
@@ -531,11 +585,25 @@ MODELS = {
         "deps": ["vae_flux2", "qwen3_8b"],
         "supports_neg": False,
         "supports_img2img": True,
+        # --- Edition multi-images ---
+        "supports_ref_images": True,
+        "input_modes": ["ref"],
+        "max_ref_images": 10,
+        "ref_tag_syntax": None,
+        "ref_needs_vlm": False,
+        "ref_hint": ("Pas de balise <image1> avec Klein : désignez les images par leur position en "
+                     "langage naturel (« the man in image 1 »). Le 9B encaisse mieux 4-6 références "
+                     "que le 4B, mais chaque image coûte des tokens."),
+        "ref_examples": [
+            "Keep the face and hair of the woman in image 1, dress her in the red silk dress from "
+            "image 2, studio lighting like image 3",
+            "Put the product from image 2 on the marble table in image 1, preserve the shadows of image 1",
+        ],
         "needs_token": True,
         "license": "FLUX Non-Commercial (usage perso uniquement)",
         "hf_url": "https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF",
         "vram_min_gb": 8,
-        "desc": "Modele phare BFL. Qualite top en sous-seconde (4 etapes). Non-commercial.",
+        "desc": "Modele phare BFL. Qualite top en sous-seconde (4 etapes), édition jusqu'à 10 references. Non-commercial.",
         "defaults": {"steps": 4, "cfg": 1.0, "sampler": "euler"},
         "min_steps": 1, "max_steps": 10,
     },
@@ -676,6 +744,90 @@ def build_ideogram_prompt(text, negative, width, height):
 
 
 # --------------------------------------------------------------------------- #
+#  Capacites d'entree image (edition / img2img)
+# --------------------------------------------------------------------------- #
+# Deux facons pour sd-cli de recevoir une image :
+#   "ref"  -> -r / --ref-image  : reference (REPETABLE : une fois par image).
+#             C'est le mode des modeles d'edition semantique.
+#   "init" -> -i / --init-img   : image de depart unique + --strength (img2img).
+# Le nombre maximum d'images est une limite d'interface : le moteur n'en pose
+# aucune, mais chaque reference ajoute des tokens (donc VRAM + temps).
+
+
+def input_modes(model_id: str) -> list:
+    """Modes d'entree image acceptes par un modele ("ref" et/ou "init")."""
+    m = MODELS[model_id]
+    modes = m.get("input_modes")
+    if modes:
+        return list(modes)
+    # Retro-compatibilite : les architectures UNet utilisent -i, les DiT -r.
+    if m.get("supports_img2img") or m.get("supports_ref_images"):
+        return ["init"] if m.get("arch") in ("sd3", "sd") else ["ref"]
+    return []
+
+
+def max_ref_images(model_id: str, input_mode: str | None = None) -> int:
+    """Nombre maximal d'images acceptees par le modele (canvas + references)."""
+    m = MODELS[model_id]
+    modes = input_modes(model_id)
+    mode = input_mode or (modes[0] if modes else None)
+    if mode == "init":
+        return 1
+    return int(m.get("max_ref_images", 1))
+
+
+def clamp_ref_max_pixels(value) -> int | None:
+    """Normalise le budget pixels des references (None = auto, gere par le moteur)."""
+    if value in (None, "", 0, "0", "auto", "Auto"):
+        return None
+    try:
+        px = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    if px <= 0:
+        return None
+    return max(65536, min(4 * 1024 * 1024, px))  # 256x256 .. 4 MP
+
+
+def check_images_input(model_id: str, images, input_mode: str | None = None):
+    """
+    Valide le couple (modele, images).
+    Retourne (images_normalisees, input_mode, message_erreur) — erreur None si OK.
+    La presence du mmproj (encodeur visuel) est verifiee cote moteur.
+    """
+    m = MODELS[model_id]
+    modes = input_modes(model_id)
+    imgs = [str(p).strip() for p in (images or []) if str(p).strip()]
+    # ordre preserve, doublons retire
+    seen = set()
+    imgs = [p for p in imgs if not (p in seen or seen.add(p))]
+
+    if not imgs:
+        return [], None, None
+    if not modes:
+        return imgs, None, (
+            f"{m['name']} n'accepte pas d'image en entrée.\n"
+            "Pour de l'édition multi-images, choisis Qwen-Image 2.1 (ou 2.1 Turbo) ou "
+            "FLUX.2 Klein dans le Studio d'édition ; pour de l'img2img avec force de "
+            "dénouage, choisis Stable Diffusion 3.5."
+        )
+    mode = input_mode or modes[0]
+    if mode not in modes:
+        return imgs, mode, (
+            f"{m['name']} n'accepte pas le mode d'entrée « {mode} » "
+            f"(modes disponibles : {', '.join(modes)})."
+        )
+    limit = max_ref_images(model_id, mode)
+    if len(imgs) > limit:
+        label = "image de départ (img2img)" if mode == "init" else "référence(s)"
+        return imgs, mode, (
+            f"{m['name']} accepte au maximum {limit} {label} — "
+            f"{len(imgs)} image(s) fournie(s). Retirez des images ou changez de modèle."
+        )
+    return imgs, mode, None
+
+
+# --------------------------------------------------------------------------- #
 #  Construction de la commande sd-cli
 # --------------------------------------------------------------------------- #
 def _find_dep_on_disk(dep_id: str) -> Path | None:
@@ -747,10 +899,23 @@ def _diffusion_path(model_id, quant):
 
 def build_command(model_id, quant, prompt, negative, width, height, steps,
                   cfg, seed, batch, out_template, sd_cli, manifest,
-                  source_image=None, lora_dir=None, strength=None):
+                  source_image=None, lora_dir=None, strength=None,
+                  ref_images=None, input_mode=None, ref_max_pixels=None):
     m = MODELS[model_id]
     arch = m["arch"]
     args = [sd_cli]
+
+    # --- Entrees image : references (edition) ou image de depart (img2img) ---
+    # `ref_images` est la liste ordonnee (index 0 = canvas edite). `source_image`
+    # (chaine unique) est conserve pour la retro-compatibilite.
+    images = [str(p) for p in (ref_images or []) if p]
+    if not images and source_image:
+        images = [str(source_image)]
+    if input_mode is None:
+        # Retro-compatibilite : -i pour les UNet, -r pour les DiT.
+        input_mode = "init" if arch in ("sd3", "sd") else "ref"
+    has_refs = bool(images) and input_mode == "ref"
+    has_init = bool(images) and input_mode == "init"
 
     # Modele de diffusion
     diff_file = _diffusion_path(model_id, quant)
@@ -819,9 +984,10 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
         llm = _dep_path(manifest, llm_key)
         if llm:
             args += ["--llm", str(llm)]
-        # Certains modèles ne chargent le mmproj que pour l'édition avec image source.
+        # Certains modèles ne chargent le mmproj que pour l'édition avec références
+        # (mode "ref") : c'est lui qui fait entrer l'image dans l'encodeur visuel.
         mmproj_key = m.get("mmproj_dep")
-        need_mmproj = source_image or not m.get("mmproj_for_img2img_only", False)
+        need_mmproj = has_refs or not m.get("mmproj_for_img2img_only", False)
         if mmproj_key and need_mmproj:
             mmproj = _dep_path(manifest, mmproj_key)
             if mmproj:
@@ -835,14 +1001,21 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
         if negative and m.get("supports_neg"):
             args += ["-n", negative]
 
-    # Image source (img2img / edition)
-    if source_image:
-        if arch in ("sd3", "sd"):
-            args += ["-i", source_image]
+    # Images fournies au modele.
+    #  - "ref"  : -r repete une fois par image (edition semantique, multi-refs)
+    #  - "init" : -i unique + --strength (img2img classique)
+    if images:
+        if input_mode == "init":
+            args += ["-i", images[0]]
+            if strength is not None:
+                args += ["--strength", f"{strength}"]
         else:
-            args += ["-r", source_image]
-        if strength is not None:
-            args += ["--strength", f"{strength}"]
+            for ref in images:
+                args += ["-r", ref]
+            # Budget pixels des references (levier VRAM) ; -1 = auto selon le modele.
+            if ref_max_pixels:
+                args += ["--ref-image-args",
+                         f"vae_input_max_pixels={int(ref_max_pixels)}"]
 
     # Parametres (certains checkpoints Turbo imposent un nombre d'etapes/CFG fixe)
     cfg = m.get("fixed_cfg", cfg)
@@ -874,7 +1047,7 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
         args += ["--flow-shift", "3"]
 
     # zero-cond-t pour l'edition des modeles Qwen-Image 2.1
-    if m.get("zero_cond_t_on_edit") and source_image:
+    if m.get("zero_cond_t_on_edit") and has_refs:
         args += ["--model-args", "qwen_image_zero_cond_t=true"]
 
     # LoRA : --lora-model-dir (option officielle sd-cli, pas --lora-dir)

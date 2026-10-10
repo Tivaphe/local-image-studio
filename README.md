@@ -80,6 +80,29 @@ Onglet **Générer** :
 
 Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
 
+### 4️⃣ Éditer une image (et en combiner plusieurs)
+
+Onglet **✂️ Édition** — réservé aux modèles qui savent vraiment éditer :
+
+1. **Choisissez le modèle** : Qwen-Image 2.1 / 2.1 Turbo ou FLUX.2 Klein 4B / 9B
+   (pour les Qwen, le **mmproj** — 1,2 Go — est requis : l'app le propose en un clic).
+2. **Déposez l'image à modifier** : elle devient l'« image 1 » (le canvas).
+3. **Ajoutez des références** (vêtement, objet, visage, style, décor…) : jusqu'à
+   **10 images au total**. **L'ordre compte** : utilisez ◀ ▶ pour le changer.
+4. **Décrivez la modification** :
+   - **Qwen-Image 2.1 / Turbo** → citez les images avec les balises
+     `<image1>`, `<image2>`… (des boutons les insèrent pour vous) :
+     `Keep the character and pose in <image1> unchanged, put the shirt from <image2> on them`
+   - **FLUX.2 Klein** → **pas de balise**, le modèle ne « voit » pas les images via son
+     encodeur de texte : désignez-les par la position en langage naturel :
+     `Put the product from image 2 on the table in image 1, keep image 1's lighting`
+5. **Lancez** : le résultat s'affiche en **avant / après**.
+
+💡 Chaque référence ajoute des tokens : si vous manquez de VRAM, baissez le
+**budget pixels des références** (0,5 MP / 0,25 MP) plutôt que le nombre d'images.
+💡 Pour une **img2img classique** (re-dénouiser une image avec une « force » réglable),
+gardez l'onglet **Générer** → *Image de départ* (SD 3.5).
+
 ---
 
 ## 🧠 Modèles disponibles (14)
@@ -87,16 +110,16 @@ Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
 | Modèle | Vitesse | Licence | Idéal pour |
 |---|---|---|---|
 | **FLUX.1 schnell** | ⚡ 4 étapes | Apache 2.0 ✅ | Tests rapides |
-| **FLUX.2 Klein 4B** | ⚡ 4 étapes | Apache 2.0 ✅ | Rapide + édition |
-| **FLUX.2 Klein 9B** | ⚡ 4 étapes | Non-commercial | Qualité + édition |
+| **FLUX.2 Klein 4B** | ⚡ 4 étapes | Apache 2.0 ✅ | Rapide + édition ×10 images |
+| **FLUX.2 Klein 9B** | ⚡ 4 étapes | Non-commercial | Qualité + édition ×10 images |
 | **SD 3.5 Large Turbo** | ⚡ 4 étapes | Stability AI ⚠️ | Rapidité |
 | **SD 3.5 Medium** | 30 étapes | Stability AI ⚠️ | Polyvalent léger |
 | **SD 3.5 Large** | 30 étapes | Stability AI ⚠️ | Haute qualité |
 | **ERNIE-Image Turbo** | ⚡ 8 étapes | Apache 2.0 ✅ | Texte dans l'image |
 | **Z-Image** | 28 étapes | Apache 2.0 ✅ | Qualité polyvalente |
 | **Qwen-Image 2512** | 30 étapes | Apache 2.0 ✅ | Réalisme humain |
-| **Qwen-Image 2.1** | 25 étapes | Qwen Research ⚠️ | Édition + transparence |
-| **Qwen-Image 2.1 Turbo** | ⚡ 8 étapes, CFG 1 | Qwen Research ⚠️ | Génération + édition rapide |
+| **Qwen-Image 2.1** | 25 étapes | Qwen Research ⚠️ | Édition multi-images (×10) + transparence |
+| **Qwen-Image 2.1 Turbo** | ⚡ 8 étapes, CFG 1 | Qwen Research ⚠️ | Génération + édition rapide multi-images |
 | **Iris-3B** | 100 étapes | Apache 2.0 ✅ | Génération en espace pixel |
 | **Ideogram 4** | 12 étapes | Ideogram | Rendu de texte |
 | **FHDR Uncensored** | 20 étapes | Non-commercial | Sans censure |
@@ -112,7 +135,8 @@ Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
 - **Vous débutez ?** → **FLUX.1 schnell** (le plus rapide)
 - **Meilleure qualité rapide ?** → **FLUX.2 Klein 9B**, **Qwen-Image 2512** ou **Qwen-Image 2.1 Turbo**
 - **Génération en espace pixel ?** → **Iris-3B** (100 étapes)
-- **Édition d'images ?** → **Qwen-Image 2.1 / 2.1 Turbo** (édition sémantique) ou **FLUX.2 Klein** (édition rapide)
+- **Édition d'images ?** → onglet **Édition** : **Qwen-Image 2.1 / 2.1 Turbo** (édition sémantique,
+  jusqu'à 10 images) ou **FLUX.2 Klein** (édition rapide par position)
 - **Img2img classique ?** → **SD 3.5 Medium/Large** (contrôle de la force)
 - **Texte lisible dans l'image ?** → **ERNIE-Image Turbo** ou **Ideogram 4**
 - **Le plus léger ?** → **SD 3.5 Medium** (~2 Go)
@@ -137,6 +161,7 @@ Certains modèles nécessitent un **token Hugging Face gratuit** :
 | Fonction | Description |
 |---|---|
 | 🖼️ **Génération** | 1 à 4 images par lot, 5 formats + proportions originales en édition |
+| ✂️ **Studio d'édition** | Onglet **Édition** : 1 canvas + jusqu'à **10 images** de référence, réordonnancement, comparaison avant/après |
 | 🌐 **Traduction** | Traduit votre prompt (FR, ES…) vers l'anglais automatiquement |
 | ✨ **Enrichissement** | Un LLM enrichit votre prompt (style, lumière, composition…) |
 | 📊 **Statistiques** | Temps de génération par modèle, modèle le plus utilisé, etc. |
@@ -161,8 +186,8 @@ local-image-studio/
 ├── db.py                  ← Historique & statistiques
 ├── config.py              ← Configuration des chemins
 ├── requirements.txt       ← Dépendances Python
-├── templates/             ← Pages HTML
-├── static/                ← CSS + JavaScript
+├── templates/             ← Pages HTML (generate.html, edit.html, …)
+├── static/                ← CSS + JavaScript (generate.js, edit.js, …)
 ├── docs/                  ← Documentation
 │   ├── ADD_MODEL_FR.md    ← Comment ajouter un modèle (FR)
 │   └── ADD_MODEL_EN.md    ← How to add a model (EN)

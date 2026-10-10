@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Base de donnees SQLite pour l'historique et les statistiques."""
+import json
 import sqlite3
 import threading
 from datetime import datetime
@@ -36,7 +37,8 @@ def init_db():
             sampler     TEXT,
             filename    TEXT,
             batch_size  INTEGER,
-            gen_time    REAL DEFAULT 0
+            gen_time    REAL DEFAULT 0,
+            source_images TEXT
         )
         """)
         # migration : ajouter gen_time si absent (DB existante)
@@ -44,22 +46,41 @@ def init_db():
             conn.execute("SELECT gen_time FROM images LIMIT 1")
         except Exception:
             conn.execute("ALTER TABLE images ADD COLUMN gen_time REAL DEFAULT 0")
+        # migration : images sources (edition / img2img) pour « Réutiliser »
+        try:
+            conn.execute("SELECT source_images FROM images LIMIT 1")
+        except Exception:
+            conn.execute("ALTER TABLE images ADD COLUMN source_images TEXT")
         conn.commit()
 
 
 def add_image(batch_id, idx, model_id, model_name, quant, prompt, negative,
               seed, width, height, steps, cfg, sampler, filename, batch_size,
-              gen_time=0):
+              gen_time=0, source_images=None):
+    """`source_images` : liste de chemins relatifs (canvas en premier) ou None."""
+    src = None
+    if source_images:
+        src = json.dumps(list(source_images), ensure_ascii=False)
     with _lock, _connect() as conn:
         conn.execute("""
             INSERT INTO images (created, batch_id, idx, model, model_name, quant,
                                 prompt, negative, seed, width, height, steps, cfg,
-                                sampler, filename, batch_size, gen_time)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                sampler, filename, batch_size, gen_time, source_images)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (datetime.now().isoformat(timespec="seconds"), batch_id, idx,
               model_id, model_name, quant, prompt, negative, seed, width,
-              height, steps, cfg, sampler, filename, batch_size, gen_time))
+              height, steps, cfg, sampler, filename, batch_size, gen_time, src))
         conn.commit()
+
+
+def _decode_row(row):
+    """Ajoute `source_images_list` (liste de chemins relatifs) à une ligne brute."""
+    raw = row.get("source_images")
+    try:
+        row["source_images_list"] = json.loads(raw) if raw else []
+    except Exception:
+        row["source_images_list"] = []
+    return row
 
 
 def list_images(limit=200, offset=0, model_id=None):
@@ -68,18 +89,19 @@ def list_images(limit=200, offset=0, model_id=None):
             cur = conn.execute(
                 "SELECT * FROM images WHERE model=? ORDER BY id DESC LIMIT ? OFFSET ?",
                 (model_id, limit, offset))
+            rows = cur.fetchall()
         else:
-            cur = conn.execute(
+            rows = conn.execute(
                 "SELECT * FROM images ORDER BY id DESC LIMIT ? OFFSET ?",
-                (limit, offset))
-        return [dict(r) for r in cur.fetchall()]
+                (limit, offset)).fetchall()
+        return [_decode_row(dict(r)) for r in rows]
 
 
 def get_image(img_id):
     with _lock, _connect() as conn:
         cur = conn.execute("SELECT * FROM images WHERE id=?", (img_id,))
         r = cur.fetchone()
-        return dict(r) if r else None
+        return _decode_row(dict(r)) if r else None
 
 
 def delete_image(img_id):

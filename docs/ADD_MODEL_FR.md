@@ -112,7 +112,59 @@ Ajoutez les valeurs fixes au registre et transmettez `--sigmas` depuis `build_co
 
 ---
 
-## Étape 6 : Tester
+## Étape 6 : Déclarer les capacités d'entrée image (édition / img2img)
+
+`sd-cli` accepte les images de deux façons très différentes :
+
+| Mode | Flag | Comportement |
+|---|---|---|
+| `ref` | `-r` / `--ref-image` | **Répétable une fois par image** (documenté comme « can be used multiple times »). C'est le mode des modèles d'édition sémantique : l'image n'est pas « débruitée », elle sert de contexte. |
+| `init` | `-i` / `--init-img` | Image de départ **unique** + `--strength` (img2img classique). |
+
+Un modèle déclare ce qu'il accepte dans `registry.py` :
+
+```python
+"mon-modele-edit": {
+    ...
+    "supports_ref_images": True,      # le Studio d'édition (page /edit) le listera
+    "input_modes": ["ref"],           # "ref", "init", ou les deux
+    "max_ref_images": 10,             # canvas + références (limite d'interface)
+    "ref_tag_syntax": "<image{n}>",   # ou None si le modèle n'a pas de syntaxe
+    "ref_needs_vlm": True,            # un mmproj est-il nécessaire pour les refs ?
+    "ref_hint": "Comment citer les images…",
+    "ref_examples": ["Keep the subject in <image1>, …"],
+},
+```
+
+Règles à connaître (vérifiées sur le moteur, `docs/edit.md` et
+`docs/qwen_image_2.1.md` de stable-diffusion.cpp) :
+
+- **`pass_to_vlm` ⇒ mmproj obligatoire.** Le preset de références-auto-détecté
+  (`--ref-image-args`) envoie les images dans l'encodeur de texte pour `qwen`
+  (`pass_to_vlm=true`) : sans `--llm_vision`, le moteur refuse/ignore les images.
+  Pour `flux2` (`pass_to_vlm=false`), les références ne vont qu'au DiT : **pas de
+  mmproj**, et donc **pas de balise** `<image1>` — le modèle désigne les images par
+  leur position en langage naturel.
+- **L'ordre des `-r` définit les index.** `ref_index_mode=increase` (déjà le défaut
+  des presets `qwen` et `flux2`) numérote les images à partir de 1 : la première est
+  le canvas édité.
+- **Le nombre d'images n'est pas plafonné par le moteur**, mais chaque référence
+  ajoute des tokens (VRAM + temps). `max_ref_images` sert à protéger l'utilisateur ;
+  le levier fin est `--ref-image-args "vae_input_max_pixels=524288"` (exposé dans l'UI
+  sous « budget pixels des références »).
+- **`--strength` n'a aucun effet en mode `ref`** : ne pas l'envoyer dans ce cas.
+- Un modèle **non** listé ici (FLUX.1 schnell, Z-Image, ERNIE, Ideogram 4, Iris-3B…)
+  n'accepte pas de référence : le moteur ne lui fournira pas l'argument.
+- `--mask` (inpainting) n'a d'effet que sur des poids dédiés « inpaint »
+  (ex. FLUX.1-Fill-dev) : inutile de l'exposer pour les modèles du registre actuel.
+
+Côté application, ces champs remontent dans `/api/models`, sont validés par
+`registry.check_images_input()` (nombre, mode, doublons) et aboutissent dans
+`registry.build_command(ref_images=[...], input_mode=…, ref_max_pixels=…)`.
+
+---
+
+## Étape 7 : Tester
 
 1. Redémarrez l'application (`start.bat`).
 2. Allez dans l'onglet **Modèles** → votre modèle apparaît.
