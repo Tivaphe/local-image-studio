@@ -17,20 +17,33 @@
   {% if images %}
   <div class="gallery">
     {% for im in images %}
+    {% set editable = models.get(im.model, {}).get('supports_ref_images', False) %}
+    {% set sources = [] %}
+    {% for p in im.source_images_list %}
+      {% set _ = sources.append({'filename': p, 'url': '/source-images/' ~ p.split('/')|last}) %}
+    {% endfor %}
     <div class="card" data-id="{{ im.id }}">
       <div class="thumb" style="background-image:url('{{ url_for('serve_output', filename=im.filename) }}')"></div>
+      {% if sources %}
+      <div class="card-sources" title="{{ sources|length }} image(s) fournie(s) au modèle">
+        {% for s in sources %}<img src="{{ s.url }}" alt="source">{% endfor %}
+        <span class="src-label">{{ sources|length }} en entrée</span>
+      </div>
+      {% endif %}
       <div class="card-body">
         <div class="card-title">{{ im.model_name }} <span class="tag">{{ im.quant }}</span></div>
         <p class="card-prompt" title="{{ im.prompt }}">{{ im.prompt }}</p>
         <div class="card-meta">
-          {{ im.width }}×{{ im.height }} · {{ im.steps }}步 · cfg {{ im.cfg }} · seed {{ im.seed }}
+          {{ im.width }}×{{ im.height }} · {{ im.steps }} ét. · cfg {{ im.cfg }} · seed {{ im.seed }}
         </div>
         <div class="card-actions">
           <a class="link" href="{{ url_for('serve_output', filename=im.filename) }}" download>Télécharger</a>
-          <button class="link reuse" data-prompt="{{ im.prompt|e }}"
+          <button class="link reuse" data-editable="{{ '1' if editable else '0' }}"
+                  data-prompt="{{ im.prompt|e }}"
                   data-neg="{{ im.negative|e }}" data-model="{{ im.model }}"
                   data-w="{{ im.width }}" data-h="{{ im.height }}"
-                  data-steps="{{ im.steps }}" data-cfg="{{ im.cfg }}" data-seed="{{ im.seed }}">Réutiliser</a>
+                  data-steps="{{ im.steps }}" data-cfg="{{ im.cfg }}" data-seed="{{ im.seed }}"
+                  data-sources='{{ sources | tojson }}'>{{ 'Rééditer' if editable and sources else 'Réutiliser' }}</a>
           <button class="link danger del" data-id="{{ im.id }}">Supprimer</button>
         </div>
       </div>
@@ -56,6 +69,17 @@ document.querySelectorAll('.del').forEach(b=>{
 document.querySelectorAll('.reuse').forEach(b=>{
   b.addEventListener('click', async ()=>{
     const p = b.dataset;
+    let sources = [];
+    try { sources = JSON.parse(p.sources || '[]'); } catch (e) {}
+    // Les modeles d'edition reviennent dans le Studio d'edition, images restaurées.
+    if (p.editable === '1' && sources.length) {
+      sessionStorage.setItem('edit_reuse', JSON.stringify({
+        model: p.model, prompt: p.prompt, neg: p.neg, negative: p.neg,
+        steps: p.steps, cfg: p.cfg, seed: p.seed, source_images: sources
+      }));
+      window.location.href = "{{ url_for('edit') }}";
+      return;
+    }
     sessionStorage.setItem('reuse', JSON.stringify(p));
     window.location.href = "{{ url_for('generate') }}";
   });

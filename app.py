@@ -16,7 +16,8 @@ import db
 import engine
 from engine import (tasks, load_settings, save_settings, hf_token, engine_ready,
                     model_status)
-from registry import MODELS, DEPS, RATIOS, DEFAULT_NEGATIVE
+from registry import (MODELS, DEPS, RATIOS, DEFAULT_NEGATIVE, input_modes,
+                      max_ref_images, check_images_input, clamp_ref_max_pixels)
 import gpu_info
 import uuid
 try:
@@ -29,6 +30,11 @@ except Exception as _e:
 
 app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
+# Flask >= 2.3 : c'est le provider JSON qui fait foi (la config ci-dessus est ignoree).
+# `sort_keys=False` conserve l'ordre du registre dans /api/models (le plus pertinent d'abord),
+# `ensure_ascii=False` laisse les accents lisibles dans les messages d'erreur.
+app.json.sort_keys = False
+app.json.ensure_ascii = False
 
 db.init_db()
 
@@ -44,6 +50,12 @@ def index():
 @app.route("/generate")
 def generate():
     return render_template("generate.html", models=MODELS, ratios=RATIOS)
+
+
+@app.route("/edit")
+def edit():
+    """Studio d'edition : canvas + references multiples (modeles d'edition semantique)."""
+    return render_template("edit.html", models=MODELS, ratios=RATIOS)
 
 
 @app.route("/history")
@@ -76,6 +88,46 @@ def settings_page():
 @app.route("/output/<path:filename>")
 def serve_output(filename):
     return send_from_directory(str(config.OUTPUT_DIR), filename)
+
+
+# --------------------------------------------------------------------------- #
+#  Images sources uploadees (edition / img2img)
+# --------------------------------------------------------------------------- #
+IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+
+
+@app.route("/source-images/<path:filename>")
+def serve_source_image(filename):
+    """Sert les images sources (reaffichees dans l'historique et le studio d'edition)."""
+    return send_from_directory(str(config.SOURCE_IMAGES_DIR), filename)
+
+
+def _source_rel_path(dest: Path) -> str:
+    """Chemin relatif stocke dans les params de generation (le moteur tourne a la racine)."""
+    return dest.relative_to(config.ROOT).as_posix()
+
+
+def _source_url(rel_path: str) -> str:
+    return f"/source-images/{Path(rel_path).name}"
+
+
+def _existing_sources(rel_paths):
+    """Garde uniquement les fichiers qui existent vraiment, dans l'ordre donne."""
+    out = []
+    for p in rel_paths or []:
+        p = str(p).strip()
+        if not p:
+            continue
+        candidate = (config.ROOT / p) if not Path(p).is_absolute() else Path(p)
+        try:
+            resolved = candidate.resolve()
+            resolved.relative_to(config.SOURCE_IMAGES_DIR.resolve())
+        except Exception:
+            # chemin hors du dossier attendu -> refuse
+            continue
+        if resolved.exists():
+            out.append(_source_rel_path(resolved))
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -134,6 +186,14 @@ def api_models():
             "supports_img2img": m.get("supports_img2img", False),
             "mmproj_dep": m.get("mmproj_dep"),
             "presets": m.get("presets", {}),
+            # --- Capacites d'entree image (edition / img2img) ---
+            "supports_ref_images": m.get("supports_ref_images", False),
+            "input_modes": input_modes(mid),
+            "max_ref_images": max_ref_images(mid),
+            "ref_tag_syntax": m.get("ref_tag_syntax"),
+            "ref_needs_vlm": m.get("ref_needs_vlm", False),
+            "ref_hint": m.get("ref_hint", ""),
+            "ref_examples": m.get("ref_examples", []),
             "status": st,
         }
     return jsonify(out)
@@ -181,6 +241,23 @@ def api_generate():
     if data.get("width") and data.get("height"):
         w, h = int(data["width"]), int(data["height"])
 
+    # --- Images fournies : refs (edition) ou image de depart (img2img) ---
+    raw_images = data.get("ref_images")
+    if not raw_images:
+        legacy = data.get("source_image")
+        raw_images = [legacy] if legacy else []
+    if isinstance(raw_images, str):
+        raw_images = [raw_images]
+    images = _existing_sources(raw_images)
+    missing = len([p for p in raw_images if str(p).strip()]) - len(images)
+    if missing > 0:
+        return jsonify({"ok": False,
+                        "error": f"{missing} image(s) source(s) introuvable(s) sur le disque. "
+                                 "Ré-uploadez-les."}), 400
+    images, input_mode, err = check_images_input(mid, images, data.get("input_mode"))
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+
     params = {
         "model_id": mid,
         "quant": quant,
@@ -191,8 +268,11 @@ def api_generate():
         "cfg": float(m.get("fixed_cfg", data.get("cfg") or m["defaults"]["cfg"])),
         "seed": data.get("seed"),
         "batch": max(1, min(4, int(data.get("batch") or 1))),
-        "source_image": data.get("source_image"),
-        "strength": data.get("strength"),
+        "ref_images": images,
+        "input_mode": input_mode,
+        "ref_max_pixels": clamp_ref_max_pixels(data.get("ref_max_pixels")),
+        "source_image": images[0] if (images and input_mode == "init") else None,
+        "strength": data.get("strength") if input_mode == "init" else None,
         "lora_dir": data.get("lora_dir"),
     }
     if not params["prompt"]:
@@ -213,22 +293,29 @@ def api_cancel():
 # --------------------------------------------------------------------------- #
 #  API : téléchargement mmproj (pour l'édition des modèles Qwen-Image)
 # --------------------------------------------------------------------------- #
+def _mmproj_dep_for(model_id=None):
+    """Dépendance mmproj attendue par un modèle (défaut : celle partagée par Qwen-Image)."""
+    m = MODELS.get(model_id or "", {})
+    return m.get("mmproj_dep") or "mmproj_qwen3vl_8b"
+
+
 @app.route("/api/download-mmproj", methods=["POST"])
 def api_download_mmproj():
-    """Télécharge le fichier mmproj partagé par les modèles Qwen-Image."""
-    from registry import DEPS
+    """Télécharge le fichier mmproj (encodeur visuel) requis pour l'édition."""
     from registry import load_manifest
     from engine import ensure_dep, hf_token
     from pathlib import Path
+    data = request.get_json(silent=True) or {}
+    dep_id = _mmproj_dep_for(data.get("model_id") or request.args.get("model_id"))
     try:
-        token = hf_token()
-        ensure_dep("mmproj_qwen3vl_8b", token)
+        ensure_dep(dep_id, hf_token())
         manifest = load_manifest()
-        info = manifest.get("mmproj_qwen3vl_8b", {})
+        info = manifest.get(dep_id, {})
         path = info.get("path")
         exists = path and Path(path).exists()
         if exists:
-            return jsonify({"ok": True, "message": "mmproj téléchargé ✓", "status": "ready"})
+            return jsonify({"ok": True, "message": "mmproj téléchargé ✓", "status": "ready",
+                            "dep": dep_id})
         else:
             return jsonify({"ok": False, "error": "Téléchargement effectué mais fichier non trouvé"}, status=500)
     except Exception as e:
@@ -237,15 +324,20 @@ def api_download_mmproj():
 
 @app.route("/api/mmproj-status", methods=["GET"])
 def api_mmproj_status():
-    """Vérifie si mmproj est téléchargé."""
-    from registry import load_manifest
+    """Vérifie si mmproj est téléchargé (par modèle : ?model_id=qwen-image-2.1)."""
+    from registry import load_manifest, _dep_path
     from pathlib import Path
-    manifest = load_manifest()
-    info = manifest.get("mmproj_qwen3vl_8b", {})
-    path = info.get("path")
-    exists = path and Path(path).exists()
+    model_id = request.args.get("model_id")
+    if model_id and model_id not in MODELS:
+        return jsonify({"downloaded": False, "error": "Modèle inconnu"}), 400
+    needs = bool(MODELS.get(model_id or "", {}).get("mmproj_dep")) if model_id else True
+    dep_id = _mmproj_dep_for(model_id)
+    path = _dep_path(load_manifest(), dep_id)
+    exists = bool(path and Path(path).exists())
     return jsonify({
         "downloaded": exists,
+        "required": needs,
+        "dep": dep_id,
         "path": path if exists else None
     })
 
@@ -326,18 +418,82 @@ def api_enrich():
 # --------------------------------------------------------------------------- #
 @app.route("/api/upload-source-image", methods=["POST"])
 def api_upload_source_image():
-    """Upload une image source pour img2img/edition. Renvoie le path relatif."""
-    if "image" not in request.files:
+    """
+    Upload une ou plusieurs images sources (edition / img2img).
+
+    - `image`  : un seul fichier (comportement historique)
+    - `images` : plusieurs fichiers, dans l'ordre desire (le premier = canvas edite)
+    Renvoie `files: [{filename, url, name}]` + `filename`/`url` pour la retro-compatibilite.
+    """
+    files = request.files.getlist("images") or request.files.getlist("image")
+    if not files:
         return jsonify({"ok": False, "error": "Aucune image fournie."}), 400
-    f = request.files["image"]
-    if not f.filename or not f.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-        return jsonify({"ok": False, "error": "Format non supporté. Utilisez PNG, JPG ou WEBP."}), 400
-    ext = Path(f.filename).suffix.lower()
-    unique_name = f"{uuid.uuid4().hex[:12]}{ext}"
-    dest = config.SOURCE_IMAGES_DIR / unique_name
-    f.save(str(dest))
-    rel = dest.relative_to(config.ROOT).as_posix()
-    return jsonify({"ok": True, "filename": rel, "url": f"/source-images/{unique_name}"})
+
+    mid = request.form.get("model_id")
+    limit = max_ref_images(mid, request.form.get("input_mode")) if mid in MODELS else 10
+
+    saved, errors = [], []
+    for f in files[:max(1, limit)]:
+        if not f.filename or not f.filename.lower().endswith(IMAGE_EXTS):
+            errors.append(f"{f.filename or 'fichier sans nom'} : format non supporté "
+                          f"(PNG, JPG, WEBP)")
+            continue
+        ext = Path(f.filename).suffix.lower()
+        unique_name = f"{uuid.uuid4().hex[:12]}{ext}"
+        dest = config.SOURCE_IMAGES_DIR / unique_name
+        f.save(str(dest))
+        rel = _source_rel_path(dest)
+        saved.append({"filename": rel, "url": _source_url(rel), "name": f.filename})
+    if len(files) > len(saved):
+        if len(files) > max(1, limit):
+            errors.append(f"Seules les {max(1, limit)} premières images ont été gardées "
+                          f"({len(files)} fournies).")
+    if not saved:
+        return jsonify({"ok": False, "error": "\n".join(errors) or "Aucune image valide."}), 400
+    return jsonify({"ok": True, "files": saved,
+                    "error": "\n".join(errors) if errors else None,
+                    "filename": saved[0]["filename"], "url": saved[0]["url"]})
+
+
+@app.route("/api/delete-source-image", methods=["POST"])
+def api_delete_source_image():
+    """Supprime une image source uploadee mais non utilisee."""
+    data = request.get_json(force=True)
+    rel = str(data.get("filename") or "").strip()
+    if not rel:
+        return jsonify({"ok": False, "error": "Aucun fichier indiqué."}), 400
+    target = config.ROOT / rel
+    try:
+        target = target.resolve()
+        target.relative_to(config.SOURCE_IMAGES_DIR.resolve())
+    except Exception:
+        return jsonify({"ok": False, "error": "Chemin refusé."}), 400
+    existed = target.exists()
+    if existed:
+        try:
+            target.unlink()
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify({"ok": True, "deleted": existed})
+
+
+@app.route("/api/image/<int:img_id>")
+def api_image(img_id):
+    """Parametres complets d'une image de l'historique (pour rejouer une edition)."""
+    row = db.get_image(img_id)
+    if not row:
+        return jsonify({"ok": False, "error": "Image inconnue."}), 404
+    sources = []
+    for rel in row.get("source_images_list") or []:
+        if (config.ROOT / rel).exists():
+            sources.append({"filename": rel, "url": _source_url(rel)})
+    return jsonify({"ok": True, "image": {
+        "id": row["id"], "model": row["model"], "model_name": row["model_name"],
+        "quant": row["quant"], "prompt": row["prompt"], "negative": row["negative"],
+        "steps": row["steps"], "cfg": row["cfg"], "seed": row["seed"],
+        "width": row["width"], "height": row["height"],
+        "source_images": sources,
+    }})
 
 # --------------------------------------------------------------------------- #
 #  API : statistiques
