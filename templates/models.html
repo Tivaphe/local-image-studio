@@ -52,6 +52,14 @@
       </div>
       <p class="muted mc-desc">{{ m.desc }}</p>
 
+      <!-- Compatibilité avec le moteur installé -->
+      {% if engine_ok.get(mid) == False %}
+      <p class="mc-engine-warn">⚙️ Moteur trop ancien pour ce modèle : cliquez
+        « Réinstaller le moteur » en haut de page{% if engine_tag %} (moteur actuel : {{ engine_tag }}){% endif %}.</p>
+      {% elif engine_ok.get(mid) is none and m.engine_note %}
+      <p class="mc-engine-note">⚙️ {{ m.engine_note }}</p>
+      {% endif %}
+
       <!-- VRAM recommandée -->
       <p class="mc-vram {% if not vram_gb or vram_gb >= (m.vram_min_gb or 0) %}ok{% else %}warn{% endif %}">
         VRAM min: ~{{ m.vram_min_gb or '?' }} Go

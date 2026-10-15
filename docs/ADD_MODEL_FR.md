@@ -64,6 +64,7 @@ en copiant le modèle d'un modèle existant qui a la **même architecture**.
 | `qwen_image` | `qwen25vl_7b` (standard) / `qwen3vl_8b` (2.1/Turbo) | `vae_qwen` / `vae_qwen_21` | Qwen-Image |
 | `iris` | `qwen3vl_4b` | Aucun | Iris-3B (safetensors) |
 | `ideogram`   | `qwen3vl_8b`                       | `vae_flux2`   | Ideogram 4 (needs uncond) |
+| `flux3`      | `qwen3vl_4b`                       | `vae_flux2`   | FLUX.3 Image Klein (16 étapes, CFG 1, édition) |
 
 > **Astuce** : trouvez la doc officielle du modèle sur
 > https://github.com/leejet/stable-diffusion.cpp/tree/master/docs
@@ -104,6 +105,22 @@ Ajoutez un champ `uncond_file_for_quant` comme Ideogram 4.
 ### Modèle avec paramètre `--flow-shift`
 ERNIE et Qwen-Image 2512 nécessitent `--flow-shift 3`; ce n'est pas universel à tous les modèles Qwen-Image.
 C'est géré automatiquement pour ERNIE et Qwen-Image 2512 dans `build_command()`.
+
+### Modèle exigeant un moteur récent
+
+Un modèle tout juste supporté par `stable-diffusion.cpp` ne fonctionne pas avec un
+vieux `sd-cli.exe`. Indiquez la date du commit/PR qui a ajouté le support :
+
+```python
+"min_engine_date": "2026-10-15T18:42:07Z",   # date UTC du merge qui ajoute le support
+"engine_note": "Requiert un moteur sd-cli a jour (build du 15 oct. 2026).",
+```
+
+L'application enregistre la date de publication du build installé lors du clic sur
+« Installer / Réinstaller le moteur ». Si le moteur est plus ancien, l'onglet Modèles
+affiche un avertissement et la génération est bloquée avec un message clair (au lieu
+d'une erreur obscure de `sd-cli`). Exemple : **FLUX.3 Image Klein** nécessite un build
+postérieur au 15 octobre 2026 (PR leejet/stable-diffusion.cpp#2143).
 
 ### Modèle avec sigmas et nombre d'étapes fixes
 Qwen-Image-2.1 Turbo exige la liste `--sigmas` fournie sur sa fiche et exactement 8 étapes avec CFG 1.

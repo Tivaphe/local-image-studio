@@ -193,6 +193,8 @@ small{color:var(--muted)}
 
 /* ===== Infos modeles (license, VRAM, lien HF) ===== */
 .mc-license{font-size:11px;color:var(--warn);margin:6px 0}
+.mc-engine-warn{font-size:12px;font-weight:600;color:var(--warn);margin:6px 0}
+.mc-engine-note{font-size:11px;color:var(--muted);margin:6px 0}
 .mc-vram{font-size:12px;font-weight:600;margin:4px 0}
 .mc-vram.ok{color:var(--ok)}
 .mc-vram.warn{color:var(--warn)}

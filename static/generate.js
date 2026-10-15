@@ -268,7 +268,10 @@ function onModelChange() {
     negEl.value = window.DEFAULT_NEG;
   }
   let warn = '';
-  if (!m.status.ready) {
+  if (m.engine_ok === false) {
+    warn = `Le moteur sd-cli installé est trop ancien pour ${m.name}. `
+      + `Onglet Modèles → « Réinstaller le moteur », puis relancez la génération.`;
+  } else if (!m.status.ready) {
     const missingDeps = Object.entries(m.status.deps || {})
       .filter(([_, ok]) => !ok)
       .map(([k, _]) => k);

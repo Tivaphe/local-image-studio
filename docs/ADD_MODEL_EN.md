@@ -64,6 +64,7 @@ an existing model that has the **same architecture**.
 | `qwen_image` | `qwen25vl_7b` (standard) / `qwen3vl_8b` (2.1/Turbo) | `vae_qwen` / `vae_qwen_21` | Qwen-Image |
 | `iris` | `qwen3vl_4b` | None | Iris-3B (safetensors) |
 | `ideogram`   | `qwen3vl_8b`                       | `vae_flux2`   | Ideogram 4 (needs uncond) |
+| `flux3`      | `qwen3vl_4b`                       | `vae_flux2`   | FLUX.3 Image Klein (16 steps, CFG 1, editing) |
 
 > **Tip**: find the model's official doc at
 > https://github.com/leejet/stable-diffusion.cpp/tree/master/docs
@@ -103,6 +104,21 @@ Add an `uncond_file_for_quant` field like Ideogram 4.
 ### Model needing `--flow-shift`
 ERNIE and Qwen-Image 2512 need `--flow-shift 3`; this does not apply to every Qwen-Image model.
 `build_command()` handles it for ERNIE and Qwen-Image 2512.
+
+### Model requiring a recent engine build
+
+A model freshly supported by `stable-diffusion.cpp` will not work with an old `sd-cli.exe`.
+Set the date of the commit/PR that added support:
+
+```python
+"min_engine_date": "2026-10-15T18:42:07Z",   # UTC merge time of the support PR
+"engine_note": "Requires an up-to-date sd-cli build (October 15, 2026).",
+```
+
+The app records the publish date of the build installed via "Install / Reinstall engine".
+If the engine is older, the Models tab shows a warning and generation is blocked with a
+clear message (instead of an obscure `sd-cli` error). Example: **FLUX.3 Image Klein**
+needs a build newer than October 15, 2026 (leejet/stable-diffusion.cpp#2143).
 
 ### Model with fixed steps and custom sigmas
 Qwen-Image-2.1 Turbo requires the exact `--sigmas` list from its model card, 8 steps, and CFG 1.

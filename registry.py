@@ -539,6 +539,42 @@ MODELS = {
         "defaults": {"steps": 4, "cfg": 1.0, "sampler": "euler"},
         "min_steps": 1, "max_steps": 10,
     },
+
+    # FLUX.3 Image Klein (distille) : arch flux3, VAE Flux.2 + Qwen3-VL-4B comme encodeur.
+    # Requiert un build sd-cli posterieur a la PR #2143 (15 oct. 2026, 18h42 UTC).
+    # diffusion_fa desactive : on reste sur l'invocation de reference du moteur.
+    "flux3-klein": {
+        "presets": {
+            "rapide":    {"steps": 8,  "cfg": 1.0, "quant": "Q4_K_M", "label": "⚡ Rapide (8 etapes, Q4)"},
+            "equilibre": {"steps": 16, "cfg": 1.0, "quant": "Q5_K_M", "label": "⚖️ Equilibre (16 etapes, Q5)"},
+            "qualite":   {"steps": 16, "cfg": 1.0, "quant": "Q6_K",   "label": "✨ Qualite (16 etapes, Q6)"},
+            "optimise":  {"steps": 12, "cfg": 1.0, "quant": "Q4_K_M", "label": "🎯 Optimise edition (12 etapes, Q4)"},
+        },
+        "name": "FLUX.3 Image Klein",
+        "arch": "flux3",
+        "repo": "akhaliq/flux-3-image-klein-sd-gguf",
+        "quants": ["Q4_K_M", "Q5_K_M", "Q6_K"],
+        "default_quant": "Q5_K_M",
+        "file_for_quant": {
+            "Q4_K_M": "flux3_image_klein_sd-Q4_K_M.gguf",
+            "Q5_K_M": "flux3_image_klein_sd-Q5_K_M.gguf",
+            "Q6_K":   "flux3_image_klein_sd-Q6_K.gguf",
+        },
+        "size_gb": {"Q4_K_M": 3.3, "Q5_K_M": 4.0, "Q6_K": 4.7},
+        "deps": ["vae_flux2", "qwen3vl_4b"],
+        "supports_neg": False,
+        "supports_img2img": True,
+        "needs_token": False,
+        "diffusion_fa": False,
+        "min_engine_date": "2026-10-15T18:42:07Z",
+        "engine_note": "Requiert un moteur sd-cli a jour (build publie apres le 15 oct. 2026, 18h42 UTC).",
+        "license": "FLUX Kommunity (gratuit si revenus < 5 M$)",
+        "hf_url": "https://huggingface.co/akhaliq/flux-3-image-klein-sd-gguf",
+        "vram_min_gb": 6,
+        "desc": "Successeur de FLUX.2 Klein : 16 etapes, CFG 1, generation + edition (images de reference), jusqu'au 4K natif.",
+        "defaults": {"steps": 16, "cfg": 1.0, "sampler": "euler"},
+        "min_steps": 4, "max_steps": 20,
+    },
 }
 
 
@@ -766,7 +802,7 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     if m.get("needs_vae", True):
         if arch == "sd3":
             vae_key = "vae_sd3"
-        elif arch in ("ernie", "ideogram", "flux2"):
+        elif arch in ("ernie", "ideogram", "flux2", "flux3"):
             vae_key = "vae_flux2"
         elif arch == "qwen_image":
             vae_key = m.get("vae_dep", "vae_qwen")
@@ -796,6 +832,11 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
             args += ["--t5xxl", str(t5)]
     elif arch == "flux2":
         llm = _dep_path(manifest, "qwen3_4b" if model_id == "flux2-klein-4b" else "qwen3_8b")
+        if llm:
+            args += ["--llm", str(llm)]
+    elif arch == "flux3":
+        # FLUX.3 (Klein) utilise Qwen3-VL-4B comme encodeur de texte (8 couches cachees).
+        llm = _dep_path(manifest, "qwen3vl_4b")
         if llm:
             args += ["--llm", str(llm)]
     elif arch == "zimage":

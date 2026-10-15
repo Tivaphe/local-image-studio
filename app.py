@@ -15,7 +15,7 @@ import config
 import db
 import engine
 from engine import (tasks, load_settings, save_settings, hf_token, engine_ready,
-                    model_status)
+                    model_status, engine_supports_model, engine_info)
 from registry import MODELS, DEPS, RATIOS, DEFAULT_NEGATIVE
 import gpu_info
 import uuid
@@ -57,9 +57,11 @@ def history():
 @app.route("/models")
 def models_page():
     statuses = {mid: model_status(mid) for mid in MODELS}
+    engine_ok = {mid: engine_supports_model(mid) for mid in MODELS}
     vram_mb, gpu_name = gpu_info.get_gpu_info()
     return render_template("models.html", models=MODELS, deps=DEPS,
                            statuses=statuses, engine_ready=engine_ready(),
+                           engine_ok=engine_ok, engine_tag=engine_info()[0],
                            token_set=bool(hf_token()),
                            vram_gb=round(vram_mb/1024, 1) if vram_mb else 0,
                            gpu_name=gpu_name)
@@ -134,6 +136,8 @@ def api_models():
             "supports_img2img": m.get("supports_img2img", False),
             "mmproj_dep": m.get("mmproj_dep"),
             "presets": m.get("presets", {}),
+            "engine_ok": engine_supports_model(mid),
+            "engine_note": m.get("engine_note", ""),
             "status": st,
         }
     return jsonify(out)

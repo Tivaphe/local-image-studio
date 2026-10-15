@@ -82,13 +82,14 @@ Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
 
 ---
 
-## 🧠 Modèles disponibles (14)
+## 🧠 Modèles disponibles (15)
 
 | Modèle | Vitesse | Licence | Idéal pour |
 |---|---|---|---|
 | **FLUX.1 schnell** | ⚡ 4 étapes | Apache 2.0 ✅ | Tests rapides |
 | **FLUX.2 Klein 4B** | ⚡ 4 étapes | Apache 2.0 ✅ | Rapide + édition |
 | **FLUX.2 Klein 9B** | ⚡ 4 étapes | Non-commercial | Qualité + édition |
+| **FLUX.3 Image Klein** | 16 étapes, CFG 1 | FLUX Kommunity | Génération + édition, 4K |
 | **SD 3.5 Large Turbo** | ⚡ 4 étapes | Stability AI ⚠️ | Rapidité |
 | **SD 3.5 Medium** | 30 étapes | Stability AI ⚠️ | Polyvalent léger |
 | **SD 3.5 Large** | 30 étapes | Stability AI ⚠️ | Haute qualité |
@@ -104,6 +105,8 @@ Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
 > ✅ = usage commercial autorisé · ⚠️ = usage personnel/non-commercial
 >
 > **Qwen-Image 2.1 Turbo** nécessite `sd-cli` `c150a6b` ou plus récent (8 étapes, CFG 1).
+> **FLUX.3 Image Klein** nécessite un moteur `sd-cli` à jour (build du 15 oct. 2026 ou plus récent, PR #2143).
+> L'onglet Modèles indique si ton moteur est trop ancien : clique alors sur « Réinstaller le moteur ».
 > **Iris-3B** nécessite `sd-cli` `f89d9b1` ou plus récent; ses poids font ~12 Go, plus l'encodeur Qwen3-VL-4B. Réinstalle le moteur depuis l'onglet Modèles si nécessaire.
 > Fichiers : `models/diffusion/model.safetensors` (checkpoint officiel) et `models/llm/Qwen3VL-4B-Instruct-Q4_K_M.gguf`; aucun VAE.
 
@@ -112,7 +115,7 @@ Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
 - **Vous débutez ?** → **FLUX.1 schnell** (le plus rapide)
 - **Meilleure qualité rapide ?** → **FLUX.2 Klein 9B**, **Qwen-Image 2512** ou **Qwen-Image 2.1 Turbo**
 - **Génération en espace pixel ?** → **Iris-3B** (100 étapes)
-- **Édition d'images ?** → **Qwen-Image 2.1 / 2.1 Turbo** (édition sémantique) ou **FLUX.2 Klein** (édition rapide)
+- **Édition d'images ?** → **Qwen-Image 2.1 / 2.1 Turbo** (édition sémantique) ou **FLUX.2 / FLUX.3 Klein** (édition rapide)
 - **Img2img classique ?** → **SD 3.5 Medium/Large** (contrôle de la force)
 - **Texte lisible dans l'image ?** → **ERNIE-Image Turbo** ou **Ideogram 4**
 - **Le plus léger ?** → **SD 3.5 Medium** (~2 Go)
@@ -205,7 +208,7 @@ En résumé : éditez `registry.py` → ajoutez une entrée dans le dictionnaire
 
 L'application pilote **`sd-cli.exe`** (le moteur C/C++ de
 [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) par leejet).
-Ce moteur fait tourner FLUX, Qwen-Image, Stable Diffusion 3.5, Z-Image, ERNIE,
+Ce moteur fait tourner FLUX (1, 2 et 3), Qwen-Image, Stable Diffusion 3.5, Z-Image, ERNIE,
 Ideogram 4 et d'autres modèles au format **GGUF**; Iris-3B utilise ses poids
 **safetensors** (sans VAE).
 

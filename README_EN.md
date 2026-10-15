@@ -82,13 +82,14 @@ Your images are **automatically saved** in the `output/` folder.
 
 ---
 
-## 🧠 Available models (14)
+## 🧠 Available models (15)
 
 | Model | Speed | License | Best for |
 |---|---|---|---|
 | **FLUX.1 schnell** | ⚡ 4 steps | Apache 2.0 ✅ | Quick tests |
 | **FLUX.2 Klein 4B** | ⚡ 4 steps | Apache 2.0 ✅ | Fast + editing |
 | **FLUX.2 Klein 9B** | ⚡ 4 steps | Non-commercial | Quality + editing |
+| **FLUX.3 Image Klein** | 16 steps, CFG 1 | FLUX Kommunity | Generation + editing, 4K |
 | **SD 3.5 Large Turbo** | ⚡ 4 steps | Stability AI ⚠️ | Speed |
 | **SD 3.5 Medium** | 30 steps | Stability AI ⚠️ | Lightweight all-rounder |
 | **SD 3.5 Large** | 30 steps | Stability AI ⚠️ | High quality |
@@ -104,6 +105,8 @@ Your images are **automatically saved** in the `output/` folder.
 > ✅ = commercial use allowed · ⚠️ = personal/non-commercial use
 >
 > **Qwen-Image 2.1 Turbo** requires `sd-cli` `c150a6b` or newer (8 steps, CFG 1).
+> **FLUX.3 Image Klein** requires an up-to-date `sd-cli` engine (build from October 15, 2026 or newer, PR #2143).
+> The Models tab flags an outdated engine: click "Reinstall engine" when that happens.
 > **Iris-3B** requires `sd-cli` `f89d9b1` or newer; its weights are about 12 GB, plus the Qwen3-VL-4B encoder. Reinstall the engine from the Models tab if needed.
 > Files: `models/diffusion/model.safetensors` (official checkpoint) and `models/llm/Qwen3VL-4B-Instruct-Q4_K_M.gguf`; no VAE.
 
@@ -112,7 +115,7 @@ Your images are **automatically saved** in the `output/` folder.
 - **Just starting?** → **FLUX.1 schnell** (fastest)
 - **Best fast quality?** → **FLUX.2 Klein 9B**, **Qwen-Image 2512**, or **Qwen-Image 2.1 Turbo**
 - **Pixel-space generation?** → **Iris-3B** (100 steps)
-- **Image editing?** → **Qwen-Image 2.1 / 2.1 Turbo** (semantic editing) or **FLUX.2 Klein** (fast editing)
+- **Image editing?** → **Qwen-Image 2.1 / 2.1 Turbo** (semantic editing) or **FLUX.2 / FLUX.3 Klein** (fast editing)
 - **Classic img2img?** → **SD 3.5 Medium/Large** (strength control)
 - **Readable text in image?** → **ERNIE-Image Turbo** or **Ideogram 4**
 - **Smallest?** → **SD 3.5 Medium** (~2 GB)

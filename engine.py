@@ -70,9 +70,14 @@ def _gh_get(url):
     return json.loads(urlopen(req, timeout=30).read())
 
 
-def latest_sdcli_assets():
+def latest_release():
+    """Renvoie le JSON de la dernière release de stable-diffusion.cpp."""
+    return _gh_get(SDCPP_REPO_API)
+
+
+def latest_sdcli_assets(release=None):
     """Renvoie (binary_url, cudart_url) pour la dernière release Windows CUDA."""
-    data = _gh_get(SDCPP_REPO_API)
+    data = release if release is not None else latest_release()
     binary_url = cudart_url = None
     for a in data.get("assets", []):
         name = a.get("name", "")
@@ -110,7 +115,8 @@ def _download(url, dest: Path, progress_cb=None):
 
 def install_engine(progress_cb=None):
     """Télécharge et extrait sd-cli (binaire + runtime CUDA) dans bin/."""
-    binary_url, cudart_url = latest_sdcli_assets()
+    release = latest_release()
+    binary_url, cudart_url = latest_sdcli_assets(release)
     if not binary_url:
         raise RuntimeError("Impossible de trouver le binaire sd-cli Windows CUDA.")
 
@@ -135,11 +141,35 @@ def install_engine(progress_cb=None):
         _dl_asset(cudart_url, "cudart")
     # 2) binaire sd-cli
     _dl_asset(binary_url, "binary")
+    # On mémorise la version du moteur installée : certains modèles récents
+    # (FLUX.3…) exigent un build postérieur à une date donnée.
+    save_settings({
+        "engine_tag": release.get("tag_name", ""),
+        "engine_published_at": release.get("published_at", ""),
+    })
     return find_sd_cli()
 
 
 def engine_ready() -> bool:
     return find_sd_cli() is not None
+
+
+def engine_info():
+    """(tag, date_de_publication) du moteur installé — vides si inconnus."""
+    s = load_settings()
+    return s.get("engine_tag", ""), s.get("engine_published_at", "")
+
+
+def engine_supports_model(model_id):
+    """True/False si la version du moteur installé est connue, None sinon."""
+    m = MODELS.get(model_id) or {}
+    needed = m.get("min_engine_date")
+    if not needed:
+        return True
+    _, installed = engine_info()
+    if not installed:
+        return None  # moteur installé avant le suivi de version (ou manuel)
+    return installed >= needed
 
 
 # =========================================================================== #
@@ -364,6 +394,13 @@ class TaskManager:
             sd = find_sd_cli()
             if not sd:
                 raise RuntimeError("Le moteur sd-cli n'est pas installé. Allez dans l'onglet Modèles.")
+            if engine_supports_model(model_id) is False:
+                tag, _ = engine_info()
+                raise RuntimeError(
+                    f"Le moteur sd-cli installé ({tag or 'version inconnue'}) est trop ancien "
+                    f"pour {m['name']}. Allez dans l'onglet Modèles puis cliquez "
+                    "« Réinstaller le moteur » (un build plus récent est nécessaire), "
+                    "puis relancez la génération.")
             if not _model_present(model_id, quant):
                 raise RuntimeError(f"Le modèle {model_id} ({quant}) n'est pas téléchargé.")
             missing = [d for d in m["deps"] if not _dep_present(d)]
