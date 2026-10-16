@@ -32,7 +32,7 @@ Interface web simple pour générer des images avec les modèles d'IA les plus r
 | **RAM** | 16 Go | 32 Go |
 | **Python** | 3.10+ | 3.11 |
 | **OS** | Windows 10/11 | Windows 11 |
-| **Stockage** | ~5 Go (1 modèle léger) | ~65 Go (tous) |
+| **Stockage** | ~5 Go (1 modèle léger) | ~70 Go (tous) |
 
 > 💡 L'application détecte automatiquement votre VRAM et vous indique quels modèles peuvent tourner.
 
@@ -84,7 +84,7 @@ Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
 
 Onglet **✂️ Édition** — réservé aux modèles qui savent vraiment éditer :
 
-1. **Choisissez le modèle** : Qwen-Image 2.1 / 2.1 Turbo ou FLUX.2 Klein 4B / 9B
+1. **Choisissez le modèle** : Qwen-Image 2.1 / 2.1 Turbo ou FLUX.2 / FLUX.3 Klein
    (pour les Qwen, le **mmproj** — 1,2 Go — est requis : l'app le propose en un clic).
 2. **Déposez l'image à modifier** : elle devient l'« image 1 » (le canvas).
 3. **Ajoutez des références** (vêtement, objet, visage, style, décor…) : jusqu'à
@@ -93,7 +93,7 @@ Onglet **✂️ Édition** — réservé aux modèles qui savent vraiment édite
    - **Qwen-Image 2.1 / Turbo** → citez les images avec les balises
      `<image1>`, `<image2>`… (des boutons les insèrent pour vous) :
      `Keep the character and pose in <image1> unchanged, put the shirt from <image2> on them`
-   - **FLUX.2 Klein** → **pas de balise**, le modèle ne « voit » pas les images via son
+   - **FLUX.2 / FLUX.3 Klein** → **pas de balise**, le modèle ne « voit » pas les images via son
      encodeur de texte : désignez-les par la position en langage naturel :
      `Put the product from image 2 on the table in image 1, keep image 1's lighting`
 5. **Lancez** : le résultat s'affiche en **avant / après**.
@@ -105,13 +105,14 @@ gardez l'onglet **Générer** → *Image de départ* (SD 3.5).
 
 ---
 
-## 🧠 Modèles disponibles (14)
+## 🧠 Modèles disponibles (15)
 
 | Modèle | Vitesse | Licence | Idéal pour |
 |---|---|---|---|
 | **FLUX.1 schnell** | ⚡ 4 étapes | Apache 2.0 ✅ | Tests rapides |
 | **FLUX.2 Klein 4B** | ⚡ 4 étapes | Apache 2.0 ✅ | Rapide + édition ×10 images |
 | **FLUX.2 Klein 9B** | ⚡ 4 étapes | Non-commercial | Qualité + édition ×10 images |
+| **FLUX.3 Image Klein** | ⚡ 16 étapes | Non-commercial | Qualité + édition ×10 images, texte lisible, boîtes englobantes |
 | **SD 3.5 Large Turbo** | ⚡ 4 étapes | Stability AI ⚠️ | Rapidité |
 | **SD 3.5 Medium** | 30 étapes | Stability AI ⚠️ | Polyvalent léger |
 | **SD 3.5 Large** | 30 étapes | Stability AI ⚠️ | Haute qualité |
@@ -127,16 +128,17 @@ gardez l'onglet **Générer** → *Image de départ* (SD 3.5).
 > ✅ = usage commercial autorisé · ⚠️ = usage personnel/non-commercial
 >
 > **Qwen-Image 2.1 Turbo** nécessite `sd-cli` `c150a6b` ou plus récent (8 étapes, CFG 1).
+> **FLUX.3 Image Klein** nécessite `sd-cli` `8cd731e` (15 oct. 2026) ou plus récent ; il réutilise le VAE FLUX.2 et l'encodeur **Qwen3-VL-4B** (déjà téléchargés avec FLUX.2 Klein / Iris-3B).
 > **Iris-3B** nécessite `sd-cli` `f89d9b1` ou plus récent; ses poids font ~12 Go, plus l'encodeur Qwen3-VL-4B. Réinstalle le moteur depuis l'onglet Modèles si nécessaire.
 > Fichiers : `models/diffusion/model.safetensors` (checkpoint officiel) et `models/llm/Qwen3VL-4B-Instruct-Q4_K_M.gguf`; aucun VAE.
 
 ### 💡 Quel modèle choisir ?
 
 - **Vous débutez ?** → **FLUX.1 schnell** (le plus rapide)
-- **Meilleure qualité rapide ?** → **FLUX.2 Klein 9B**, **Qwen-Image 2512** ou **Qwen-Image 2.1 Turbo**
+- **Meilleure qualité rapide ?** → **FLUX.3 Image Klein** (16 étapes), **FLUX.2 Klein 9B**, **Qwen-Image 2512** ou **Qwen-Image 2.1 Turbo**
 - **Génération en espace pixel ?** → **Iris-3B** (100 étapes)
 - **Édition d'images ?** → onglet **Édition** : **Qwen-Image 2.1 / 2.1 Turbo** (édition sémantique,
-  jusqu'à 10 images) ou **FLUX.2 Klein** (édition rapide par position)
+  jusqu'à 10 images) ou **FLUX.2 / FLUX.3 Klein** (édition par position, jusqu'à 10 images)
 - **Img2img classique ?** → **SD 3.5 Medium/Large** (contrôle de la force)
 - **Texte lisible dans l'image ?** → **ERNIE-Image Turbo** ou **Ideogram 4**
 - **Le plus léger ?** → **SD 3.5 Medium** (~2 Go)
@@ -180,7 +182,7 @@ local-image-studio/
 ├── start.bat              ← Double-clic pour lancer
 ├── app.py                 ← Serveur web (Flask)
 ├── engine.py              ← Moteur sd-cli + téléchargements
-├── registry.py            ← Définition des 14 modèles
+├── registry.py            ← Définition des 15 modèles
 ├── prompt_enhancer.py     ← Enrichissement & traduction (LLM)
 ├── gpu_info.py            ← Détection VRAM
 ├── db.py                  ← Historique & statistiques

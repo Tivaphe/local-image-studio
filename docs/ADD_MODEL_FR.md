@@ -58,6 +58,7 @@ en copiant le modèle d'un modèle existant qui a la **même architecture**.
 |---|---|---|---|
 | `flux`       | `clip_l` + `t5xxl`                 | `vae_flux`    | FLUX.1 schnell/dev, FHDR |
 | `flux2`      | `qwen3_4b` ou `qwen3_8b`           | `vae_flux2`   | FLUX.2 Klein 4B/9B |
+| `flux3`      | `qwen3vl_4b` (GGUF)                | `vae_flux2`   | FLUX.3 Image Klein (16 étapes, CFG 1) |
 | `sd3`        | `clip_l` + `clip_g` + `t5xxl`     | `vae_sd3`     | Stable Diffusion 3.5 |
 | `zimage`     | `qwen3_4b`                         | `vae_flux`    | Z-Image |
 | `ernie`      | `ministral_3b`                     | `vae_flux2`   | ERNIE-Image Turbo |
@@ -110,6 +111,14 @@ Qwen-Image-2.1 Turbo exige la liste `--sigmas` fournie sur sa fiche et exactemen
 Le correctif de `stable-diffusion.cpp` nécessaire aux sigmas personnalisés est inclus dans les builds du 6 octobre 2026 ou plus récents.
 Ajoutez les valeurs fixes au registre et transmettez `--sigmas` depuis `build_command()`.
 
+### Modèle FLUX.3 (arch `flux3`)
+FLUX.3 Image Klein est un DiT **flow-map distillé** : 16 étapes, CFG 1.
+Le décalage de temps (`--flow-shift 6.93`) est appliqué par le moteur lui-même — rien à passer.
+Il combine le VAE FLUX.2 (`vae_flux2`) et l'encodeur **Qwen3-VL-4B** (`--llm`), donc pas de
+`clip_l`/`t5xxl` et pas de `--clip-on-cpu`.
+Nécessite `sd-cli` du 15 octobre 2026 (`8cd731e`) ou plus récent : les versions antérieures ne
+connaissent pas l'architecture.
+
 ---
 
 ## Étape 6 : Déclarer les capacités d'entrée image (édition / img2img)
@@ -142,9 +151,9 @@ Règles à connaître (vérifiées sur le moteur, `docs/edit.md` et
 - **`pass_to_vlm` ⇒ mmproj obligatoire.** Le preset de références-auto-détecté
   (`--ref-image-args`) envoie les images dans l'encodeur de texte pour `qwen`
   (`pass_to_vlm=true`) : sans `--llm_vision`, le moteur refuse/ignore les images.
-  Pour `flux2` (`pass_to_vlm=false`), les références ne vont qu'au DiT : **pas de
-  mmproj**, et donc **pas de balise** `<image1>` — le modèle désigne les images par
-  leur position en langage naturel.
+  Pour `flux2` et `flux3` (`pass_to_vlm=false`), les références ne vont qu'au DiT :
+  **pas de mmproj**, et donc **pas de balise** `<image1>` — le modèle désigne les
+  images par leur position en langage naturel.
 - **L'ordre des `-r` définit les index.** `ref_index_mode=increase` (déjà le défaut
   des presets `qwen` et `flux2`) numérote les images à partir de 1 : la première est
   le canvas édité.

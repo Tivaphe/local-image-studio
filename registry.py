@@ -607,6 +607,66 @@ MODELS = {
         "defaults": {"steps": 4, "cfg": 1.0, "sampler": "euler"},
         "min_steps": 1, "max_steps": 10,
     },
+    # FLUX.3 Image Klein (arch flux3, cf. docs/flux3.md de stable-diffusion.cpp) :
+    #   - DiT flow-map distille 5.6B : 16 etapes, CFG 1 (pas de prompt negatif) ;
+    #   - VAE FLUX.2 (vae_flux2) + encodeur Qwen3-VL-4B (qwen3vl_4b, partage avec Iris-3B) ;
+    #   - edition jusqu'a 10 references (-r, preset moteur "flux2" : pas de mmproj, pas de balise) ;
+    #   - poids officiels : black-forest-labs/flux-3-image-klein (safetensors, gated).
+    #   - variante base (50 etapes, CFG 3.5) : possederait le meme arch mais d'autres defauts.
+    # Autres conversions GGUF pour sd-cli : Abiray/flux-3-image-klein-sd-GGUF,
+    # DogukanUrker/FLUX.3-Image-Klein-GGUF.
+    # Requiert sd-cli 8cd731e (15 oct. 2026) ou plus recent (support FLUX.3, PR #2143).
+    "flux3-image-klein": {
+
+        "presets": {
+            "rapide":    {"steps": 12, "cfg": 1.0, "quant": "Q4_K_M", "label": "⚡ Rapide (12 etapes, Q4)"},
+            "equilibre": {"steps": 16, "cfg": 1.0, "quant": "Q5_K_M", "label": "⚖️ Equilibre (16 etapes, Q5)"},
+            "qualite":   {"steps": 20, "cfg": 1.0, "quant": "Q8_0",   "label": "✨ Qualite (20 etapes, Q8)"},
+            "optimise":  {"steps": 16, "cfg": 1.0, "quant": "Q4_K_M", "label": "🎯 Optimise edition (16 etapes, Q4)"},
+        },
+        "name": "FLUX.3 Image Klein",
+        "arch": "flux3",
+        "repo": "unsloth/flux-3-image-klein-GGUF",
+        "quants": ["Q4_K_M", "Q5_K_M", "Q6_K", "Q8_0"],
+        "default_quant": "Q5_K_M",
+        "file_for_quant": {
+            "Q4_K_M": "flux-3-image-klein-Q4_K_M.gguf",
+            "Q5_K_M": "flux-3-image-klein-Q5_K_M.gguf",
+            "Q6_K":   "flux-3-image-klein-Q6_K.gguf",
+            "Q8_0":   "flux-3-image-klein-Q8_0.gguf",
+        },
+        "size_gb": {"Q4_K_M": 3.7, "Q5_K_M": 4.2, "Q6_K": 4.8, "Q8_0": 6.1},
+        "deps": ["vae_flux2", "qwen3vl_4b"],
+        "supports_neg": False,
+        "supports_img2img": True,
+        # --- Edition multi-images (comme FLUX.2 Klein : jusqu'a 10 references) ---
+        "supports_ref_images": True,
+        "input_modes": ["ref"],
+        "max_ref_images": 10,
+        "ref_tag_syntax": None,
+        "ref_needs_vlm": False,
+        "ref_hint": ("Klein ne « voit » pas les images avec son encodeur de texte : les références "
+                     "vont directement au DiT. N'utilisez PAS de balise <image1> — désignez chaque "
+                     "image par sa position en langage naturel (« the woman in image 1 »). "
+                     "DiT distillé (16 étapes, CFG 1) : décrivez le résultat final souhaité plutôt "
+                     "que le processus ; 4-6 références passent sans problème, au-delà baissez le "
+                     "budget pixels."),
+        "ref_examples": [
+            "Put the jacket from image 2 on the man in image 1, keep his face, his pose and the "
+            "street lighting of image 1",
+            "Replace the sky in image 1 with the sunset of image 2, keep the buildings and the "
+            "reflections on the water",
+        ],
+        "needs_token": False,
+        "license": "FLUX Kommunity License (non-commercial, exception commerciale)",
+        "hf_url": "https://huggingface.co/unsloth/flux-3-image-klein-GGUF",
+        "vram_min_gb": 8,
+        "desc": ("Successeur de FLUX.2 Klein : generation + edition (10 references) en 16 etapes, "
+                 "texte lisible et boites englobantes dans le prompt. Requiert sd-cli 8cd731e "
+                 "(15 oct. 2026) ou plus recent. Reutilise Qwen3-VL-4B et le VAE FLUX.2."),
+        "defaults": {"steps": 16, "cfg": 1.0, "sampler": "euler"},
+        "min_steps": 8, "max_steps": 30,
+    },
 }
 
 
@@ -808,7 +868,7 @@ def check_images_input(model_id: str, images, input_mode: str | None = None):
         return imgs, None, (
             f"{m['name']} n'accepte pas d'image en entrée.\n"
             "Pour de l'édition multi-images, choisis Qwen-Image 2.1 (ou 2.1 Turbo) ou "
-            "FLUX.2 Klein dans le Studio d'édition ; pour de l'img2img avec force de "
+            "FLUX.2 / FLUX.3 Klein dans le Studio d'édition ; pour de l'img2img avec force de "
             "dénouage, choisis Stable Diffusion 3.5."
         )
     mode = input_mode or modes[0]
@@ -931,7 +991,7 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     if m.get("needs_vae", True):
         if arch == "sd3":
             vae_key = "vae_sd3"
-        elif arch in ("ernie", "ideogram", "flux2"):
+        elif arch in ("ernie", "ideogram", "flux2", "flux3"):
             vae_key = "vae_flux2"
         elif arch == "qwen_image":
             vae_key = m.get("vae_dep", "vae_qwen")
@@ -961,6 +1021,12 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
             args += ["--t5xxl", str(t5)]
     elif arch == "flux2":
         llm = _dep_path(manifest, "qwen3_4b" if model_id == "flux2-klein-4b" else "qwen3_8b")
+        if llm:
+            args += ["--llm", str(llm)]
+    elif arch == "flux3":
+        # FLUX.3 Klein : Qwen3-VL 4B (GGUF) comme encodeur de texte, VAE FLUX.2.
+        # Les references partent au DiT (preset flux2, pass_to_vlm=false) -> pas de mmproj.
+        llm = _dep_path(manifest, m.get("llm_dep", "qwen3vl_4b"))
         if llm:
             args += ["--llm", str(llm)]
     elif arch == "zimage":
