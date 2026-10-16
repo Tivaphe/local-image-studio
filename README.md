@@ -128,7 +128,7 @@ gardez l'onglet **Générer** → *Image de départ* (SD 3.5).
 > ✅ = usage commercial autorisé · ⚠️ = usage personnel/non-commercial
 >
 > **Qwen-Image 2.1 Turbo** nécessite `sd-cli` `c150a6b` ou plus récent (8 étapes, CFG 1).
-> **FLUX.3 Image Klein** nécessite `sd-cli` `8cd731e` (15 oct. 2026) ou plus récent ; il réutilise le VAE FLUX.2 et l'encodeur **Qwen3-VL-4B** (déjà téléchargés avec FLUX.2 Klein / Iris-3B).
+> **FLUX.3 Image Klein** nécessite `sd-cli` `8cd731e` (15 oct. 2026) ou plus récent ; ses GGUF sont convertis avec ce même moteur (pics VRAM documentés : 6,8 Go en Q3_K à 9,8 Go en Q8_0) et il réutilise le VAE FLUX.2 et l'encodeur **Qwen3-VL-4B** (déjà téléchargés avec FLUX.2 Klein / Iris-3B).
 > **Iris-3B** nécessite `sd-cli` `f89d9b1` ou plus récent; ses poids font ~12 Go, plus l'encodeur Qwen3-VL-4B. Réinstalle le moteur depuis l'onglet Modèles si nécessaire.
 > Fichiers : `models/diffusion/model.safetensors` (checkpoint officiel) et `models/llm/Qwen3VL-4B-Instruct-Q4_K_M.gguf`; aucun VAE.
 

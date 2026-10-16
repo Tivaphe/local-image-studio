@@ -130,7 +130,7 @@ The **✂️ Edit** tab — available on the models that really do editing:
 > ✅ = commercial use allowed · ⚠️ = personal/non-commercial use
 >
 > **Qwen-Image 2.1 Turbo** requires `sd-cli` `c150a6b` or newer (8 steps, CFG 1).
-> **FLUX.3 Image Klein** requires `sd-cli` `8cd731e` (Oct 15, 2026) or newer; it reuses the FLUX.2 VAE and the **Qwen3-VL-4B** encoder (already downloaded with FLUX.2 Klein / Iris-3B).
+> **FLUX.3 Image Klein** requires `sd-cli` `8cd731e` (Oct 15, 2026) or newer; its GGUFs are converted with that same engine (documented VRAM peaks: 6.8 GB at Q3_K up to 9.8 GB at Q8_0) and it reuses the FLUX.2 VAE and the **Qwen3-VL-4B** encoder (already downloaded with FLUX.2 Klein / Iris-3B).
 > **Iris-3B** requires `sd-cli` `f89d9b1` or newer; its weights are about 12 GB, plus the Qwen3-VL-4B encoder. Reinstall the engine from the Models tab if needed.
 > Files: `models/diffusion/model.safetensors` (official checkpoint) and `models/llm/Qwen3VL-4B-Instruct-Q4_K_M.gguf`; no VAE.
 

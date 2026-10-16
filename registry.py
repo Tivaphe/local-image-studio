@@ -613,29 +613,34 @@ MODELS = {
     #   - edition jusqu'a 10 references (-r, preset moteur "flux2" : pas de mmproj, pas de balise) ;
     #   - poids officiels : black-forest-labs/flux-3-image-klein (safetensors, gated).
     #   - variante base (50 etapes, CFG 3.5) : possederait le meme arch mais d'autres defauts.
-    # Autres conversions GGUF pour sd-cli : Abiray/flux-3-image-klein-sd-GGUF,
-    # DogukanUrker/FLUX.3-Image-Klein-GGUF.
+    # Quantification retenue : DogukanUrker/FLUX.3-Image-Klein-GGUF -> convertie AVEC sd-cli
+    # (commit 8cd731e, celui que telecharge le bouton "Installer le moteur") et testee dessus ;
+    # pics VRAM documentes a 1024x1024 encodeur compris : Q3_K 6.8 / Q4_K 7.4 / Q6_K 8.7 / Q8_0 9.8 Go.
+    # Alternative si besoin d'autres quants : unsloth/flux-3-image-klein-GGUF (Q4_K_M a Q8_0 +
+    # UD-Q2_K_XL..UD-Q5_K_XL, meilleurs a taille egale, mais conversion orientee diffusers/ComfyUI)
+    # ou Abiray/flux-3-image-klein-sd-GGUF (Q2_K a Q8_0).
     # Requiert sd-cli 8cd731e (15 oct. 2026) ou plus recent (support FLUX.3, PR #2143).
     "flux3-image-klein": {
 
         "presets": {
-            "rapide":    {"steps": 12, "cfg": 1.0, "quant": "Q4_K_M", "label": "⚡ Rapide (12 etapes, Q4)"},
-            "equilibre": {"steps": 16, "cfg": 1.0, "quant": "Q5_K_M", "label": "⚖️ Equilibre (16 etapes, Q5)"},
-            "qualite":   {"steps": 20, "cfg": 1.0, "quant": "Q8_0",   "label": "✨ Qualite (20 etapes, Q8)"},
-            "optimise":  {"steps": 16, "cfg": 1.0, "quant": "Q4_K_M", "label": "🎯 Optimise edition (16 etapes, Q4)"},
+            "rapide":    {"steps": 12, "cfg": 1.0, "quant": "Q4_K", "label": "⚡ Rapide (12 etapes, Q4_K)"},
+            "equilibre": {"steps": 16, "cfg": 1.0, "quant": "Q6_K", "label": "⚖️ Equilibre (16 etapes, Q6_K)"},
+            "qualite":   {"steps": 20, "cfg": 1.0, "quant": "Q8_0", "label": "✨ Qualite (20 etapes, Q8_0)"},
+            "leger":     {"steps": 16, "cfg": 1.0, "quant": "Q3_K", "label": "💾 Léger (16 etapes, Q3_K, 2,6 Go)"},
+            "optimise":  {"steps": 16, "cfg": 1.0, "quant": "Q4_K", "label": "🎯 Optimise edition (16 etapes, Q4_K)"},
         },
         "name": "FLUX.3 Image Klein",
         "arch": "flux3",
-        "repo": "unsloth/flux-3-image-klein-GGUF",
-        "quants": ["Q4_K_M", "Q5_K_M", "Q6_K", "Q8_0"],
-        "default_quant": "Q5_K_M",
+        "repo": "DogukanUrker/FLUX.3-Image-Klein-GGUF",
+        "quants": ["Q3_K", "Q4_K", "Q6_K", "Q8_0"],
+        "default_quant": "Q4_K",
         "file_for_quant": {
-            "Q4_K_M": "flux-3-image-klein-Q4_K_M.gguf",
-            "Q5_K_M": "flux-3-image-klein-Q5_K_M.gguf",
-            "Q6_K":   "flux-3-image-klein-Q6_K.gguf",
-            "Q8_0":   "flux-3-image-klein-Q8_0.gguf",
+            "Q3_K": "flux3-image-klein-Q3_K.gguf",
+            "Q4_K": "flux3-image-klein-Q4_K.gguf",
+            "Q6_K": "flux3-image-klein-Q6_K.gguf",
+            "Q8_0": "flux3-image-klein-Q8_0.gguf",
         },
-        "size_gb": {"Q4_K_M": 3.7, "Q5_K_M": 4.2, "Q6_K": 4.8, "Q8_0": 6.1},
+        "size_gb": {"Q3_K": 2.6, "Q4_K": 3.3, "Q6_K": 4.7, "Q8_0": 6.0},
         "deps": ["vae_flux2", "qwen3vl_4b"],
         "supports_neg": False,
         "supports_img2img": True,
@@ -659,11 +664,12 @@ MODELS = {
         ],
         "needs_token": False,
         "license": "FLUX Kommunity License (non-commercial, exception commerciale)",
-        "hf_url": "https://huggingface.co/unsloth/flux-3-image-klein-GGUF",
+        "hf_url": "https://huggingface.co/DogukanUrker/FLUX.3-Image-Klein-GGUF",
         "vram_min_gb": 8,
         "desc": ("Successeur de FLUX.2 Klein : generation + edition (10 references) en 16 etapes, "
-                 "texte lisible et boites englobantes dans le prompt. Requiert sd-cli 8cd731e "
-                 "(15 oct. 2026) ou plus recent. Reutilise Qwen3-VL-4B et le VAE FLUX.2."),
+                 "texte lisible et boites englobantes dans le prompt. GGUF convertis avec sd-cli "
+                 "8cd731e (Q3_K 6,8 Go de VRAM a Q8_0 9,8 Go, encodeur compris). Requiert ce meme "
+                 "moteur ou plus recent. Reutilise Qwen3-VL-4B et le VAE FLUX.2."),
         "defaults": {"steps": 16, "cfg": 1.0, "sampler": "euler"},
         "min_steps": 8, "max_steps": 30,
     },
