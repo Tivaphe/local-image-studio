@@ -105,8 +105,8 @@ Vos images sont **automatiquement sauvegardées** dans le dossier `output/`.
 > ✅ = usage commercial autorisé · ⚠️ = usage personnel/non-commercial
 >
 > **Qwen-Image 2.1 Turbo** nécessite `sd-cli` `c150a6b` ou plus récent (8 étapes, CFG 1).
-> **FLUX.3 Image Klein** nécessite un moteur `sd-cli` à jour (build du 15 oct. 2026 ou plus récent, PR #2143).
-> L'onglet Modèles indique si ton moteur est trop ancien : clique alors sur « Réinstaller le moteur ».
+> **FLUX.3 Image Klein** nécessite le moteur `sd-cli` `master-968-8cd731e` (15 oct. 2026) ou plus récent.
+> Si l'onglet Modèles signale « moteur trop ancien », clique sur **« Réinstaller le moteur »** puis relance la génération.
 > **Iris-3B** nécessite `sd-cli` `f89d9b1` ou plus récent; ses poids font ~12 Go, plus l'encodeur Qwen3-VL-4B. Réinstalle le moteur depuis l'onglet Modèles si nécessaire.
 > Fichiers : `models/diffusion/model.safetensors` (checkpoint officiel) et `models/llm/Qwen3VL-4B-Instruct-Q4_K_M.gguf`; aucun VAE.
 

@@ -541,6 +541,8 @@ MODELS = {
     },
 
     # FLUX.3 Image Klein (distille) : arch flux3, VAE Flux.2 + Qwen3-VL-4B comme encodeur.
+    # Poids GGUF convertis avec `sd-cli -M convert` (commit 8cd731e) et testés avec la
+    # release master-968-8cd731e -> compatibilité moteur vérifiée par le convertisseur.
     # Requiert un build sd-cli posterieur a la PR #2143 (15 oct. 2026, 18h42 UTC).
     # diffusion_fa desactive : on reste sur l'invocation de reference du moteur.
     "flux3-klein": {
@@ -552,26 +554,27 @@ MODELS = {
         },
         "name": "FLUX.3 Image Klein",
         "arch": "flux3",
-        "repo": "akhaliq/flux-3-image-klein-sd-gguf",
-        "quants": ["Q4_K_M", "Q5_K_M", "Q6_K"],
+        "repo": "webmp3/Sakura-FLUX.3-Image-Klein-GGUF",
+        "quants": ["Q4_K_M", "Q5_K_M", "Q6_K", "Q8_0"],
         "default_quant": "Q5_K_M",
         "file_for_quant": {
-            "Q4_K_M": "flux3_image_klein_sd-Q4_K_M.gguf",
-            "Q5_K_M": "flux3_image_klein_sd-Q5_K_M.gguf",
-            "Q6_K":   "flux3_image_klein_sd-Q6_K.gguf",
+            "Q4_K_M": "Sakura-FLUX.3-Image-Klein-Q4_K_M-3.05GiB.gguf",
+            "Q5_K_M": "Sakura-FLUX.3-Image-Klein-Q5_K_M-3.68GiB.gguf",
+            "Q6_K":   "Sakura-FLUX.3-Image-Klein-Q6_K-4.35GiB.gguf",
+            "Q8_0":   "Sakura-FLUX.3-Image-Klein-Q8_0-5.58GiB.gguf",
         },
-        "size_gb": {"Q4_K_M": 3.3, "Q5_K_M": 4.0, "Q6_K": 4.7},
+        "size_gb": {"Q4_K_M": 3.3, "Q5_K_M": 4.0, "Q6_K": 4.7, "Q8_0": 6.0},
         "deps": ["vae_flux2", "qwen3vl_4b"],
         "supports_neg": False,
         "supports_img2img": True,
         "needs_token": False,
         "diffusion_fa": False,
         "min_engine_date": "2026-10-15T18:42:07Z",
-        "engine_note": "Requiert un moteur sd-cli a jour (build publie apres le 15 oct. 2026, 18h42 UTC).",
+        "engine_note": "Requiert le moteur sd-cli master-968-8cd731e (15 oct. 2026, 20h22) ou plus récent.",
         "license": "FLUX Kommunity (gratuit si revenus < 5 M$)",
-        "hf_url": "https://huggingface.co/akhaliq/flux-3-image-klein-sd-gguf",
+        "hf_url": "https://huggingface.co/webmp3/Sakura-FLUX.3-Image-Klein-GGUF",
         "vram_min_gb": 6,
-        "desc": "Successeur de FLUX.2 Klein : 16 etapes, CFG 1, generation + edition (images de reference), jusqu'au 4K natif.",
+        "desc": "Successeur de FLUX.2 Klein : 16 etapes, CFG 1, generation + edition (images de reference), jusqu'au 4K natif. GGUF converti avec le moteur lui-meme.",
         "defaults": {"steps": 16, "cfg": 1.0, "sampler": "euler"},
         "min_steps": 4, "max_steps": 20,
     },

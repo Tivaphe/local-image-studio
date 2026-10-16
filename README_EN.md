@@ -105,8 +105,8 @@ Your images are **automatically saved** in the `output/` folder.
 > ✅ = commercial use allowed · ⚠️ = personal/non-commercial use
 >
 > **Qwen-Image 2.1 Turbo** requires `sd-cli` `c150a6b` or newer (8 steps, CFG 1).
-> **FLUX.3 Image Klein** requires an up-to-date `sd-cli` engine (build from October 15, 2026 or newer, PR #2143).
-> The Models tab flags an outdated engine: click "Reinstall engine" when that happens.
+> **FLUX.3 Image Klein** requires the `master-968-8cd731e` `sd-cli` engine (October 15, 2026) or newer.
+> If the Models tab flags an outdated engine, click **"Reinstall engine"** and run the generation again.
 > **Iris-3B** requires `sd-cli` `f89d9b1` or newer; its weights are about 12 GB, plus the Qwen3-VL-4B encoder. Reinstall the engine from the Models tab if needed.
 > Files: `models/diffusion/model.safetensors` (official checkpoint) and `models/llm/Qwen3VL-4B-Instruct-Q4_K_M.gguf`; no VAE.
 
