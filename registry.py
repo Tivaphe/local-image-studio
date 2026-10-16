@@ -574,7 +574,7 @@ MODELS = {
         "license": "FLUX Kommunity (gratuit si revenus < 5 M$)",
         "hf_url": "https://huggingface.co/webmp3/Sakura-FLUX.3-Image-Klein-GGUF",
         "vram_min_gb": 6,
-        "desc": "Successeur de FLUX.2 Klein : 16 etapes, CFG 1, generation + edition (images de reference), jusqu'au 4K natif. GGUF converti avec le moteur lui-meme.",
+        "desc": "Successeur de FLUX.2 Klein : 16 etapes, CFG 1, generation + edition (images de reference). Prompts longs conseilles (bouton ✨ Enrichir), jusqu'au 4K natif.",
         "defaults": {"steps": 16, "cfg": 1.0, "sampler": "euler"},
         "min_steps": 4, "max_steps": 20,
     },
