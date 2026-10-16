@@ -13,6 +13,14 @@
       (type « Read »). Acceptez aussi les conditions du modèle sur sa page.</small>
   </label>
 
+  <label class="field checkbox-field">
+    <input type="checkbox" id="open_browser" {% if settings.open_browser %}checked{% endif %}>
+    <span>Ouvrir <strong>Google Chrome</strong> automatiquement au démarrage
+      <em>(sinon le navigateur par défaut)</em></span>
+    <small class="muted">Décochez si vous préférez ouvrir l'adresse à la main,
+      ou lancez <code>python app.py --no-browser</code>.</small>
+  </label>
+
   <button id="save-settings" class="btn primary">Enregistrer</button>
   <p id="set-msg" class="muted"></p>
 
@@ -40,9 +48,14 @@
 <script>
 document.getElementById('save-settings').addEventListener('click', async ()=>{
   const tok = document.getElementById('hf_token').value.trim();
-  const r = await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hf_token:tok})});
+  const openBrowser = document.getElementById('open_browser').checked;
+  const r = await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hf_token:tok, open_browser:openBrowser})});
   const j = await r.json();
-  document.getElementById('set-msg').textContent = j.token_set ? 'Token enregistré ✓' : 'Token vidé.';
+  let msg = j.token_set ? 'Token enregistré ✓' : 'Token vidé.';
+  msg += openBrowser
+    ? ' Chrome s’ouvrira au prochain démarrage.'
+    : ' Ouverture automatique du navigateur désactivée.';
+  document.getElementById('set-msg').textContent = msg;
 });
 
 // --- enrichisseur : check de disponibilite ---

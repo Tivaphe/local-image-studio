@@ -16,7 +16,7 @@ A simple web interface to generate images with the latest AI models (FLUX, Qwen-
 
 ```
 1. Double-click start.bat
-2. Open http://127.0.0.1:7860
+2. Chrome opens by itself on http://127.0.0.1:7860
 3. Download a model → Write a prompt → Generate!
 ```
 
@@ -32,7 +32,7 @@ A simple web interface to generate images with the latest AI models (FLUX, Qwen-
 | **RAM** | 16 GB | 32 GB |
 | **Python** | 3.10+ | 3.11 |
 | **OS** | Windows 10/11 | Windows 11 |
-| **Storage** | ~5 GB (1 small model) | ~65 GB (all) |
+| **Storage** | ~5 GB (1 small model) | ~70 GB (all) |
 
 > 💡 The app auto-detects your VRAM and tells you which models can run.
 
@@ -46,7 +46,8 @@ A simple web interface to generate images with the latest AI models (FLUX, Qwen-
 2. **Extract** the folder
 3. Install **Python 3.11** from [python.org](https://www.python.org/downloads/) — ⚠️ check **"Add Python to PATH"**
 4. **Double-click `start.bat`**
-5. Open **http://127.0.0.1:7860** in your browser
+5. That's it: **Google Chrome opens automatically** on `http://127.0.0.1:7860`
+   (if Chrome is not installed, your default browser opens instead)
 
 ### Option B: Command line
 
@@ -54,7 +55,9 @@ A simple web interface to generate images with the latest AI models (FLUX, Qwen-
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-python app.py
+python app.py                 # opens Chrome automatically on the right port
+python app.py --no-browser    # ...or no browser at all
+python app.py --port 7861     # ...or another port
 ```
 
 ---
@@ -86,7 +89,7 @@ Your images are **automatically saved** in the `output/` folder.
 
 The **✂️ Edit** tab — available on the models that really do editing:
 
-1. **Pick a model**: Qwen-Image 2.1 / 2.1 Turbo or FLUX.2 Klein 4B / 9B
+1. **Pick a model**: Qwen-Image 2.1 / 2.1 Turbo or FLUX.2 / FLUX.3 Klein
    (Qwen needs the **mmproj** — 1.2 GB — offered in one click).
 2. **Drop the image to edit**: it becomes “image 1” (the canvas).
 3. **Add references** (garment, object, face, style, background…): up to
@@ -95,7 +98,7 @@ The **✂️ Edit** tab — available on the models that really do editing:
    - **Qwen-Image 2.1 / Turbo** → address images with the `<image1>`, `<image2>`…
      tags (buttons insert them for you):
      `Keep the character and pose in <image1> unchanged, put the shirt from <image2> on them`
-   - **FLUX.2 Klein** → **no tag**: its text encoder never sees the images, so refer to
+   - **FLUX.2 / FLUX.3 Klein** → **no tag**: its text encoder never sees the images, so refer to
      them by position in plain words:
      `Put the product from image 2 on the table in image 1, keep image 1's lighting`
 5. **Run**: the result is shown **before / after**.
@@ -107,13 +110,14 @@ The **✂️ Edit** tab — available on the models that really do editing:
 
 ---
 
-## 🧠 Available models (14)
+## 🧠 Available models (15)
 
 | Model | Speed | License | Best for |
 |---|---|---|---|
 | **FLUX.1 schnell** | ⚡ 4 steps | Apache 2.0 ✅ | Quick tests |
 | **FLUX.2 Klein 4B** | ⚡ 4 steps | Apache 2.0 ✅ | Fast + editing (up to 10 images) |
 | **FLUX.2 Klein 9B** | ⚡ 4 steps | Non-commercial | Quality + editing |
+| **FLUX.3 Image Klein** | ⚡ 16 steps | Non-commercial | Quality + editing (up to 10 images), readable text, bounding boxes |
 | **SD 3.5 Large Turbo** | ⚡ 4 steps | Stability AI ⚠️ | Speed |
 | **SD 3.5 Medium** | 30 steps | Stability AI ⚠️ | Lightweight all-rounder |
 | **SD 3.5 Large** | 30 steps | Stability AI ⚠️ | High quality |
@@ -129,16 +133,17 @@ The **✂️ Edit** tab — available on the models that really do editing:
 > ✅ = commercial use allowed · ⚠️ = personal/non-commercial use
 >
 > **Qwen-Image 2.1 Turbo** requires `sd-cli` `c150a6b` or newer (8 steps, CFG 1).
+> **FLUX.3 Image Klein** requires `sd-cli` `8cd731e` (Oct 15, 2026) or newer; its GGUFs are converted with that same engine (documented VRAM peaks: 6.8 GB at Q3_K up to 9.8 GB at Q8_0) and it reuses the FLUX.2 VAE and the **Qwen3-VL-4B** encoder (already downloaded with FLUX.2 Klein / Iris-3B).
 > **Iris-3B** requires `sd-cli` `f89d9b1` or newer; its weights are about 12 GB, plus the Qwen3-VL-4B encoder. Reinstall the engine from the Models tab if needed.
 > Files: `models/diffusion/model.safetensors` (official checkpoint) and `models/llm/Qwen3VL-4B-Instruct-Q4_K_M.gguf`; no VAE.
 
 ### 💡 Which model to choose?
 
 - **Just starting?** → **FLUX.1 schnell** (fastest)
-- **Best fast quality?** → **FLUX.2 Klein 9B**, **Qwen-Image 2512**, or **Qwen-Image 2.1 Turbo**
+- **Best fast quality?** → **FLUX.3 Image Klein** (16 steps), **FLUX.2 Klein 9B**, **Qwen-Image 2512**, or **Qwen-Image 2.1 Turbo**
 - **Pixel-space generation?** → **Iris-3B** (100 steps)
 - **Image editing?** → **Edit** tab: **Qwen-Image 2.1 / 2.1 Turbo** (semantic editing, up to 10
-  images) or **FLUX.2 Klein** (fast editing, images addressed by position)
+  images) or **FLUX.2 / FLUX.3 Klein** (editing, images addressed by position, up to 10 images)
 - **Classic img2img?** → **SD 3.5 Medium/Large** (strength control)
 - **Readable text in image?** → **ERNIE-Image Turbo** or **Ideogram 4**
 - **Smallest?** → **SD 3.5 Medium** (~2 GB)
@@ -180,9 +185,10 @@ Some models require a **free Hugging Face token**:
 ```
 local-image-studio/
 ├── start.bat              ← Double-click to launch
-├── app.py                 ← Web server (Flask)
+├── app.py                 ← Web server (Flask) + startup options
+├── browser_launch.py      ← Opens Chrome automatically at startup
 ├── engine.py              ← sd-cli engine + downloads
-├── registry.py            ← 14 model definitions
+├── registry.py            ← 15 model definitions
 ├── prompt_enhancer.py     ← Enrichment & translation (LLM)
 ├── gpu_info.py            ← VRAM detection
 ├── db.py                  ← History & statistics
@@ -225,6 +231,9 @@ In short: edit `registry.py` → add an entry to the `MODELS` dictionary → res
 | **Enrichment unavailable** | Install Microsoft [C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/), then rerun `start.bat` |
 | **Low VRAM** | Use Q4_K_M, reduce resolution |
 | **Python not found** | Reinstall Python 3.11 checking "Add to PATH" |
+| **The browser does not open** | Is Chrome installed? Otherwise your default browser opens. Also check **Settings → Open Chrome at startup**, or run `python app.py --no-browser` to disable it entirely |
+| **The tab opens before the server is ready** | Nothing to do: the page loads as soon as the port is listening (opening waits for the server) |
+| **Port 7860 already in use** | Run `python app.py --port 7861` (the tab opens on the right port) |
 
 ---
 

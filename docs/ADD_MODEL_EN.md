@@ -13,7 +13,7 @@ The model must:
 2. Be supported by `stable-diffusion.cpp`. Check the official list:
    **https://github.com/leejet/stable-diffusion.cpp** → *Supported models* section
 
-Supported architectures: `flux`, `flux2`, `sd3`, `zimage`, `ernie`, `ideogram`,
+Supported architectures: `flux`, `flux2`, `flux3`, `sd3`, `zimage`, `ernie`, `ideogram`,
 `qwen_image`, `iris`, `wan`, `chroma`, `hidream`, `anima`, etc.
 
 ---
@@ -58,6 +58,7 @@ an existing model that has the **same architecture**.
 |---|---|---|---|
 | `flux`       | `clip_l` + `t5xxl`                 | `vae_flux`    | FLUX.1 schnell/dev, FHDR |
 | `flux2`      | `qwen3_4b` or `qwen3_8b`           | `vae_flux2`   | FLUX.2 Klein 4B/9B |
+| `flux3`      | `qwen3vl_4b` (GGUF)                | `vae_flux2`   | FLUX.3 Image Klein (16 steps, CFG 1) |
 | `sd3`        | `clip_l` + `clip_g` + `t5xxl`     | `vae_sd3`     | Stable Diffusion 3.5 |
 | `zimage`     | `qwen3_4b`                         | `vae_flux`    | Z-Image |
 | `ernie`      | `ministral_3b`                     | `vae_flux2`   | ERNIE-Image Turbo |
@@ -109,6 +110,14 @@ Qwen-Image-2.1 Turbo requires the exact `--sigmas` list from its model card, 8 s
 The required `stable-diffusion.cpp` fix is included in builds from October 6, 2026 onward.
 Add the fixed values to the registry and pass `--sigmas` from `build_command()`.
 
+### FLUX.3 models (arch `flux3`)
+FLUX.3 Image Klein is a **step-distilled flow-map** DiT: 16 steps, CFG 1.
+The time shift (`--flow-shift 6.93`) is applied by the engine itself — nothing to pass.
+It pairs the FLUX.2 VAE (`vae_flux2`) with the **Qwen3-VL-4B** encoder (`--llm`), so there is no
+`clip_l`/`t5xxl` and no `--clip-on-cpu`.
+Requires `sd-cli` from October 15, 2026 (`8cd731e`) or newer: older builds do not know the
+architecture.
+
 ---
 
 ## Step 6: Declare image input capabilities (editing / img2img)
@@ -141,7 +150,7 @@ Rules worth knowing (checked against the engine, `docs/edit.md` and
 - **`pass_to_vlm` ⇒ mmproj mandatory.** The auto-detected reference preset
   (`--ref-image-args`) feeds the images to the text encoder for `qwen`
   (`pass_to_vlm=true`): without `--llm_vision` the engine refuses/ignores them.
-  For `flux2` (`pass_to_vlm=false`) references only reach the DiT: **no mmproj**,
+  For `flux2` and `flux3` (`pass_to_vlm=false`) references only reach the DiT: **no mmproj**,
   and therefore **no tag** — the model addresses images by position in plain words.
 - **The order of `-r` defines the indexes.** `ref_index_mode=increase` (already the
   default of the `qwen` and `flux2` presets) numbers images from 1: the first one is

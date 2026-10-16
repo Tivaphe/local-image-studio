@@ -5,7 +5,7 @@
      - l'edition se fait avec `-r` (repetable), une fois par image ;
      - l'ORDRE des images definit <image1>, <image2>, … -> le canvas est toujours 1 ;
      - Qwen-Image 2.1 : le moteur annote les images pour le VLM, le prompt doit utiliser
-       ces balises ; FLUX.2 Klein : pas de balise, designation par la position.
+       ces balises ; FLUX.2 / FLUX.3 Klein : pas de balise, designation par la position.
 */
 if (typeof window.$ === 'undefined') {
   window.$ = (s, el = document) => el.querySelector(s);

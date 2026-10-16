@@ -42,6 +42,13 @@ h3{font-size:16px;margin:18px 0 6px}
 .field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
 .field>span{font-size:13px;color:var(--muted);font-weight:600}
 .field em{color:#6b7280;font-weight:400}
+/* case à cocher (ex. « ouvrir Chrome au démarrage ») : la case reste petite et alignée */
+.field.checkbox-field{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:start}
+.field.checkbox-field input[type=checkbox]{
+  width:18px;height:18px;padding:0;margin-top:2px;grid-row:span 2;
+  accent-color:var(--accent);cursor:pointer;flex:none;
+}
+.field.checkbox-field>small{grid-column:2}
 .row{display:flex;gap:12px}
 .grow{flex:1}
 input,select,textarea{
