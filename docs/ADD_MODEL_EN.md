@@ -13,7 +13,7 @@ The model must:
 2. Be supported by `stable-diffusion.cpp`. Check the official list:
    **https://github.com/leejet/stable-diffusion.cpp** → *Supported models* section
 
-Supported architectures: `flux`, `flux2`, `sd3`, `zimage`, `ernie`, `ideogram`,
+Supported architectures: `flux`, `flux2`, `flux3`, `sd3`, `zimage`, `ernie`, `ideogram`,
 `qwen_image`, `iris`, `wan`, `chroma`, `hidream`, `anima`, etc.
 
 ---
