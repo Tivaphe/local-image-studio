@@ -16,7 +16,7 @@ A simple web interface to generate images with the latest AI models (FLUX, Qwen-
 
 ```
 1. Double-click start.bat
-2. Open http://127.0.0.1:7860
+2. Chrome opens by itself on http://127.0.0.1:7860
 3. Download a model → Write a prompt → Generate!
 ```
 
@@ -46,7 +46,8 @@ A simple web interface to generate images with the latest AI models (FLUX, Qwen-
 2. **Extract** the folder
 3. Install **Python 3.11** from [python.org](https://www.python.org/downloads/) — ⚠️ check **"Add Python to PATH"**
 4. **Double-click `start.bat`**
-5. Open **http://127.0.0.1:7860** in your browser
+5. That's it: **Google Chrome opens automatically** on `http://127.0.0.1:7860`
+   (if Chrome is not installed, your default browser opens instead)
 
 ### Option B: Command line
 
@@ -54,7 +55,9 @@ A simple web interface to generate images with the latest AI models (FLUX, Qwen-
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-python app.py
+python app.py                 # opens Chrome automatically on the right port
+python app.py --no-browser    # ...or no browser at all
+python app.py --port 7861     # ...or another port
 ```
 
 ---
@@ -182,7 +185,8 @@ Some models require a **free Hugging Face token**:
 ```
 local-image-studio/
 ├── start.bat              ← Double-click to launch
-├── app.py                 ← Web server (Flask)
+├── app.py                 ← Web server (Flask) + startup options
+├── browser_launch.py      ← Opens Chrome automatically at startup
 ├── engine.py              ← sd-cli engine + downloads
 ├── registry.py            ← 15 model definitions
 ├── prompt_enhancer.py     ← Enrichment & translation (LLM)
@@ -227,6 +231,9 @@ In short: edit `registry.py` → add an entry to the `MODELS` dictionary → res
 | **Enrichment unavailable** | Install Microsoft [C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/), then rerun `start.bat` |
 | **Low VRAM** | Use Q4_K_M, reduce resolution |
 | **Python not found** | Reinstall Python 3.11 checking "Add to PATH" |
+| **The browser does not open** | Is Chrome installed? Otherwise your default browser opens. Also check **Settings → Open Chrome at startup**, or run `python app.py --no-browser` to disable it entirely |
+| **The tab opens before the server is ready** | Nothing to do: the page loads as soon as the port is listening (opening waits for the server) |
+| **Port 7860 already in use** | Run `python app.py --port 7861` (the tab opens on the right port) |
 
 ---
 

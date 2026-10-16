@@ -3,8 +3,14 @@
 Local Image Studio — interface web simple pour générer des images en local
 avec les modèles GGUF et certains checkpoints safetensors via stable-diffusion.cpp.
 
-Démarrage :  python app.py   (puis ouvrir http://127.0.0.1:7860)
+Démarrage :  python app.py   (le navigateur s'ouvre automatiquement sur http://127.0.0.1:7860)
+
+Options :
+  --no-browser  ne pas ouvrir de navigateur au démarrage
+  --port N      changer le port d'écoute (défaut : 7860)
 """
+import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -16,6 +22,7 @@ import db
 import engine
 from engine import (tasks, load_settings, save_settings, hf_token, engine_ready,
                     model_status)
+import browser_launch
 from registry import (MODELS, DEPS, RATIOS, DEFAULT_NEGATIVE, input_modes,
                       max_ref_images, check_images_input, clamp_ref_max_pixels)
 import gpu_info
@@ -367,9 +374,15 @@ def api_delete_image():
 def api_settings():
     if request.method == "POST":
         data = request.get_json(force=True)
-        save_settings({"hf_token": (data.get("hf_token") or "").strip()})
-        return jsonify({"ok": True, "token_set": bool(hf_token())})
-    return jsonify({"hf_token": hf_token()})
+        patch = {"hf_token": (data.get("hf_token") or "").strip()}
+        # Case « ouvrir le navigateur au démarrage » (Paramètres)
+        if "open_browser" in data:
+            patch["open_browser"] = bool(data.get("open_browser"))
+        save_settings(patch)
+        return jsonify({"ok": True, "token_set": bool(hf_token()),
+                        "open_browser": bool(load_settings().get("open_browser", True))})
+    return jsonify({"hf_token": hf_token(),
+                    "open_browser": bool(load_settings().get("open_browser", True))})
 
 
 
@@ -547,8 +560,52 @@ def stats_page():
     return render_template("stats.html")
 
 
+def _parse_args(argv=None):
+    """Options de démarrage (le navigateur s'ouvre par défaut : cf. browser_launch.py)."""
+    parser = argparse.ArgumentParser(
+        prog="app.py",
+        description="Local Image Studio — interface web locale pour stable-diffusion.cpp",
+    )
+    parser.add_argument("--no-browser", action="store_true",
+                        help="ne pas ouvrir le navigateur au démarrage")
+    parser.add_argument("--port", type=int, default=7860,
+                        help="port d'écoute (défaut : 7860)")
+    return parser.parse_args(argv)
+
+
+def _should_open_browser(args) -> bool:
+    """Priorité : option --no-browser > variable LIS_NO_BROWSER > réglage enregistré."""
+    if args.no_browser or browser_launch.browser_disabled():
+        return False
+    return bool(load_settings().get("open_browser", True))
+
+
 if __name__ == "__main__":
-    port = 7860
+    _args = _parse_args()
+    port = _args.port
+    url = f"http://127.0.0.1:{port}"
     print(f"\n  ➜  Local Image Studio : http://0.0.0.0:{port}\n")
+
+    opened = {"done": False}
+
+    def _report(result):
+        opened["done"] = True
+        if result == "chrome":
+            msg = f"Ouverture dans Google Chrome : {url}"
+        elif result == "default":
+            msg = f"Chrome introuvable : ouverture dans le navigateur par défaut : {url}"
+        elif result == "headless":
+            msg = f"Pas d'écran détecté : ouvrez {url} manuellement."
+        else:
+            msg = f"Navigateur non ouvert : allez sur {url}"
+        print(f"  ➜  {msg}", flush=True)
+
+    if _should_open_browser(_args):
+        # L'ouverture attend que le port écoute, dans un thread : Flask démarre tout de suite.
+        browser_launch.schedule_open(url, port=port, on_done=_report)
+    else:
+        print(f"  ➜  Ouverture automatique du navigateur désactivée — allez sur {url}", flush=True)
+
     # use_reloader=False : évite de relancer deux fois les téléchargements/threads
+    # (et d'ouvrir deux onglets).
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)

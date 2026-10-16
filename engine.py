@@ -42,6 +42,8 @@ def load_settings():
                 except Exception:
                     _SETTINGS = {}
             _SETTINGS.setdefault("hf_token", "")
+            # Ouvrir le navigateur au démarrage du serveur (case dans Paramètres)
+            _SETTINGS.setdefault("open_browser", True)
         return _SETTINGS
 
 

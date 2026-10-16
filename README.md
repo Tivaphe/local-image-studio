@@ -16,7 +16,7 @@ Interface web simple pour générer des images avec les modèles d'IA les plus r
 
 ```
 1. Double-cliquez sur start.bat
-2. Ouvrez http://127.0.0.1:7860
+2. Chrome s'ouvre tout seul sur http://127.0.0.1:7860
 3. Téléchargez un modèle → Écrivez un prompt → Générer !
 ```
 
@@ -46,7 +46,8 @@ Interface web simple pour générer des images avec les modèles d'IA les plus r
 2. **Décompressez** le dossier
 3. Installez **Python 3.11** depuis [python.org](https://www.python.org/downloads/) — ⚠️ cochez **"Add Python to PATH"**
 4. **Double-cliquez sur `start.bat`**
-5. Ouvrez **http://127.0.0.1:7860** dans votre navigateur
+5. C'est tout : **Google Chrome s'ouvre automatiquement** sur `http://127.0.0.1:7860`
+   (si Chrome n'est pas installé, c'est votre navigateur par défaut qui s'ouvre)
 
 ### Option B : En ligne de commande
 
@@ -54,7 +55,9 @@ Interface web simple pour générer des images avec les modèles d'IA les plus r
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-python app.py
+python app.py                 # ouvre Chrome automatiquement sur le bon port
+python app.py --no-browser    # ...ou pas de navigateur du tout
+python app.py --port 7861     # ...ou un autre port
 ```
 
 ---
@@ -180,7 +183,8 @@ Certains modèles nécessitent un **token Hugging Face gratuit** :
 ```
 local-image-studio/
 ├── start.bat              ← Double-clic pour lancer
-├── app.py                 ← Serveur web (Flask)
+├── app.py                 ← Serveur web (Flask) + options de démarrage
+├── browser_launch.py      ← Ouvrir Chrome automatiquement au démarrage
 ├── engine.py              ← Moteur sd-cli + téléchargements
 ├── registry.py            ← Définition des 15 modèles
 ├── prompt_enhancer.py     ← Enrichissement & traduction (LLM)
@@ -225,6 +229,9 @@ En résumé : éditez `registry.py` → ajoutez une entrée dans le dictionnaire
 | **Enrichissement indisponible** | Installez les [C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) Microsoft, puis relancez `start.bat` |
 | **VRAM insuffisante** | Descendez en Q4_K_M, réduisez la résolution |
 | **Python introuvable** | Réinstallez Python 3.11 en cochant "Add to PATH" |
+| **Le navigateur ne s'ouvre pas** | Chrome est-il installé ? Sinon c'est le navigateur par défaut qui s'ouvre. Vérifiez aussi la case **Paramètres → Ouvrir Chrome au démarrage**, ou lancez `python app.py --no-browser` pour désactiver complètement |
+| **L'onglet s'ouvre avant que le serveur soit prêt** | Rien à faire : la page se charge dès que le port écoute (l'ouverture attend le serveur) |
+| **Port 7860 déjà utilisé** | Lancez `python app.py --port 7861` (l'onglet s'ouvrira sur le bon port) |
 
 ---
 
