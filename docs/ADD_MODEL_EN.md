@@ -111,11 +111,62 @@ Add the fixed values to the registry and pass `--sigmas` from `build_command()`.
 
 ---
 
-## Step 6: Test
+## Step 6: Declare image input capabilities (editing / img2img)
+
+`sd-cli` takes images in two very different ways:
+
+| Mode | Flag | Behaviour |
+|---|---|---|
+| `ref` | `-r` / `--ref-image` | **Repeatable, once per image** (documented as “can be used multiple times”). This is the mode of semantic editing models: the image is not “denoised”, it is context. |
+| `init` | `-i` / `--init-img` | A **single** starting image + `--strength` (classic img2img). |
+
+A model declares what it accepts in `registry.py`:
+
+```python
+"my-edit-model": {
+    ...
+    "supports_ref_images": True,      # listed by the Edit studio (/edit page)
+    "input_modes": ["ref"],           # "ref", "init", or both
+    "max_ref_images": 10,             # canvas + references (UI guard rail)
+    "ref_tag_syntax": "<image{n}>",   # or None when the model has no syntax
+    "ref_needs_vlm": True,            # is a mmproj required for references?
+    "ref_hint": "How to address the images…",
+    "ref_examples": ["Keep the subject in <image1>, …"],
+},
+```
+
+Rules worth knowing (checked against the engine, `docs/edit.md` and
+`docs/qwen_image_2.1.md` of stable-diffusion.cpp):
+
+- **`pass_to_vlm` ⇒ mmproj mandatory.** The auto-detected reference preset
+  (`--ref-image-args`) feeds the images to the text encoder for `qwen`
+  (`pass_to_vlm=true`): without `--llm_vision` the engine refuses/ignores them.
+  For `flux2` (`pass_to_vlm=false`) references only reach the DiT: **no mmproj**,
+  and therefore **no tag** — the model addresses images by position in plain words.
+- **The order of `-r` defines the indexes.** `ref_index_mode=increase` (already the
+  default of the `qwen` and `flux2` presets) numbers images from 1: the first one is
+  the edited canvas.
+- **The engine does not cap the number of images**, but every reference adds tokens
+  (VRAM + time). `max_ref_images` protects the user; the fine-grained lever is
+  `--ref-image-args "vae_input_max_pixels=524288"` (exposed in the UI as the
+  “reference pixel budget”).
+- **`--strength` has no effect in `ref` mode**: don't send it then.
+- A model **not** declared here (FLUX.1 schnell, Z-Image, ERNIE, Ideogram 4,
+  Iris-3B…) accepts no reference: the app won't pass the argument.
+- `--mask` (inpainting) only works with dedicated “inpaint” weights
+  (e.g. FLUX.1-Fill-dev): no point exposing it for the current registry models.
+
+On the app side these fields are served by `/api/models`, validated by
+`registry.check_images_input()` (count, mode, duplicates) and end up in
+`registry.build_command(ref_images=[...], input_mode=…, ref_max_pixels=…)`.
+
+---
+
+## Step 7: Test
 
 1. Restart the app (`start.bat`).
 2. Go to the **Models** tab → your model appears.
 3. Click **Download**, then test generation.
 
 If generation fails, check the **Log** panel on the Generate page
-("show/hide" button) for the full `sd-cli` output.
+(“show/hide” button) for the full `sd-cli` output.

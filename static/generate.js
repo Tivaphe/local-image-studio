@@ -281,23 +281,23 @@ function onModelChange() {
   $('#gen-error').textContent = warn;
   $('#gen-error').hidden = !warn;
 
-  // Activer l'upload pour les modeles avec support d'edition/img2img
-  const isEditModel = Boolean(m.supports_img2img)
-    || m.arch === 'flux2'
-    || m.arch === 'sd3';
-  const uploadArea = $('#file-upload-area');
-  if (uploadArea) {
-    uploadArea.style.opacity = isEditModel ? '1' : '0.5';
-    uploadArea.style.pointerEvents = isEditModel ? 'auto' : 'none';
+  // Img2img (image de depart unique + force) : active seulement si le modele le declare.
+  // L'edition par references multiples se passe sur la page /edit.
+  const modes = m.input_modes || [];
+  const canInit = modes.includes('init');
+  const box = $('#img2img-box');
+  if (box) {
+    box.hidden = !canInit;
+    if (canInit) box.open = true;   // le bloc est replie par defaut : on l'ouvre pour les modeles concernes
   }
-  
+  if (!canInit && uploadedImagePath) clearSourceImage();
+
   // Afficher le champ strength pour les modeles SD
   const strengthField = $('#strength-field');
   if (strengthField) {
-    strengthField.style.display = (m.arch === 'sd3') ? '' : 'none';
+    strengthField.style.display = canInit ? '' : 'none';
   }
 
-  // Vérifier mmproj pour Qwen-Image-2.1
   checkMmproj();
 }
 
@@ -355,6 +355,8 @@ async function handleFileSelect(file) {
   // Upload vers le serveur
   const formData = new FormData();
   formData.append('image', file);
+  const modelId = $('#model') ? $('#model').value : null;
+  if (modelId) { formData.append('model_id', modelId); formData.append('input_mode', 'init'); }
   let uploaded = false;
 
   try {
@@ -423,8 +425,9 @@ if (uploadArea) {
   });
 }
 
-// Retirer l'image
-$('#remove-image')?.addEventListener('click', () => {
+// Retirer l'image (et la supprimer cote serveur pour ne pas encombrer source_images/)
+function clearSourceImage(unlink = true) {
+  const gone = uploadedImagePath;
   uploadedImagePath = null;
   sourceImageSize = null;
   if (sourcePreviewUrl) URL.revokeObjectURL(sourcePreviewUrl);
@@ -438,7 +441,15 @@ $('#remove-image')?.addEventListener('click', () => {
     currentRatio = RATIOS[ratioBeforeOriginal] ? ratioBeforeOriginal : '1:1';
   }
   buildRatios();
-});
+  if (gone && unlink) {
+    fetch('/api/delete-source-image', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: gone })
+    }).catch(() => {});
+  }
+}
+
+$('#remove-image')?.addEventListener('click', () => clearSourceImage());
 
 // ---------- generation ----------
 $('#generate-btn').addEventListener('click', async () => {
@@ -468,8 +479,9 @@ $('#generate-btn').addEventListener('click', async () => {
     }
   }
 
-  // Récupérer le strength pour les modèles SD
-  const strengthVal = $('#strength').value || null;
+  // Récupérer le strength pour les modeles img2img
+  const canInit = (m.input_modes || []).includes('init');
+  const strengthVal = canInit ? ($('#strength') ? $('#strength').value || null : null) : null;
 
   const body = {
     model_id,
@@ -481,9 +493,11 @@ $('#generate-btn').addEventListener('click', async () => {
     cfg: $('#cfg').value,
     seed: $('#seed').value || null,
     batch: $('#batch').value,
-    source_image: uploadedImagePath || null,
+    // Une seule image en img2img ; l'edition multi-images se fait sur /edit.
+    input_mode: canInit ? 'init' : null,
+    ref_images: uploadedImagePath ? [uploadedImagePath] : [],
     lora_dir: $('#lora-dir').value || null,
-    strength: (m.arch === 'sd3' && strengthVal) ? parseFloat(strengthVal) : null,
+    strength: strengthVal ? parseFloat(strengthVal) : null,
   };
   if (currentRatio === 'original' && sourceImageSize) {
     const outputSize = getOriginalOutputSize();
@@ -691,21 +705,6 @@ async function doTranslate() {
 $('#translate-btn')?.addEventListener('click', doTranslate);
 
 // ---------- vérification mmproj pour les modèles Qwen-Image ----------
-function checkMmprojStatus() {
-  const btn = $('#mmproj-download-btn');
-  const msg = $('#mmproj-msg');
-  if (!btn || !msg) return;
-
-  // Vérifier si mmproj est disponible via l'API
-  fetch('/api/status')
-    .then(r => r.json())
-    .then(data => {
-      // L'API /api/status ne donne pas directement le statut mmproj
-      // On vérifie via un endpoint dédié ou on utilise le manifeste
-    })
-    .catch(() => {});
-}
-
 // Bouton de téléchargement mmproj
 $('#mmproj-download-btn')?.addEventListener('click', async () => {
   const btn = $('#mmproj-download-btn');
@@ -750,18 +749,20 @@ async function checkMmproj() {
     return;
   }
   try {
-    const r = await fetch('/api/mmproj-status');
+    const r = await fetch(`/api/mmproj-status?model_id=${encodeURIComponent(currentModel || '')}`);
     const j = await r.json();
     const btn = $('#mmproj-download-btn');
     const msg = $('#mmproj-msg');
     if (btn && msg) {
       statusDiv.classList.remove('hidden');
       if (j.downloaded) {
-        msg.textContent = "✓ mmproj disponible — prêt pour l'édition !";
+        msg.innerHTML = "✓ mmproj disponible — prêt pour l'édition. "
+          + "<a href=\"/edit\">Ouvrir le Studio d'édition →</a>";
         msg.classList.add('ok');
         btn.hidden = true;
       } else {
-        msg.textContent = "⚠️ mmproj manquant — requis pour l'édition (1.2 Go)";
+        msg.innerHTML = "⚠️ mmproj manquant — requis pour l'édition (1.2 Go). "
+          + "<a href=\"/edit\">Le télécharger depuis le Studio d'édition</a>";
         msg.classList.remove('ok');
         btn.hidden = false;
       }

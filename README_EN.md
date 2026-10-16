@@ -82,12 +82,37 @@ Your images are **automatically saved** in the `output/` folder.
 
 ---
 
+### 4️⃣ Edit an image (and combine several)
+
+The **✂️ Edit** tab — available on the models that really do editing:
+
+1. **Pick a model**: Qwen-Image 2.1 / 2.1 Turbo or FLUX.2 Klein 4B / 9B
+   (Qwen needs the **mmproj** — 1.2 GB — offered in one click).
+2. **Drop the image to edit**: it becomes “image 1” (the canvas).
+3. **Add references** (garment, object, face, style, background…): up to
+   **10 images in total**. **Order matters**: use ◀ ▶ to change it.
+4. **Describe the change**:
+   - **Qwen-Image 2.1 / Turbo** → address images with the `<image1>`, `<image2>`…
+     tags (buttons insert them for you):
+     `Keep the character and pose in <image1> unchanged, put the shirt from <image2> on them`
+   - **FLUX.2 Klein** → **no tag**: its text encoder never sees the images, so refer to
+     them by position in plain words:
+     `Put the product from image 2 on the table in image 1, keep image 1's lighting`
+5. **Run**: the result is shown **before / after**.
+
+💡 Every reference adds tokens: short on VRAM? Lower the **reference pixel budget**
+(0.5 MP / 0.25 MP) before lowering the number of images.
+💡 For classic **img2img** (re-denoise an image with an adjustable strength), stay on the
+**Generate** tab → *Starting image* (SD 3.5).
+
+---
+
 ## 🧠 Available models (14)
 
 | Model | Speed | License | Best for |
 |---|---|---|---|
 | **FLUX.1 schnell** | ⚡ 4 steps | Apache 2.0 ✅ | Quick tests |
-| **FLUX.2 Klein 4B** | ⚡ 4 steps | Apache 2.0 ✅ | Fast + editing |
+| **FLUX.2 Klein 4B** | ⚡ 4 steps | Apache 2.0 ✅ | Fast + editing (up to 10 images) |
 | **FLUX.2 Klein 9B** | ⚡ 4 steps | Non-commercial | Quality + editing |
 | **SD 3.5 Large Turbo** | ⚡ 4 steps | Stability AI ⚠️ | Speed |
 | **SD 3.5 Medium** | 30 steps | Stability AI ⚠️ | Lightweight all-rounder |
@@ -95,8 +120,8 @@ Your images are **automatically saved** in the `output/` folder.
 | **ERNIE-Image Turbo** | ⚡ 8 steps | Apache 2.0 ✅ | Text in images |
 | **Z-Image** | 28 steps | Apache 2.0 ✅ | Versatile quality |
 | **Qwen-Image 2512** | 30 steps | Apache 2.0 ✅ | Human realism |
-| **Qwen-Image 2.1** | 25 steps | Qwen Research ⚠️ | Editing + transparency |
-| **Qwen-Image 2.1 Turbo** | ⚡ 8 steps, CFG 1 | Qwen Research ⚠️ | Fast generation + editing |
+| **Qwen-Image 2.1** | 25 steps | Qwen Research ⚠️ | Multi-image editing (×10) + transparency |
+| **Qwen-Image 2.1 Turbo** | ⚡ 8 steps, CFG 1 | Qwen Research ⚠️ | Fast generation + multi-image editing |
 | **Iris-3B** | 100 steps | Apache 2.0 ✅ | Pixel-space generation |
 | **Ideogram 4** | 12 steps | Ideogram | Text rendering |
 | **FHDR Uncensored** | 20 steps | Non-commercial | Uncensored |
@@ -112,7 +137,8 @@ Your images are **automatically saved** in the `output/` folder.
 - **Just starting?** → **FLUX.1 schnell** (fastest)
 - **Best fast quality?** → **FLUX.2 Klein 9B**, **Qwen-Image 2512**, or **Qwen-Image 2.1 Turbo**
 - **Pixel-space generation?** → **Iris-3B** (100 steps)
-- **Image editing?** → **Qwen-Image 2.1 / 2.1 Turbo** (semantic editing) or **FLUX.2 Klein** (fast editing)
+- **Image editing?** → **Edit** tab: **Qwen-Image 2.1 / 2.1 Turbo** (semantic editing, up to 10
+  images) or **FLUX.2 Klein** (fast editing, images addressed by position)
 - **Classic img2img?** → **SD 3.5 Medium/Large** (strength control)
 - **Readable text in image?** → **ERNIE-Image Turbo** or **Ideogram 4**
 - **Smallest?** → **SD 3.5 Medium** (~2 GB)
@@ -137,6 +163,7 @@ Some models require a **free Hugging Face token**:
 | Feature | Description |
 |---|---|
 | 🖼️ **Generation** | 1 to 4 images per batch, 5 formats + original aspect ratio when editing |
+| ✂️ **Edit studio** | **Edit** tab: 1 canvas + up to **10 reference images**, reordering, before/after comparison |
 | 🌐 **Translation** | Translates your prompt (FR, ES…) to English |
 | ✨ **Enrichment** | An LLM enriches your prompt (style, lighting, composition…) |
 | 📊 **Statistics** | Generation time per model, most used model, etc. |
@@ -161,8 +188,8 @@ local-image-studio/
 ├── db.py                  ← History & statistics
 ├── config.py              ← Path configuration
 ├── requirements.txt       ← Python dependencies
-├── templates/             ← HTML pages
-├── static/                ← CSS + JavaScript
+├── templates/             ← HTML pages (generate.html, edit.html, …)
+├── static/                ← CSS + JavaScript (generate.js, edit.js, …)
 ├── docs/                  ← Documentation
 │   ├── ADD_MODEL_FR.md    ← How to add a model (FR)
 │   └── ADD_MODEL_EN.md    ← How to add a model (EN)

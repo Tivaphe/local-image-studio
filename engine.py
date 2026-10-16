@@ -20,7 +20,8 @@ from urllib.request import urlopen, Request
 
 from config import (ROOT, BIN_DIR, DIFFUSION_DIR, OUTPUT_DIR, find_sd_cli)
 from registry import (MODELS, DEPS, DEP_QUANT_PRIORITY, resolve_dep_gguf,
-                      load_manifest, save_manifest, build_command, _dep_path)
+                      load_manifest, save_manifest, build_command, _dep_path,
+                      check_images_input)
 
 
 # =========================================================================== #
@@ -370,14 +371,31 @@ class TaskManager:
             if missing:
                 raise RuntimeError("Dépendances manquantes: " + ", ".join(missing))
 
-            # Certains modeles Qwen-VL exigent le mmproj pour traiter une image source.
+            # --- Images fournies (refs multiples ou image de depart) ---
+            input_images = [str(x) for x in (p.get("ref_images") or []) if x]
+            if not input_images and p.get("source_image"):
+                input_images = [str(p["source_image"])]
+            input_mode = p.get("input_mode")
+            input_images, input_mode, err = check_images_input(model_id, input_images, input_mode)
+            if err:
+                raise RuntimeError(err)
+            missing_files = [x for x in input_images if not (ROOT / x).exists()]
+            if missing_files:
+                raise RuntimeError(
+                    f"{len(missing_files)} image(s) source(s) introuvable(s) sur le disque : "
+                    + ", ".join(Path(x).name for x in missing_files[:3])
+                )
+            has_refs = input_mode == "ref" and bool(input_images)
+
+            # Certains modeles Qwen-VL exigent le mmproj pour traiter des references.
             mmproj_dep = m.get("mmproj_dep")
-            if mmproj_dep and p.get("source_image"):
+            if mmproj_dep and has_refs:
                 mmproj_path = _dep_path(manifest, mmproj_dep)
                 if not mmproj_path or not Path(mmproj_path).exists():
                     raise RuntimeError(
-                        f"Pour éditer avec {m['name']}, le fichier mmproj est requis. "
-                        "Téléchargez-le depuis le bouton 'Télécharger mmproj' dans l'interface."
+                        f"Pour éditer avec {m['name']}, le fichier mmproj est requis "
+                        "(encodeur visuel du VLM). Téléchargez-le depuis le bouton "
+                        "'Télécharger mmproj' dans l'interface."
                     )
 
             batch = max(1, min(4, int(p["batch"])))
@@ -402,16 +420,25 @@ class TaskManager:
                 model_id, quant, p["prompt"], p.get("negative", ""),
                 int(p["width"]), int(p["height"]), int(p["steps"]), float(p["cfg"]),
                 seed, batch, out_tmpl, str(sd), manifest,
-                source_image=p.get("source_image"),
+                source_image=(input_images[0] if (input_mode == "init" and input_images) else None),
                 lora_dir=p.get("lora_dir"),
-                strength=p.get("strength"))
+                strength=p.get("strength"),
+                ref_images=input_images if has_refs else None,
+                input_mode=input_mode,
+                ref_max_pixels=p.get("ref_max_pixels"))
 
             # Vérifier qu'aucun argument n'est None
             for idx_arg, arg_val in enumerate(cmd):
                 if arg_val is None:
                     raise RuntimeError(f"Erreur interne : l'argument de commande #{idx_arg} est None.")
 
-            self._set(log="Démarrage de la génération…",
+            input_label = ""
+            if has_refs:
+                input_label = (f" · {len(input_images)} références" if len(input_images) > 1
+                             else " · 1 référence")
+            elif input_images:
+                input_label = " · image de départ (img2img)"
+            self._set(log=f"Démarrage de la génération…{input_label}",
                       total_steps=int(p["steps"]), step=0, error=None)
 
             creationflags = 0
@@ -518,7 +545,8 @@ class TaskManager:
                     seed=seed + i, width=int(p["width"]), height=int(p["height"]),
                     steps=int(p["steps"]), cfg=float(p["cfg"]),
                     sampler=m["defaults"]["sampler"], filename=rel, batch_size=batch,
-                    gen_time=round(total_seconds / max(1, len(produced)), 1))
+                    gen_time=round(total_seconds / max(1, len(produced)), 1),
+                    source_images=input_images)
                 images.append({"url": f"/output/{rel}", "filename": rel,
                                "seed": seed + i, "id": None})
 

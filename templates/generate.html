@@ -24,9 +24,9 @@
       <textarea id="negative" rows="2" placeholder="ce qu'il faut éviter : blurry, low quality, extra fingers"></textarea>
     </label>
 
-    <!-- Image source pour img2img / edition -->
-    <details class="advanced">
-      <summary>Image source (img2img / édition)</summary>
+    <!-- Image de depart pour l'img2img (1 image + force). L'edition multi-images a sa page. -->
+    <details class="advanced" id="img2img-box">
+      <summary>Image de départ (img2img)</summary>
       <div class="img-source-row">
         <label class="field">
           <span>Uploader une image</span>
@@ -35,7 +35,7 @@
             <div class="upload-placeholder" id="upload-placeholder">
               <i class="icon">📁</i>
               <span>Cliquez ou glissez une image ici</span>
-              <small class="muted">PNG, JPG, WEBP — édition avec Qwen-Image 2.1 et 2.1 Turbo</small>
+              <small class="muted">PNG, JPG, WEBP — une seule image, régénérée partiellement</small>
             </div>
             <div class="upload-preview hidden" id="upload-preview">
               <img id="preview-img" alt="Aperçu">
@@ -48,10 +48,17 @@
         </label>
         <input type="hidden" id="source-image-path">
       </div>
+      <label class="field" id="strength-field" style="display:none;">
+        <span>Force (strength)</span>
+        <input type="number" id="strength" min="0" max="1" step="0.05" placeholder="0.75" value="0.75">
+        <small class="muted">0 = image originale conservée, 1 = régénérer complètement</small>
+      </label>
       <p class="hint">
-        <strong>Modèles avec édition :</strong> Qwen-Image 2.1 / 2.1 Turbo (édition sémantique),
-        FLUX.2 Klein (édition par référence), SD 3.5 (img2img classique).
-        <br>Exemple : "make it sunset", "add sunglasses", "change style to watercolor".
+        Ici le modèle <strong>re-dénouise</strong> votre image : la composition change plus ou moins
+        selon la <strong>force</strong>. Supporté par <strong>Stable Diffusion 3.5</strong>.
+        <br>Pour <strong>éditer</strong> une image (et en combiner plusieurs : vêtement, objet, style…),
+        utilisez le <a href="{{ url_for('edit') }}">✂️ Studio d'édition</a> — Qwen-Image 2.1 / 2.1 Turbo
+        et FLUX.2 Klein acceptent jusqu'à 10 images.
       </p>
       <div id="mmproj-status" class="mmproj-notice hidden">
         <span id="mmproj-msg">Vérification...</span>
@@ -59,11 +66,6 @@
           Télécharger mmproj (requis pour l'édition)
         </button>
       </div>
-      <label class="field" id="strength-field" style="display:none;">
-        <span>Force (strength) <em>pour SD 3.5</em></span>
-        <input type="number" id="strength" min="0" max="1" step="0.05" placeholder="0.75" value="0.75">
-        <small class="muted">0 = image originale conservée, 1 = re-generer completement</small>
-      </label>
     </details>
 
     <div class="row">

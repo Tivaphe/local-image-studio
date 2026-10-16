@@ -13,6 +13,7 @@
     </div>
     <nav class="nav">
       <a href="{{ url_for('generate') }}" class="{% if request.endpoint=='generate' %}active{% endif %}">Générer</a>
+      <a href="{{ url_for('edit') }}" class="{% if request.endpoint=='edit' %}active{% endif %}">Édition</a>
       <a href="{{ url_for('history') }}" class="{% if request.endpoint=='history' %}active{% endif %}">Historique</a>
       <a href="{{ url_for('stats_page') }}" class="{% if request.endpoint=='stats_page' %}active{% endif %}">Stats</a>
       <a href="{{ url_for('models_page') }}" class="{% if request.endpoint=='models_page' %}active{% endif %}">Modèles</a>

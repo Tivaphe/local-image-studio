@@ -46,7 +46,7 @@
     {% set st = statuses[mid] %}
     <div class="model-card" data-id="{{ mid }}">
       <div class="mc-head">
-        <h3>{{ m.name }}</h3>
+        <h3>{{ m.name }}{% if m.supports_ref_images %}<span class="edit-badge" title="Édition par références multiples (jusqu'à {{ m.max_ref_images }} images)">✂️ ×{{ m.max_ref_images }}</span>{% endif %}</h3>
         {% if m.needs_token %}<span class="tag tag-warn">token requis</span>{% endif %}
         {% if st.ready %}<span class="tag tag-ok">prêt</span>{% else %}<span class="tag">à télécharger</span>{% endif %}
       </div>
