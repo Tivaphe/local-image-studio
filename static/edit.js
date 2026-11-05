@@ -25,6 +25,8 @@ let currentRatio = "1:1";
 let ratioBeforeOriginal = "1:1";
 let pollTimer = null;
 let vramGb = 0;
+let comparisonSource = null;
+let generationSourceCount = 0;
 
 // ---------------------------------------------------------------- prefs ----
 function loadPrefs() {
@@ -484,6 +486,8 @@ function showGenError(msg) {
 
 // ------- branchements upload (canvas) -------
 $('#canvas-img').addEventListener('click', e => openLightbox(e.target.src));
+$('#compare-before').addEventListener('click', e => openLightbox(e.target.src));
+$('#compare-after').addEventListener('click', e => openLightbox(e.target.src));
 
 $('#canvas-input').addEventListener('change', e => {
   if (e.target.files.length) setCanvas(e.target.files).finally(() => { e.target.value = ''; });
@@ -603,7 +607,9 @@ $('#generate-btn').addEventListener('click', async () => {
   });
   const j = await r.json();
   if (!j.ok) { showGenError(j.error || 'Erreur'); return; }
-  $('#compare-before').src = canvas.url;
+  comparisonSource = images[0].url;
+  generationSourceCount = images.length;
+  $('#compare-before').src = comparisonSource;
   $('#compare').hidden = true;
   $('#generate-btn').disabled = true;
   $('#cancel-btn').hidden = false;
@@ -680,7 +686,7 @@ function showStats(stats) {
   $('#st-denoise').textContent = fmtTime(stats.denoise_seconds);
   $('#st-perstep').textContent = stats.per_step_seconds + 's';
   $('#st-its').textContent = stats.it_s + ' it/s';
-  $('#st-refs').textContent = orderedImages().length + ' image(s)';
+  $('#st-refs').textContent = generationSourceCount + ' image(s)';
 }
 
 function showResults(images) {
@@ -694,9 +700,15 @@ function showResults(images) {
       <div class="rbar"><span>seed ${img.seed}</span>
         <a class="link" href="${img.url}" download>télécharger</a></div>`;
     d.querySelector('img').addEventListener('click', e => openLightbox(e.target.src));
+    const select = document.createElement('button');
+    select.type = 'button';
+    select.className = 'link';
+    select.textContent = 'Comparer';
+    select.addEventListener('click', () => { $('#compare-after').src = img.url; });
+    d.querySelector('.rbar').appendChild(select);
     box.appendChild(d);
   });
-  if (canvas && images.length) {
+  if (comparisonSource && images.length) {
     $('#compare').hidden = false;
     $('#compare-after').src = images[0].url;
   }

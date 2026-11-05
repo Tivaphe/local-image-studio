@@ -481,6 +481,10 @@ def api_delete_source_image():
         target.relative_to(config.SOURCE_IMAGES_DIR.resolve())
     except Exception:
         return jsonify({"ok": False, "error": "Chemin refusé."}), 400
+    rel = _source_rel_path(target)
+    # Les sources d'une génération en cours ou enregistrée ne sont pas temporaires.
+    if (tasks.is_busy() and tasks.snapshot().get("kind") == "generate") or db.source_is_referenced(rel):
+        return jsonify({"ok": True, "deleted": False, "retained": True})
     existed = target.exists()
     if existed:
         try:
