@@ -1,3 +1,4 @@
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -60,6 +61,20 @@ class ImagePersistenceTests(unittest.TestCase):
         unused.write_bytes(b'image')
         self.client.post('/api/delete-source-image', json={'filename': 'source_images/unused.png'})
         self.assertFalse(unused.exists())
+
+    def test_generated_image_can_be_uploaded_as_independent_source(self):
+        generated = self.output / 'result.png'
+        generated.write_bytes(b'generated image')
+        image_id = self.add_image(generated.name)
+        response = self.client.post('/api/upload-source-image',
+                                    data={'images': (io.BytesIO(generated.read_bytes()), generated.name)},
+                                    content_type='multipart/form-data')
+        self.assertTrue(response.json['ok'])
+        source = self.root / response.json['filename']
+        self.assertEqual(source.read_bytes(), generated.read_bytes())
+        self.client.post('/api/delete-image', json={'id': image_id})
+        self.assertFalse(generated.exists())
+        self.assertTrue(source.exists())
 
     def test_generations_have_distinct_outputs_and_ignore_unrelated_files(self):
         unrelated = self.output / 'unrelated.png'

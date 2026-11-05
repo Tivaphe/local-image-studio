@@ -380,8 +380,8 @@ async function removeUploaded(item) {
 async function setCanvas(files) {
   let items;
   try { items = await uploadFiles(files); }
-  catch (e) { showGenError(e.message); return; }
-  if (!items.length) return;
+  catch (e) { showGenError(e.message); return false; }
+  if (!items.length) { showGenError("Impossible de charger l'image."); return false; }
   if (canvas) await removeUploaded(canvas);
   if (canvas && canvas.objectUrl) URL.revokeObjectURL(canvas.objectUrl);
   canvas = items[0];
@@ -391,6 +391,7 @@ async function setCanvas(files) {
   if (currentRatio !== 'original') ratioBeforeOriginal = currentRatio;
   currentRatio = 'original';
   refreshAll();
+  return true;
 }
 
 async function addRefs(files) {
@@ -706,6 +707,37 @@ function showResults(images) {
     select.textContent = 'Comparer';
     select.addEventListener('click', () => { $('#compare-after').src = img.url; });
     d.querySelector('.rbar').appendChild(select);
+    const useAsSource = document.createElement('button');
+    useAsSource.type = 'button';
+    useAsSource.className = 'btn small result-use-source';
+    useAsSource.textContent = 'Utiliser comme image à modifier';
+    useAsSource.addEventListener('click', async () => {
+      useAsSource.disabled = true;
+      useAsSource.textContent = 'Chargement…';
+      try {
+        // Réutiliser le parcours d'upload : une copie indépendante est créée dans
+        // source_images/, sans toucher au résultat ni à son entrée d'historique.
+        const response = await fetch(img.url);
+        if (!response.ok) throw new Error("Image générée introuvable.");
+        const blob = await response.blob();
+        const file = new File([blob], img.filename.split('/').pop(), { type: 'image/png' });
+        if (await setCanvas([file])) {
+          $$('.result-use-source', box).forEach(button => {
+            button.textContent = 'Utiliser comme image à modifier';
+          });
+          useAsSource.textContent = '✓ Image de départ remplacée';
+          $('#canvas-drop').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+          useAsSource.textContent = 'Utiliser comme image à modifier';
+        }
+      } catch (e) {
+        showGenError(e.message || "Impossible d'utiliser cette image.");
+        useAsSource.textContent = 'Utiliser comme image à modifier';
+      } finally {
+        useAsSource.disabled = false;
+      }
+    });
+    d.appendChild(useAsSource);
     box.appendChild(d);
   });
   if (comparisonSource && images.length) {
