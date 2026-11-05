@@ -239,9 +239,11 @@ def download_model(model_id, quant, token, msg_cb=None):
     # 2) transformer principal
     if not _model_present(model_id, quant):
         file = m["file_for_quant"][quant]
+        # Nom dans le dépôt distant (peut contenir un sous-dossier, ex. "TURBO/...").
+        remote = m.get("remote_file_for_quant", {}).get(quant, file)
         if msg_cb:
             msg_cb(f"Téléchargement du modèle {file}")
-        _hf_download_file(m["repo"], file,
+        _hf_download_file(m["repo"], remote,
                           DIFFUSION_DIR / file, token, msg_cb)
         # uncond pour ideogram
         uncond = m.get("uncond_file_for_quant", {}).get(quant)

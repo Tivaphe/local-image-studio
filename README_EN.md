@@ -110,7 +110,7 @@ The **✂️ Edit** tab — available on the models that really do editing:
 
 ---
 
-## 🧠 Available models (15)
+## 🧠 Available models (20)
 
 | Model | Speed | License | Best for |
 |---|---|---|---|
@@ -129,11 +129,19 @@ The **✂️ Edit** tab — available on the models that really do editing:
 | **Iris-3B** | 100 steps | Apache 2.0 ✅ | Pixel-space generation |
 | **Ideogram 4** | 12 steps | Ideogram | Text rendering |
 | **FHDR Uncensored** | 20 steps | Non-commercial | Uncensored |
+| **Fibo 2.0 Dev** (GGUF) | 50 steps, CFG 5 | CC BY-NC 4.0 ⚠️ | Generation + reference-image editing |
+| **Fibo 2.0 Edit Turbo** (GGUF) | ⚡ 4 steps, CFG 1 | CC BY-NC 4.0 ⚠️ | Fast reference-image editing |
+| **MOSS-Image SFT** (GGUF) | 50 steps, CFG 3 | Apache 2.0 ✅ | Standard generation, text in images |
+| **MOSS-Image Base** (GGUF) | 50 steps, CFG 3 | Apache 2.0 ✅ | Untuned base, for LoRAs trained on Base |
+| **Krea 2 Turbo** (GGUF) | ⚡ 8 steps, CFG 1 | Krea Community ⚠️ | Fast photorealistic rendering |
 
 > ✅ = commercial use allowed · ⚠️ = personal/non-commercial use
 >
 > **Qwen-Image 2.1 Turbo** requires `sd-cli` `c150a6b` or newer (8 steps, CFG 1).
 > **FLUX.3 Image Klein** requires `sd-cli` `8cd731e` (Oct 15, 2026) or newer; its GGUFs are converted with that same engine (documented VRAM peaks: 6.8 GB at Q3_K up to 9.8 GB at Q8_0) and it reuses the FLUX.2 VAE and the **Qwen3-VL-4B** encoder (already downloaded with FLUX.2 Klein / Iris-3B).
+> **Fibo 2.0** requires a recent `sd-cli` (support added Oct 21, 2026). Its GGUFs come from `molbal/fibo-2.0-GGUF` (Q4_K_M, Q6_K, Q8_0) and use the Qwen3-VL-4B encoder and the FLUX.2 VAE. Editing needs the Qwen3-VL-4B **mmproj** (0.84 GB), downloadable from the Edit tab.
+> **MOSS-Image** (Base and SFT) uses the **Qwen3.5-9B** encoder (GGUF, ~5.7 GB), the FLUX.2 VAE and an external `tokenizer.json`, all downloaded automatically. Official quants: `leejet/MOSS-Image-*-GGUF`.
+> **Krea 2 Turbo** requires stable-diffusion.cpp `master-721` or newer. Quants from `realrebelai/KREA-2_GGUFs` (TURBO folder), Wan 2.1 VAE and Qwen3-VL-4B encoder.
 > **Iris-3B** requires `sd-cli` `f89d9b1` or newer; its weights are about 12 GB, plus the Qwen3-VL-4B encoder. Reinstall the engine from the Models tab if needed.
 > Files: `models/diffusion/model.safetensors` (official checkpoint) and `models/llm/Qwen3VL-4B-Instruct-Q4_K_M.gguf`; no VAE.
 

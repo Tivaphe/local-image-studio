@@ -117,6 +117,34 @@ DEPS = {
         "dest": VAE_DIR / "sd3_vae.safetensors",
         "size_gb": 0.17,
     },
+    # --- Dependances ajoutees avec Fibo 2.0, MOSS-Image et Krea 2 ---
+    "vae_wan21": {
+        "type": "exact",
+        "repo": "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+        "filename": "split_files/vae/wan_2.1_vae.safetensors",
+        "dest": VAE_DIR / "wan_2.1_vae.safetensors",
+        "size_gb": 0.25,
+    },
+    "qwen35_9b": {
+        "type": "gguf",
+        "repo": "unsloth/Qwen3.5-9B-GGUF",
+        "dest_dir": LLM_DIR,
+        "size_gb": 5.7,
+    },
+    "moss_tokenizer": {
+        "type": "exact",
+        "repo": "OpenMOSS-Team/MOSS-Image-Base",
+        "filename": "tokenizer/tokenizer.json",
+        "dest": LLM_DIR / "moss_image_tokenizer.json",
+        "size_gb": 0.02,
+    },
+    "mmproj_qwen3vl_4b": {
+        "type": "exact",
+        "repo": "Qwen/Qwen3-VL-4B-Instruct-GGUF",
+        "filename": "mmproj-Qwen3VL-4B-Instruct-F16.gguf",
+        "dest": LLM_DIR / "mmproj-Qwen3VL-4B-Instruct-F16.gguf",
+        "size_gb": 0.84,
+    },
 }
 
 DEFAULT_NEGATIVE = "blurry, low quality, lowres, distorted, deformed, ugly, bad anatomy, extra limbs, missing fingers, watermark, text, signature, jpeg artifacts, cropped, out of frame, duplicate, mutation"
@@ -673,6 +701,213 @@ MODELS = {
         "defaults": {"steps": 16, "cfg": 1.0, "sampler": "euler"},
         "min_steps": 8, "max_steps": 30,
     },
+    # ---- Fibo 2.0 (Bria AI, arch fibo2, cf. docs/fibo2.md de stable-diffusion.cpp) ----
+    # Quants GGUF : molbal/fibo-2.0-GGUF (formats standard uniquement ; le Q8_CR propriétaire
+    # de ComfyUI-GGUF-reboot n'est pas pris en charge). Pas de Q3 : la qualité chute trop.
+    # Encodeur Qwen3-VL-4B (qwen3vl_4b) + mmproj pour les références ; VAE FLUX.2.
+    # Licence CC BY-NC 4.0 : usage non commercial.
+    "fibo2-dev": {
+        "presets": {
+            "rapide":    {"steps": 30, "cfg": 5.0, "quant": "Q4_K_M", "label": "⚡ Rapide (30 étapes, Q4_K_M)"},
+            "equilibre": {"steps": 50, "cfg": 5.0, "quant": "Q6_K",   "label": "⚖️ Équilibre (50 étapes, Q6_K)"},
+            "qualite":   {"steps": 50, "cfg": 5.0, "quant": "Q8_0",   "label": "✨ Qualité (50 étapes, Q8_0)"},
+        },
+        "name": "Fibo 2.0 Dev",
+        "arch": "fibo2",
+        "repo": "molbal/fibo-2.0-GGUF",
+        "quants": ["Q4_K_M", "Q6_K", "Q8_0"],
+        "default_quant": "Q6_K",
+        "file_for_quant": {
+            "Q4_K_M": "fibo2-dev-Q4_K_M.gguf",
+            "Q6_K":   "fibo2-dev-Q6_K.gguf",
+            "Q8_0":   "fibo2-dev-Q8_0.gguf",
+        },
+        "size_gb": {"Q4_K_M": 5.5, "Q6_K": 7.0, "Q8_0": 8.9},
+        "deps": ["vae_flux2", "qwen3vl_4b", "mmproj_qwen3vl_4b"],
+        "llm_dep": "qwen3vl_4b",
+        "mmproj_dep": "mmproj_qwen3vl_4b",
+        "supports_neg": True,
+        "supports_img2img": False,
+        "needs_token": False,
+        # --- Texte-image + édition (références) ---
+        "supports_ref_images": True,
+        "input_modes": ["ref"],
+        "max_ref_images": 4,
+        "ref_tag_syntax": "<image_{n}>",
+        "ref_needs_vlm": True,
+        "ref_hint": ("Fibo cite les images avec <image_1>, <image_2>… (image 1 = le canvas). "
+                     "Chaque référence ajoute des tokens : au-delà de 2-3, baissez le budget pixels."),
+        "ref_examples": [
+            "Keep the person in <image_1> unchanged, dress them with the jacket from <image_2>",
+            "Replace the background of <image_1> with the city street of <image_2>, keep the lighting",
+        ],
+        "license": "CC BY-NC 4.0 (Bria AI, non commercial)",
+        "hf_url": "https://huggingface.co/molbal/fibo-2.0-GGUF",
+        "vram_min_gb": 8,
+        "desc": ("Fibo 2.0 Dev de Bria AI : génération (50 étapes, CFG 5) et édition par références. "
+                 "Requiert sd-cli récent (support Fibo 2.0 depuis octobre 2026). Non commercial."),
+        "defaults": {"steps": 50, "cfg": 5.0, "sampler": "euler"},
+        "min_steps": 20, "max_steps": 80,
+    },
+    "fibo2-edit-turbo": {
+        "presets": {
+            "rapide":    {"steps": 4, "cfg": 1.0, "quant": "Q4_K_M", "label": "⚡ Rapide (4 étapes, Q4_K_M)"},
+            "equilibre": {"steps": 4, "cfg": 1.0, "quant": "Q6_K",   "label": "⚖️ Équilibre (4 étapes, Q6_K)"},
+            "qualite":   {"steps": 4, "cfg": 1.0, "quant": "Q8_0",   "label": "✨ Qualité (4 étapes, Q8_0)"},
+        },
+        "name": "Fibo 2.0 Edit Turbo",
+        "arch": "fibo2",
+        "repo": "molbal/fibo-2.0-GGUF",
+        "quants": ["Q4_K_M", "Q6_K", "Q8_0"],
+        "default_quant": "Q6_K",
+        "file_for_quant": {
+            "Q4_K_M": "fibo2-edit-turbo-Q4_K_M.gguf",
+            "Q6_K":   "fibo2-edit-turbo-Q6_K.gguf",
+            "Q8_0":   "fibo2-edit-turbo-Q8_0.gguf",
+        },
+        "size_gb": {"Q4_K_M": 5.5, "Q6_K": 7.0, "Q8_0": 8.9},
+        "deps": ["vae_flux2", "qwen3vl_4b", "mmproj_qwen3vl_4b"],
+        "llm_dep": "qwen3vl_4b",
+        "mmproj_dep": "mmproj_qwen3vl_4b",
+        "supports_neg": False,
+        "supports_img2img": False,
+        "needs_token": False,
+        # --- Édition par références uniquement (distillé pour l'édition en 4 étapes) ---
+        "supports_ref_images": True,
+        "input_modes": ["ref"],
+        "max_ref_images": 4,
+        "ref_tag_syntax": "<image_{n}>",
+        "ref_needs_vlm": True,
+        "ref_hint": ("Edit Turbo est distillé pour l'édition : image 1 = le canvas, les autres = références. "
+                     "Citez-les avec <image_2>, <image_3>… ou par position (« the man in image 1 »)."),
+        "ref_examples": [
+            "Change the outfit of the person in <image_1> to the red dress from <image_2>",
+            "Put the product from <image_2> on the table in <image_1>, keep the lighting of <image_1>",
+        ],
+        "fixed_steps": 4,
+        "fixed_cfg": 1.0,
+        "license": "CC BY-NC 4.0 (Bria AI, non commercial)",
+        "hf_url": "https://huggingface.co/molbal/fibo-2.0-GGUF",
+        "vram_min_gb": 8,
+        "desc": ("Fibo 2.0 Edit Turbo de Bria AI : édition rapide (4 étapes, CFG 1) avec références. "
+                 "Conçu pour l'édition plutôt que pour la génération pure. Non commercial."),
+        "defaults": {"steps": 4, "cfg": 1.0, "sampler": "euler"},
+        "min_steps": 4, "max_steps": 4,
+    },
+
+    # ---- MOSS-Image (OpenMOSS, arch moss_image, cf. docs/moss_image.md de stable-diffusion.cpp) ----
+    # DiT 5B + VAE FLUX.2 + encodeur Qwen3.5-9B (GGUF) + tokenizer.json externe (--tokenizer).
+    # Quants officiels leejet/MOSS-Image-*-GGUF (Q2_K et Q4_0 écartés : trop dégradés / peu utiles).
+    "moss-image-sft": {
+        "presets": {
+            "leger":     {"steps": 50, "cfg": 3.0, "quant": "Q3_K", "label": "💾 Léger (50 étapes, Q3_K)"},
+            "equilibre": {"steps": 50, "cfg": 3.0, "quant": "Q4_K", "label": "⚖️ Équilibre (50 étapes, Q4_K)"},
+            "qualite":   {"steps": 50, "cfg": 3.0, "quant": "Q8_0", "label": "✨ Qualité (50 étapes, Q8_0)"},
+        },
+        "name": "MOSS-Image SFT",
+        "arch": "moss_image",
+        "repo": "leejet/MOSS-Image-SFT-GGUF",
+        "quants": ["Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_0"],
+        "default_quant": "Q4_K",
+        "file_for_quant": {
+            "Q3_K": "MOSS-Image-SFT-Q3_K.gguf",
+            "Q4_K": "MOSS-Image-SFT-Q4_K.gguf",
+            "Q5_K": "MOSS-Image-SFT-Q5_K.gguf",
+            "Q6_K": "MOSS-Image-SFT-Q6_K.gguf",
+            "Q8_0": "MOSS-Image-SFT-Q8_0.gguf",
+        },
+        "size_gb": {"Q3_K": 2.7, "Q4_K": 3.3, "Q5_K": 3.9, "Q6_K": 4.6, "Q8_0": 5.7},
+        "deps": ["vae_flux2", "qwen35_9b", "moss_tokenizer"],
+        "llm_dep": "qwen35_9b",
+        "tokenizer_dep": "moss_tokenizer",
+        "supports_neg": True,
+        "supports_img2img": False,
+        "needs_token": False,
+        "license": "Apache 2.0 (libre, commercial OK)",
+        "hf_url": "https://huggingface.co/leejet/MOSS-Image-SFT-GGUF",
+        "vram_min_gb": 8,
+        "desc": ("MOSS-Image SFT (OpenMOSS) : version ajustée, à privilégier pour la génération standard. "
+                 "Texte dans l'image et mise en page soignés. 50 étapes, CFG 3."),
+        "defaults": {"steps": 50, "cfg": 3.0, "sampler": "euler"},
+        "min_steps": 20, "max_steps": 80,
+    },
+    "moss-image-base": {
+        "presets": {
+            "leger":     {"steps": 50, "cfg": 3.0, "quant": "Q3_K", "label": "💾 Léger (50 étapes, Q3_K)"},
+            "equilibre": {"steps": 50, "cfg": 3.0, "quant": "Q4_K", "label": "⚖️ Équilibre (50 étapes, Q4_K)"},
+            "qualite":   {"steps": 50, "cfg": 3.0, "quant": "Q8_0", "label": "✨ Qualité (50 étapes, Q8_0)"},
+        },
+        "name": "MOSS-Image Base",
+        "arch": "moss_image",
+        "repo": "leejet/MOSS-Image-Base-GGUF",
+        "quants": ["Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_0"],
+        "default_quant": "Q4_K",
+        "file_for_quant": {
+            "Q3_K": "MOSS-Image-Base-Q3_K.gguf",
+            "Q4_K": "MOSS-Image-Base-Q4_K.gguf",
+            "Q5_K": "MOSS-Image-Base-Q5_K.gguf",
+            "Q6_K": "MOSS-Image-Base-Q6_K.gguf",
+            "Q8_0": "MOSS-Image-Base-Q8_0.gguf",
+        },
+        "size_gb": {"Q3_K": 2.7, "Q4_K": 3.3, "Q5_K": 3.9, "Q6_K": 4.6, "Q8_0": 5.7},
+        "deps": ["vae_flux2", "qwen35_9b", "moss_tokenizer"],
+        "llm_dep": "qwen35_9b",
+        "tokenizer_dep": "moss_tokenizer",
+        "supports_neg": True,
+        "supports_img2img": False,
+        "needs_token": False,
+        "license": "Apache 2.0 (libre, commercial OK)",
+        "hf_url": "https://huggingface.co/leejet/MOSS-Image-Base-GGUF",
+        "vram_min_gb": 8,
+        "desc": ("MOSS-Image Base (OpenMOSS) : checkpoint non ajusté, plutôt destiné aux LoRA entraînés "
+                 "sur Base. Résultat brut par défaut : préférez MOSS-Image SFT pour une génération standard."),
+        "defaults": {"steps": 50, "cfg": 3.0, "sampler": "euler"},
+        "min_steps": 20, "max_steps": 80,
+    },
+
+    # ---- Krea 2 Turbo (arch krea2, cf. docs/krea2.md de stable-diffusion.cpp) ----
+    # DiT 12-13B distillé : 8 étapes, CFG 1 (pas de prompt négatif). VAE Wan 2.1, encodeur Qwen3-VL-4B.
+    # Quants : dépôt officiel réalrebelai/KREA-2_GGUFs, dossier TURBO/ (Q4_K_S et Q5_K_M absents du dépôt).
+    "krea2-turbo": {
+        "presets": {
+            "leger":     {"steps": 8, "cfg": 1.0, "quant": "Q3_K_M", "label": "💾 Léger (8 étapes, Q3_K_M)"},
+            "equilibre": {"steps": 8, "cfg": 1.0, "quant": "Q4_K_M", "label": "⚖️ Équilibre (8 étapes, Q4_K_M)"},
+            "qualite":   {"steps": 8, "cfg": 1.0, "quant": "Q6_K",   "label": "✨ Qualité (8 étapes, Q6_K)"},
+        },
+        "name": "Krea 2 Turbo",
+        "arch": "krea2",
+        "repo": "realrebelai/KREA-2_GGUFs",
+        "quants": ["Q3_K_M", "Q4_K_M", "Q5_K_S", "Q6_K", "Q8_0"],
+        "default_quant": "Q4_K_M",
+        "file_for_quant": {
+            "Q3_K_M": "Krea-2-Turbo-Q3_K_M.gguf",
+            "Q4_K_M": "Krea-2-Turbo-Q4_K_M.gguf",
+            "Q5_K_S": "Krea-2-Turbo-Q5_K_S.gguf",
+            "Q6_K":   "Krea-2-Turbo-Q6_K.gguf",
+            "Q8_0":   "Krea-2-Turbo-Q8_0.gguf",
+        },
+        # Le fichier est dans le sous-dossier TURBO/ du dépôt, aplati à la copie locale.
+        "remote_file_for_quant": {
+            "Q3_K_M": "TURBO/Krea-2-Turbo-Q3_K_M.gguf",
+            "Q4_K_M": "TURBO/Krea-2-Turbo-Q4_K_M.gguf",
+            "Q5_K_S": "TURBO/Krea-2-Turbo-Q5_K_S.gguf",
+            "Q6_K":   "TURBO/Krea-2-Turbo-Q6_K.gguf",
+            "Q8_0":   "TURBO/Krea-2-Turbo-Q8_0.gguf",
+        },
+        "size_gb": {"Q3_K_M": 5.5, "Q4_K_M": 7.2, "Q5_K_S": 8.8, "Q6_K": 10.5, "Q8_0": 13.6},
+        "deps": ["vae_wan21", "qwen3vl_4b"],
+        "llm_dep": "qwen3vl_4b",
+        "supports_neg": False,
+        "supports_img2img": False,
+        "needs_token": False,
+        "license": "Krea 2 Community License (voir conditions Krea)",
+        "hf_url": "https://huggingface.co/realrebelai/KREA-2_GGUFs",
+        "vram_min_gb": 8,
+        "desc": ("Krea 2 Turbo (Krea) : génération photoréaliste en 8 étapes, CFG 1. "
+                 "Requiert stable-diffusion.cpp master-721 ou plus récent."),
+        "defaults": {"steps": 8, "cfg": 1.0, "sampler": "euler"},
+        "min_steps": 4, "max_steps": 20,
+    },
 }
 
 
@@ -703,7 +938,16 @@ def _is_valid_dep(dep_id: str, p: Path) -> bool:
     elif dep_id == "qwen25vl_7b":
         return ("qwen2.5" in name or "qwen2_5" in name or "qwen25" in name) and "vl" in name and "mmproj" not in name
     elif dep_id == "mmproj_qwen3vl_8b":
-        return "mmproj" in name and ("qwen3" in name or "qwen_3" in name)
+        return "mmproj" in name and ("qwen3" in name or "qwen_3" in name) and "8b" in name
+    elif dep_id == "mmproj_qwen3vl_4b":
+        return "mmproj" in name and ("qwen3" in name or "qwen_3" in name) and "4b" in name
+    elif dep_id == "qwen35_9b":
+        return ("qwen3.5" in name or "qwen3_5" in name or "qwen35" in name) and "9b" in name \
+            and "vl" not in name and "mmproj" not in name
+    elif dep_id == "moss_tokenizer":
+        return "tokenizer" in name
+    elif dep_id == "vae_wan21":
+        return "wan" in name and "vae" in name
     elif dep_id == "vae_flux":
         return (("flux" in name and "2" not in name and ("vae" in name or "ae" in name)) or name == "ae.safetensors")
     elif dep_id == "vae_flux2":
@@ -997,8 +1241,10 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     if m.get("needs_vae", True):
         if arch == "sd3":
             vae_key = "vae_sd3"
-        elif arch in ("ernie", "ideogram", "flux2", "flux3"):
+        elif arch in ("ernie", "ideogram", "flux2", "flux3", "fibo2", "moss_image"):
             vae_key = "vae_flux2"
+        elif arch == "krea2":
+            vae_key = "vae_wan21"
         elif arch == "qwen_image":
             vae_key = m.get("vae_dep", "vae_qwen")
         else:
@@ -1032,6 +1278,29 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     elif arch == "flux3":
         # FLUX.3 Klein : Qwen3-VL 4B (GGUF) comme encodeur de texte, VAE FLUX.2.
         # Les references partent au DiT (preset flux2, pass_to_vlm=false) -> pas de mmproj.
+        llm = _dep_path(manifest, m.get("llm_dep", "qwen3vl_4b"))
+        if llm:
+            args += ["--llm", str(llm)]
+    elif arch == "fibo2":
+        # Fibo 2.0 : Qwen3-VL-4B (GGUF) comme encodeur ; le mmproj (encodeur visuel)
+        # fait entrer les images de reference dans le VLM (docs/fibo2.md).
+        llm = _dep_path(manifest, m.get("llm_dep", "qwen3vl_4b"))
+        if llm:
+            args += ["--llm", str(llm)]
+        mmproj = _dep_path(manifest, m.get("mmproj_dep", "mmproj_qwen3vl_4b"))
+        if mmproj:
+            args += ["--llm_vision", str(mmproj)]
+    elif arch == "moss_image":
+        # MOSS-Image : encodeur Qwen3.5-9B (GGUF) + tokenizer.json externe (Qwen3.5 a son
+        # propre vocabulaire, distinct de celui embarque dans sd-cli).
+        llm = _dep_path(manifest, m.get("llm_dep", "qwen35_9b"))
+        if llm:
+            args += ["--llm", str(llm)]
+        tok = _dep_path(manifest, m.get("tokenizer_dep", "moss_tokenizer"))
+        if tok:
+            args += ["--tokenizer", str(tok)]
+    elif arch == "krea2":
+        # Krea 2 : encodeur Qwen3-VL-4B (texte seul pour Turbo), VAE Wan 2.1.
         llm = _dep_path(manifest, m.get("llm_dep", "qwen3vl_4b"))
         if llm:
             args += ["--llm", str(llm)]
