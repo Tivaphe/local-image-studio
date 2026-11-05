@@ -62,7 +62,7 @@ def add_image(batch_id, idx, model_id, model_name, quant, prompt, negative,
     if source_images:
         src = json.dumps(list(source_images), ensure_ascii=False)
     with _lock, _connect() as conn:
-        conn.execute("""
+        cur = conn.execute("""
             INSERT INTO images (created, batch_id, idx, model, model_name, quant,
                                 prompt, negative, seed, width, height, steps, cfg,
                                 sampler, filename, batch_size, gen_time, source_images)
@@ -71,6 +71,7 @@ def add_image(batch_id, idx, model_id, model_name, quant, prompt, negative,
               model_id, model_name, quant, prompt, negative, seed, width,
               height, steps, cfg, sampler, filename, batch_size, gen_time, src))
         conn.commit()
+        return cur.lastrowid
 
 
 def _decode_row(row):
@@ -110,7 +111,25 @@ def delete_image(img_id):
         r = cur.fetchone()
         conn.execute("DELETE FROM images WHERE id=?", (img_id,))
         conn.commit()
-        return r["filename"] if r else None
+        if not r:
+            return None
+        # Les anciennes générations peuvent partager un nom de fichier.
+        remaining = conn.execute("SELECT 1 FROM images WHERE filename=? LIMIT 1",
+                                 (r["filename"],)).fetchone()
+        return None if remaining else r["filename"]
+
+
+def source_is_referenced(path):
+    """Une source utilisée par l'historique doit rester disponible."""
+    with _lock, _connect() as conn:
+        rows = conn.execute("SELECT source_images FROM images WHERE source_images IS NOT NULL")
+        for row in rows:
+            try:
+                if path in json.loads(row["source_images"] or "[]"):
+                    return True
+            except (ValueError, TypeError):
+                continue
+    return False
 
 
 def count_images():

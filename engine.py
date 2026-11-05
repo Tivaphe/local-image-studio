@@ -15,6 +15,7 @@ import subprocess
 import threading
 import time
 import zipfile
+import uuid
 from pathlib import Path
 from urllib.request import urlopen, Request
 
@@ -401,7 +402,7 @@ class TaskManager:
                     )
 
             batch = max(1, min(4, int(p["batch"])))
-            batch_id = f"{int(time.time())}_{model_id}"  # pour la DB
+            batch_id = uuid.uuid4().hex  # identifiant unique, même pour deux lancements rapprochés
             seed = int(p["seed"]) if p.get("seed") not in (None, "") else int(time.time()) % 1000000
 
             # Générer des noms de fichiers intelligents et sûrs
@@ -413,10 +414,8 @@ class TaskManager:
             prompt_part = "_".join(words)[:30] if words else "generation"
 
             # Template de sortie directement dans OUTPUT_DIR
-            out_tmpl = str(OUTPUT_DIR / f"{model_name}_{prompt_part}_%03d.png")
-
-            # Mémoriser les fichiers déjà existants pour détecter précisément les nouveaux
-            existing_files = set(OUTPUT_DIR.glob("*.png"))
+            output_prefix = f"{model_name}_{prompt_part}_{batch_id}"
+            out_tmpl = str(OUTPUT_DIR / f"{output_prefix}_%03d.png")
 
             cmd = build_command(
                 model_id, quant, p["prompt"], p.get("negative", ""),
@@ -510,22 +509,9 @@ class TaskManager:
                 err_summary = _extract_err_summary()
                 raise RuntimeError(f"Le moteur sd-cli s'est arrêté avec le code d'erreur {ret_code} :\n{err_summary}")
 
-            # Collecte des images produites (chercher directement dans OUTPUT_DIR)
-            # 1) Fichiers créés pendant la génération (non présents dans existing_files)
-            produced = [
-                f for f in OUTPUT_DIR.glob("*.png")
-                if f not in existing_files and f.stat().st_mtime >= t_start - 2
-            ]
+            # Ne collecter que les fichiers de ce lancement : jamais les autres PNG.
+            produced = sorted(OUTPUT_DIR.glob(f"{output_prefix}_*.png"))
 
-            # 2) Fallback si besoin : pattern de fichier récent
-            if not produced:
-                pattern_start = f"{model_name}_{prompt_part}"
-                produced = [
-                    f for f in OUTPUT_DIR.glob(f"{pattern_start}_*.png")
-                    if f.stat().st_mtime >= t_start - 5
-                ]
-
-            # 3) Fallback absolu : n'importe quel fichier PNG créé depuis t_start
             if not produced:
                 produced = [
                     f for f in OUTPUT_DIR.glob("*.png")
@@ -536,12 +522,10 @@ class TaskManager:
                 err_summary = _extract_err_summary()
                 raise RuntimeError(f"Aucune image n'a été produite par le moteur sd-cli :\n{err_summary}")
 
-            # Trier par timestamp de modification pour respecter l'ordre
-            produced.sort(key=lambda f: f.stat().st_mtime)
             images = []
             for i, fp in enumerate(produced):
                 rel = fp.relative_to(OUTPUT_DIR).as_posix()
-                db.add_image(
+                image_id = db.add_image(
                     batch_id=batch_id, idx=i, model_id=model_id, model_name=m["name"],
                     quant=quant, prompt=p["prompt"], negative=p.get("negative", ""),
                     seed=seed + i, width=int(p["width"]), height=int(p["height"]),
@@ -550,12 +534,7 @@ class TaskManager:
                     gen_time=round(total_seconds / max(1, len(produced)), 1),
                     source_images=input_images)
                 images.append({"url": f"/output/{rel}", "filename": rel,
-                               "seed": seed + i, "id": None})
-
-            # récupère les ids depuis la DB (derniers insérés du batch, inversés car list_images trie DESC)
-            rows = list(reversed(db.list_images(limit=len(produced))))
-            for img, row in zip(images, rows):
-                img["id"] = row["id"]
+                               "seed": seed + i, "id": image_id})
 
             stats = {
                 "total_seconds": round(total_seconds, 1),

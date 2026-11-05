@@ -109,7 +109,8 @@ small{color:var(--muted)}
 .results{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;min-height:120px}
 .result{position:relative;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--bg2)}
 .result img{width:100%;display:block;cursor:zoom-in}
-.result .rbar{display:flex;justify-content:space-between;align-items:center;padding:6px 8px;font-size:12px;color:var(--muted)}
+.result .rbar{display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 8px;font-size:12px;color:var(--muted)}
+.result-use-source{display:block;margin:0 8px 8px;width:calc(100% - 16px)}
 .placeholder{grid-column:1/-1;color:var(--muted);text-align:center;padding:50px 0;border:1px dashed var(--border);border-radius:12px}
 
 /* log */

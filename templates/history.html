@@ -12,7 +12,7 @@
       {% endfor %}
     </div>
   </div>
-  <p class="muted">{{ count }} image(s) au total · enregistrées dans <code>output/</code></p>
+  <p class="muted">{{ count }} image(s) au total · enregistrées dans <code>output/</code> · 300 entrées les plus récentes affichées</p>
 
   {% if images %}
   <div class="gallery">
@@ -43,7 +43,7 @@
                   data-neg="{{ im.negative|e }}" data-model="{{ im.model }}"
                   data-w="{{ im.width }}" data-h="{{ im.height }}"
                   data-steps="{{ im.steps }}" data-cfg="{{ im.cfg }}" data-seed="{{ im.seed }}"
-                  data-sources='{{ sources | tojson }}'>{{ 'Rééditer' if editable and sources else 'Réutiliser' }}</a>
+                  data-sources='{{ sources | tojson }}'>{{ 'Rééditer' if editable and sources else 'Réutiliser' }}</button>
           <button class="link danger del" data-id="{{ im.id }}">Supprimer</button>
         </div>
       </div>
