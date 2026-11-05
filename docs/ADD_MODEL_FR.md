@@ -65,6 +65,9 @@ en copiant le modèle d'un modèle existant qui a la **même architecture**.
 | `qwen_image` | `qwen25vl_7b` (standard) / `qwen3vl_8b` (2.1/Turbo) | `vae_qwen` / `vae_qwen_21` | Qwen-Image |
 | `iris` | `qwen3vl_4b` | Aucun | Iris-3B (safetensors) |
 | `ideogram`   | `qwen3vl_8b`                       | `vae_flux2`   | Ideogram 4 (needs uncond) |
+| `fibo2`      | `qwen3vl_4b` + mmproj (`--llm_vision`) | `vae_flux2` | Fibo 2.0 Dev / Edit Turbo |
+| `moss_image` | `qwen35_9b` + tokenizer externe (`--tokenizer`) | `vae_flux2` | MOSS-Image Base / SFT |
+| `krea2`      | `qwen3vl_4b`                       | `vae_wan21`   | Krea 2 Turbo |
 
 > **Astuce** : trouvez la doc officielle du modèle sur
 > https://github.com/leejet/stable-diffusion.cpp/tree/master/docs

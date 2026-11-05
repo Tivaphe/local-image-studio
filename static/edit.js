@@ -246,7 +246,7 @@ function updateTagWarning() {
   const images = orderedImages();
   const prompt = $('#prompt').value;
   const needs = Boolean(syntax) && images.length >= 2 && prompt.trim().length > 0
-                && !/<image\d+>/i.test(prompt);
+                && !/<image_?\d+>/i.test(prompt);
   if (!needs) { box.hidden = true; box.innerHTML = ''; return; }
   const tag = n => syntax.replace('{n}', n);
   box.hidden = false;
