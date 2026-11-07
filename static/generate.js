@@ -673,6 +673,126 @@ function clearSourceImage(unlink = true) {
 
 $('#remove-image')?.addEventListener('click', () => clearSourceImage());
 
+// ---------- Bouton « 🧹 Nouveau / Vider le brouillon » ----------
+$('#reset-gen-draft-btn')?.addEventListener('click', () => {
+  try {
+    sessionStorage.removeItem(GEN_DRAFT_KEY);
+    localStorage.removeItem(GEN_DRAFT_KEY);
+  } catch (e) {}
+  isRestoringGenDraft = true;
+  try {
+    $('#prompt').value = '';
+    const m = MODELS[$('#model')?.value];
+    $('#negative').value = (m && m.supports_neg) ? (window.DEFAULT_NEG || '') : '';
+    if ($('#seed')) $('#seed').value = '';
+    if ($('#batch')) {
+      $('#batch').value = '1';
+      if ($('#batch-val')) $('#batch-val').textContent = '1 image';
+    }
+    if ($('#lora-prompt')) $('#lora-prompt').value = '';
+    if ($('#gen-preprompt-select')) $('#gen-preprompt-select').value = '';
+    clearSourceImage(true);
+    currentRatio = '1:1';
+    ratioBeforeOriginal = '1:1';
+    buildRatios();
+    buildRatiosApply();
+    lastGeneratedImages = [];
+    activeGenSourceUrl = null;
+    if ($('#results')) $('#results').innerHTML = '';
+    if ($('#stats-box')) $('#stats-box').hidden = true;
+    if ($('#gen-error')) { $('#gen-error').hidden = true; $('#gen-error').textContent = ''; }
+  } finally {
+    isRestoringGenDraft = false;
+  }
+  saveGenDraft();
+  if (window.showToast) window.showToast('🧹 Brouillon réinitialisé');
+});
+
+// ---------- Coller une image avec Ctrl+V n'importe où sur la page ----------
+window.addEventListener('paste', async e => {
+  const items = e.clipboardData?.items ? [...e.clipboardData.items] : [];
+  const imgItem = items.find(it => it.type && it.type.startsWith('image/'));
+  if (!imgItem) return;
+  const file = imgItem.getAsFile();
+  if (!file) return;
+  e.preventDefault();
+
+  const m = MODELS[$('#model')?.value];
+  const canInit = Boolean(m && (m.input_modes || []).includes('init'));
+  if (canInit) {
+    const details = $('#img2img-box');
+    if (details) details.open = true;
+    await handleImageUpload(file);
+    if (window.showToast) {
+      window.showToast('📋 Image collée comme Image de départ (img2img)');
+    }
+  } else {
+    // Si le modèle actuel ne fait pas d'img2img sur /generate, proposer d'ouvrir directement dans /edit
+    if (window.showToast) {
+      window.showToast(
+        "📋 Image détectée dans le presse-papiers",
+        "✂️ Ouvrir dans Studio d'édition",
+        async () => {
+          const fd = new FormData();
+          fd.append('image', file, file.name || 'clipboard.png');
+          const r = await fetch('/api/upload-source-image', { method: 'POST', body: fd });
+          const j = await r.json();
+          if (j.ok) {
+            sessionStorage.setItem('edit_incoming_source', JSON.stringify({
+              mode: 'canvas',
+              file: { filename: j.filename, url: j.url, name: file.name || 'clipboard.png' },
+            }));
+            window.location.href = '/edit';
+          }
+        }
+      );
+    }
+  }
+});
+
+// ---------- File d'attente (Queue) ----------
+function renderGenQueue(queue) {
+  const box = $('#queue-box');
+  const list = $('#queue-list');
+  const countEl = $('#queue-count');
+  if (!box || !list) return;
+  const arr = Array.isArray(queue) ? queue : [];
+  if (countEl) countEl.textContent = String(arr.length);
+  if (!arr.length) {
+    box.hidden = true;
+    list.innerHTML = '';
+    return;
+  }
+  box.hidden = false;
+  list.innerHTML = arr.map(item => `
+    <div class="queue-item" data-qid="${item.queue_id}">
+      <span class="queue-pos">#${item.position}</span>
+      <div class="queue-info">
+        <strong>${item.model_name} (${item.quant})</strong> · ${item.width}×${item.height} · ×${item.batch}
+        <div class="queue-prompt">${(item.prompt || '').replace(/</g, '&lt;')}</div>
+      </div>
+      <button type="button" class="x queue-del" data-qid="${item.queue_id}" title="Retirer de la file">×</button>
+    </div>
+  `).join('');
+  $$('.queue-del', list).forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const r = await fetch('/api/queue/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queue_id: btn.dataset.qid }),
+      });
+      const j = await r.json();
+      if (j.ok) renderGenQueue(j.queue);
+    });
+  });
+}
+
+$('#queue-clear-btn')?.addEventListener('click', async () => {
+  const r = await fetch('/api/queue/clear', { method: 'POST' });
+  const j = await r.json();
+  if (j.ok) renderGenQueue([]);
+});
+
 // ---------- generation ----------
 $('#generate-btn').addEventListener('click', async () => {
   const model_id = $('#model').value;
@@ -715,11 +835,11 @@ $('#generate-btn').addEventListener('click', async () => {
     cfg: $('#cfg').value,
     seed: $('#seed').value || null,
     batch: $('#batch').value,
-    // Une seule image en img2img ; l'edition multi-images se fait sur /edit.
     input_mode: canInit ? 'init' : null,
     ref_images: uploadedImagePath ? [uploadedImagePath] : [],
     lora_dir: $('#lora-dir').value || null,
     strength: strengthVal ? parseFloat(strengthVal) : null,
+    allow_queue: true,
   };
   if (currentRatio === 'original' && sourceImageSize) {
     const outputSize = getOriginalOutputSize();
@@ -736,7 +856,17 @@ $('#generate-btn').addEventListener('click', async () => {
   }
   $('#gen-error').hidden = true;
   $('#gen-error').textContent = '';
-  $('#generate-btn').hidden = true;
+
+  if (j.queued) {
+    renderGenQueue(j.queue || []);
+    if (window.showToast) {
+      window.showToast(`⏳ Ajouté à la file d'attente (position #${j.position})`);
+    }
+    if (!pollTimer) pollStatus();
+    return;
+  }
+
+  $('#generate-btn').textContent = '＋ Ajouter à la file d\'attente';
   $('#cancel-btn').hidden = false;
   $('#results').innerHTML = '';
   $('#stats-box').hidden = true;
@@ -798,14 +928,17 @@ function pollStatus() {
 
     if (j.log) $('#log').textContent = j.log + ($('#log').textContent ? '\n' + $('#log').textContent : '');
 
+    renderGenQueue(j.queue || []);
+
     // affichage des images au fur et a mesure
     if (j.kind === 'generate' && j.result && j.result.images && j.result.images.length > 0) {
       showResults(j.result.images);
     }
 
-    if (!j.busy) {
+    if (!j.busy && (!j.queue || j.queue.length === 0)) {
       clearInterval(pollTimer); pollTimer = null;
       $('#generate-btn').hidden = false;
+      $('#generate-btn').textContent = '✨ Générer';
       $('#cancel-btn').hidden = true;
       if (j.error) {
         $('#gen-error').hidden = false;

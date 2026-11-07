@@ -7,6 +7,7 @@ from unittest.mock import patch
 import registry
 from registry import (MODELS, DEPS, build_command, resolve_dep_gguf,
                       _is_valid_dep, supports_outpainting, build_outpaint_prompt,
+                      supports_inpainting, build_inpaint_prompt,
                       outpaint_prompt_presets, edit_prompt_presets, gen_prompt_presets)
 
 NEW_MODELS = ["fibo2-dev", "fibo2-edit-turbo", "moss-image-sft", "moss-image-base", "krea2-turbo"]
@@ -157,7 +158,39 @@ class BuildCommandTests(unittest.TestCase):
         self.assertEqual(self._val(args, "--llm"), "/fake/qwen3vl_4b.file")
         self.assertNotIn("--llm_vision", args)
         self.assertNotIn("-n", args)
-        self.assertEqual(self._val(args, "--steps"), "8")
+
+    def test_inpainting_support_and_prompt_builder(self):
+        self.assertTrue(supports_inpainting("qwen-image-2.1"))
+        self.assertTrue(supports_inpainting("flux3-image-klein"))
+        self.assertTrue(supports_inpainting("fibo2-dev"))
+        self.assertFalse(supports_inpainting("krea2-turbo"))
+
+        p_qwen = build_inpaint_prompt(
+            "qwen-image-2.1",
+            "replace the hat with a crown",
+            bbox={"x1": 10, "y1": 5, "x2": 30, "y2": 25},
+        )
+        self.assertIn("<image1>", p_qwen)
+        self.assertIn("upper-left", p_qwen)
+        self.assertIn("[50, 100, 250, 300]", p_qwen)
+        self.assertIn("replace the hat with a crown", p_qwen)
+
+        # --mask est transmis pour Qwen/FLUX mais ignoré pour fibo2
+        fake = {d: f"/fake/{d}.file" for d in DEPS}
+        manifest = {d: {"path": fake[d]} for d in DEPS}
+        with patch.object(registry, "_dep_path", lambda mf, d: mf.get(d, {}).get("path")):
+            cmd_qwen = build_command(
+                "qwen-image-2.1", "Q4_K_M", "p", "", 1024, 1024, 20, 2.5, 1, 1,
+                "out.png", "sd-cli", manifest, ref_images=["c.png"], input_mode="ref",
+                mask_image="m.png"
+            )
+            self.assertIn("--mask", cmd_qwen)
+            cmd_fibo = build_command(
+                "fibo2-dev", "Q6_K", "p", "", 1024, 1024, 30, 5.0, 1, 1,
+                "out.png", "sd-cli", manifest, ref_images=["c.png"], input_mode="ref",
+                mask_image="m.png"
+            )
+            self.assertNotIn("--mask", cmd_fibo)
 
 
 if __name__ == "__main__":

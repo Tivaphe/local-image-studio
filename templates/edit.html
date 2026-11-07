@@ -6,11 +6,17 @@
 
   <!-- ==================================================== Colonne assistant -->
   <section class="panel form-panel edit-panel">
-    <h2>✂️ Studio d'édition</h2>
+    <div class="panel-title-row">
+      <h2>✂️ Studio d'édition</h2>
+      <button type="button" id="reset-edit-draft-btn" class="btn ghost small"
+              title="Réinitialiser tout le Studio d'édition et vider le brouillon sauvegardé">
+        🧹 Nouveau / Vider le brouillon
+      </button>
+    </div>
     <p class="muted small">
       Une image à modifier (le <strong>canvas</strong>) + jusqu'à
       <strong><span id="max-label">10</span> images</strong> selon le modèle.
-      Rien ne quitte votre ordinateur.
+      Astuce : collez directement une image avec <kbd>Ctrl+V</kbd>. Rien ne quitte votre ordinateur.
     </p>
 
     <!-- ① Modèle -->
@@ -43,7 +49,7 @@
       <input type="file" id="canvas-input" accept="image/png,image/jpeg,image/webp" hidden>
       <div class="upload-placeholder" id="canvas-placeholder">
         <i class="icon">🖼️</i>
-        <span>Cliquez ou glissez <strong>l'image à éditer</strong></span>
+        <span>Cliquez, glissez ou collez (<kbd>Ctrl+V</kbd>) <strong>l'image à éditer</strong></span>
         <small class="muted">PNG, JPG, WEBP — elle sera « image 1 »</small>
       </div>
       <div class="upload-preview hidden" id="canvas-preview">
@@ -56,6 +62,88 @@
           </span>
         </div>
         <span class="idx-badge idx-canvas">1</span>
+      </div>
+    </div>
+
+    <!-- Barre de Recadrage & Rotation rapide (Crop / Flip) du Canvas -->
+    <div id="canvas-transform-bar" class="canvas-transform-bar" hidden>
+      <div class="transform-btns">
+        <span class="chips-label">Transformer :</span>
+        <button type="button" class="btn ghost small" id="tf-rot-left" title="Pivoter de 90° vers la gauche">↺ -90°</button>
+        <button type="button" class="btn ghost small" id="tf-rot-right" title="Pivoter de 90° vers la droite">↻ +90°</button>
+        <button type="button" class="btn ghost small" id="tf-flip-h" title="Retournement miroir horizontal">⇆ Miroir H</button>
+        <button type="button" class="btn ghost small" id="tf-flip-v" title="Retournement miroir vertical">⇅ Miroir V</button>
+        <button type="button" class="btn ghost small" id="tf-crop-toggle" title="Recadrer l'image source à la souris">✂️ Recadrer</button>
+        <button type="button" class="btn ghost small" id="tf-restore-orig" hidden title="Revenir à l'image source d'origine avant recadrage/rotation">⟲ Origine</button>
+      </div>
+
+      <!-- Éditeur de recadrage interactif -->
+      <div id="canvas-crop-panel" class="canvas-crop-panel" hidden>
+        <div class="crop-toolbar">
+          <span class="chips-label">Ratio de recadrage :</span>
+          <button type="button" class="chip-tag active" data-crop-ratio="free">Libre</button>
+          <button type="button" class="chip-tag" data-crop-ratio="1:1">1:1</button>
+          <button type="button" class="chip-tag" data-crop-ratio="16:9">16:9</button>
+          <button type="button" class="chip-tag" data-crop-ratio="9:16">9:16</button>
+          <button type="button" class="chip-tag" data-crop-ratio="4:3">4:3</button>
+          <button type="button" class="chip-tag" data-crop-ratio="3:4">3:4</button>
+          <span class="muted small" id="crop-dims-label"></span>
+        </div>
+        <div class="crop-stage-wrap">
+          <canvas id="canvas-crop-canvas" class="canvas-crop-canvas"
+                  title="Glissez l'intérieur ou les coins du cadre pour recadrer l'image"></canvas>
+        </div>
+        <div class="crop-actions">
+          <button type="button" class="btn small primary" id="crop-apply-btn">✓ Appliquer le recadrage</button>
+          <button type="button" class="btn small ghost" id="crop-cancel-btn">✕ Annuler</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mode Inpainting au pinceau (Masque dessiné à la souris) -->
+    <div id="inpaint-box" class="outpaint-box inpaint-box" hidden>
+      <label class="field checkbox-field outpaint-toggle">
+        <input type="checkbox" id="inpaint-enabled">
+        <span>🖌️ Mode Inpainting au pinceau <em>(retoucher uniquement une zone peinte)</em></span>
+        <small>Peignez à la souris la zone précise à modifier ou supprimer. Le reste de l'image est préservé à l'identique.</small>
+      </label>
+
+      <div id="inpaint-controls" class="outpaint-controls inpaint-controls" hidden>
+        <div class="inpaint-toolbar">
+          <div class="inpaint-tools-row">
+            <button type="button" class="btn small primary" id="inpaint-tool-brush" title="Peindre la zone à modifier">🖌️ Pinceau</button>
+            <button type="button" class="btn small ghost" id="inpaint-tool-eraser" title="Gommer le masque">🧽 Gomme</button>
+            <button type="button" class="btn small ghost" id="inpaint-undo-btn" title="Annuler le dernier coup de pinceau">↩️ Annuler</button>
+            <button type="button" class="btn small ghost" id="inpaint-invert-btn" title="Inverser la zone masquée et la zone protégée">🔄 Inverser</button>
+            <button type="button" class="btn small danger" id="inpaint-clear-btn" title="Effacer tout le masque">🗑️ Effacer</button>
+          </div>
+          <label class="field inpaint-size-field">
+            <span>Taille du pinceau : <strong id="inpaint-size-val">36 px</strong></span>
+            <input type="range" id="inpaint-size" min="6" max="140" step="2" value="36">
+          </label>
+        </div>
+
+        <div class="inpaint-stage-wrap">
+          <canvas id="inpaint-canvas" class="inpaint-canvas"
+                  title="Peignez en rose la zone à modifier · Molette : changer la taille du pinceau"></canvas>
+          <small class="muted" id="inpaint-bbox-info">Peignez sur l'image la zone que vous souhaitez modifier.</small>
+        </div>
+
+        <label class="field checkbox-field">
+          <input type="checkbox" id="inpaint-auto-prompt" checked>
+          <span>Cibler automatiquement la zone peinte dans l'instruction</span>
+          <small>Indique au modèle les coordonnées exactes de la zone masquée et l'oblige à ne rien modifier en dehors.</small>
+        </label>
+        <label class="field checkbox-field">
+          <input type="checkbox" id="inpaint-neutralize-zone">
+          <span>Pré-adoucir la zone peinte sur le canvas <em>(recommandé pour supprimer / remplacer un objet)</em></span>
+          <small>Estompe l'objet existant sous le coup de pinceau avant l'envoi au modèle pour éviter qu'il n'en garde les contours.</small>
+        </label>
+        <label class="field checkbox-field">
+          <input type="checkbox" id="inpaint-blend-result" checked>
+          <span>Fusionner uniquement la zone masquée avec l'image d'origine (Seamless Blend)</span>
+          <small>Garantit à 100 % que les pixels situés hors de votre coup de pinceau restent strictement intacts, avec un fondu progressif sur les bords.</small>
+        </label>
       </div>
     </div>
 
@@ -259,6 +347,14 @@
     <div class="progress-wrap" id="progress-wrap" hidden>
       <div class="progress-bar"><div id="progress-fill"></div></div>
       <div class="progress-meta"><span id="progress-text">en cours…</span></div>
+    </div>
+
+    <div class="queue-box" id="queue-box" hidden>
+      <div class="queue-head">
+        <span>⏳ File d'attente (<span id="queue-count">0</span>)</span>
+        <button type="button" class="link danger" id="queue-clear-btn">Vider la file</button>
+      </div>
+      <div class="queue-list" id="queue-list"></div>
     </div>
 
     <div id="compare" class="compare" hidden>

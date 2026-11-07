@@ -395,3 +395,78 @@ small{color:var(--muted)}
 .preprompts-bar{display:flex;gap:8px;align-items:center}
 .preprompts-bar select{flex:1;min-width:0}
 .preprompts-bar .btn{white-space:nowrap}
+
+/* ===== En-tête de panneau & bouton « Vider le brouillon » ===== */
+.panel-title-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.panel-title-row h2{margin:0}
+
+/* ===== Toast notification (Ctrl+V, File d'attente, Brouillon…) ===== */
+.lis-toast{position:fixed;bottom:22px;right:22px;z-index:220;display:flex;align-items:center;gap:10px;
+  background:#1c202c;border:1px solid var(--accent);color:var(--txt);padding:10px 14px;border-radius:10px;
+  box-shadow:0 12px 32px rgba(0,0,0,.6);font-size:13px;opacity:0;transform:translateY(10px);
+  pointer-events:none;transition:opacity .18s ease,transform .18s ease}
+.lis-toast.show{opacity:1;transform:translateY(0);pointer-events:auto}
+.lis-toast-btn{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+/* ===== Zoom & Pan synchronisés dans la Lightbox ===== */
+.lb-zoom-controls{display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.04);
+  border:1px solid var(--border);border-radius:8px;padding:2px 4px}
+.lb-zbtn{padding:4px 8px;font-size:12px}
+.lb-zbtn.active-zoom{background:var(--accent);border-color:var(--accent);color:#fff}
+.lb-stage{overflow:hidden}
+.lb-img{transform-origin:center center;will-change:transform}
+.lb-stage.is-zoomed{cursor:grab}
+.lb-stage.is-zoomed.is-panning{cursor:grabbing}
+
+/* ===== Historique : Recherche, Favoris ⭐ & Corbeille sécurisée ===== */
+.history-toolbar{display:flex;align-items:center;gap:10px;margin:10px 0 6px;flex-wrap:wrap}
+.history-search-wrap{flex:1;min-width:220px}
+.history-search{width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:9px;
+  padding:8px 12px;color:var(--txt);font:inherit;font-size:13px}
+.history-search:focus{outline:none;border-color:var(--accent)}
+.history-fav-filter.active{background:#f0a93b28;border-color:#f0a93b;color:#ffd27d}
+.card .thumb{position:relative}
+.fav-btn{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:999px;
+  border:1px solid rgba(255,255,255,.22);background:rgba(10,12,18,.72);color:#d7dbe6;
+  cursor:pointer;font-size:15px;display:grid;place-items:center;padding:0;backdrop-filter:blur(4px)}
+.fav-btn:hover{border-color:#f0a93b;transform:scale(1.06)}
+.fav-btn.active{background:rgba(240,169,59,.22);border-color:#f0a93b;color:#ffd27d}
+.card.is-favorite{border-color:#f0a93b66}
+.del.locked{color:var(--muted);opacity:.75;cursor:not-allowed}
+
+/* ===== File d'attente de générations (Queue) ===== */
+.queue-box{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:12px}
+.queue-box[hidden]{display:none}
+.queue-head{display:flex;justify-content:space-between;align-items:center;font-size:12px;
+  font-weight:600;color:var(--accent2);margin-bottom:8px}
+.queue-list{display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto}
+.queue-item{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--border);
+  border-radius:8px;padding:6px 10px;font-size:12px}
+.queue-pos{background:#7c5cff28;color:var(--accent2);border:1px solid #7c5cff55;border-radius:6px;
+  padding:2px 6px;font-weight:700;font-size:11px}
+.queue-info{flex:1;min-width:0}
+.queue-prompt{color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ===== Recadrage & Rotation rapide du Canvas (Crop / Flip) ===== */
+.canvas-transform-bar{margin-top:8px;background:var(--bg2);border:1px solid var(--border);
+  border-radius:10px;padding:8px 10px}
+.canvas-transform-bar[hidden],.canvas-crop-panel[hidden]{display:none}
+.transform-btns{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.canvas-crop-panel{margin-top:10px;padding-top:10px;border-top:1px solid var(--border);
+  display:flex;flex-direction:column;gap:8px}
+.crop-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.crop-toolbar .chip-tag.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.crop-stage-wrap{display:flex;justify-content:center;background:#0d0f14;border:1px solid var(--border);
+  border-radius:8px;padding:8px}
+.canvas-crop-canvas{max-width:100%;height:auto;cursor:crosshair;touch-action:none;border-radius:6px}
+.crop-actions{display:flex;justify-content:flex-end;gap:8px}
+
+/* ===== Mode Inpainting au pinceau (Masque dessiné à la souris) ===== */
+.inpaint-toolbar{display:flex;flex-direction:column;gap:8px}
+.inpaint-tools-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.inpaint-size-field{margin-bottom:0}
+.inpaint-stage-wrap{display:flex;flex-direction:column;align-items:center;gap:6px;
+  background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px}
+.inpaint-canvas{max-width:100%;height:auto;border-radius:8px;border:1px solid var(--border);
+  background:#0d0f14;cursor:crosshair;touch-action:none}
+

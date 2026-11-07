@@ -165,6 +165,91 @@ class ImagePersistenceTests(unittest.TestCase):
         bad_resp = self.client.post('/api/use-output-as-source', json={'filename': '../app.py'})
         self.assertEqual(bad_resp.status_code, 400)
 
+    def test_favorites_search_and_safe_delete(self):
+        img_file = self.output / 'fav_001.png'
+        img_file.write_bytes(b'fav-bytes')
+        img_id = self.add_image(img_file.name)
+
+        # Basculer en favori ⭐
+        r_fav = self.client.post('/api/toggle-favorite', json={'id': img_id})
+        self.assertEqual(r_fav.status_code, 200)
+        self.assertTrue(r_fav.json['favorite'])
+
+        # Recherche et filtre favoris dans db.list_images
+        fav_rows = db.list_images(favorites_only=True)
+        self.assertEqual(len(fav_rows), 1)
+        self.assertEqual(fav_rows[0]['id'], img_id)
+        search_rows = db.list_images(search_query='prompt')
+        self.assertEqual(len(search_rows), 1)
+        empty_rows = db.list_images(search_query='introuvable_xyz')
+        self.assertEqual(len(empty_rows), 0)
+
+        # Tentative de suppression d'un favori sans force -> refusé (400) et fichier conservé
+        r_del_blocked = self.client.post('/api/delete-image', json={'id': img_id})
+        self.assertEqual(r_del_blocked.status_code, 400)
+        self.assertTrue(r_del_blocked.json.get('protected'))
+        self.assertTrue(img_file.exists())
+
+        # Retirer des favoris puis supprimer -> autorisé (200)
+        self.client.post('/api/toggle-favorite', json={'id': img_id, 'favorite': False})
+        r_del_ok = self.client.post('/api/delete-image', json={'id': img_id})
+        self.assertEqual(r_del_ok.status_code, 200)
+        self.assertFalse(img_file.exists())
+
+    def test_inpaint_and_generation_queue(self):
+        (self.sources / 'inpaint_src.png').write_bytes(b'img')
+        (self.sources / 'inpaint_mask.png').write_bytes(b'mask')
+        src = 'source_images/inpaint_src.png'
+        mask = 'source_images/inpaint_mask.png'
+
+        # Simuler une tâche déjà en cours pour tester la mise en file d'attente
+        with app.tasks._lock:
+            app.tasks.state['busy'] = True
+            app.tasks.state['kind'] = 'generate'
+            app.tasks._queue.clear()
+
+        try:
+            resp = self.client.post('/api/generate', json={
+                'model_id': 'qwen-image-2.1',
+                'quant': 'Q4_K_M',
+                'prompt': 'add sunglasses',
+                'input_mode': 'ref',
+                'ref_images': [src],
+                'inpaint': {
+                    'enabled': True,
+                    'bbox': {'x1': 30, 'y1': 20, 'x2': 70, 'y2': 50},
+                    'auto_prompt': True,
+                    'mask_image': mask,
+                    'use_cli_mask': True,
+                },
+                'allow_queue': True,
+            })
+            self.assertEqual(resp.status_code, 200)
+            self.assertTrue(resp.json['ok'])
+            self.assertTrue(resp.json['queued'])
+            self.assertEqual(resp.json['position'], 1)
+            self.assertIn('<image1>', resp.json['params']['prompt'])
+            self.assertEqual(resp.json['params']['mask_image'], mask)
+
+            # Tant que l'image source est dans la file d'attente, /api/delete-source-image la conserve
+            del_src = self.client.post('/api/delete-source-image', json={'filename': src})
+            self.assertTrue(del_src.json.get('retained'))
+            self.assertTrue((self.root / src).exists())
+
+            # Vérifier /api/queue et /api/queue/remove
+            q_resp = self.client.get('/api/queue')
+            self.assertEqual(q_resp.json['queue_size'], 1)
+            qid = q_resp.json['queue'][0]['queue_id']
+
+            rm_resp = self.client.post('/api/queue/remove', json={'queue_id': qid})
+            self.assertTrue(rm_resp.json['removed'])
+            self.assertEqual(rm_resp.json['queue_size'], 0)
+        finally:
+            with app.tasks._lock:
+                app.tasks.state['busy'] = False
+                app.tasks.state['kind'] = None
+                app.tasks._queue.clear()
+
 
 if __name__ == '__main__':
     unittest.main()

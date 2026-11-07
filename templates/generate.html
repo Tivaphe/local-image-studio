@@ -6,7 +6,13 @@
 
   <!-- Colonne réglages -->
   <section class="panel form-panel">
-    <h2>Nouvelle image</h2>
+    <div class="panel-title-row">
+      <h2>Nouvelle image</h2>
+      <button type="button" id="reset-gen-draft-btn" class="btn ghost small"
+              title="Réinitialiser le formulaire et vider le brouillon sauvegardé">
+        🧹 Nouveau / Vider le brouillon
+      </button>
+    </div>
 
     <div class="field preprompts-field">
       <span>📋 Pré-prompts adaptés au modèle</span>
@@ -45,7 +51,7 @@
             <input type="file" id="source-image-input" accept="image/png,image/jpeg,image/webp" hidden>
             <div class="upload-placeholder" id="upload-placeholder">
               <i class="icon">📁</i>
-              <span>Cliquez ou glissez une image ici</span>
+              <span>Cliquez, glissez ou collez (<kbd>Ctrl+V</kbd>) une image</span>
               <small class="muted">PNG, JPG, WEBP — une seule image, régénérée partiellement</small>
             </div>
             <div class="upload-preview hidden" id="upload-preview">
@@ -158,6 +164,14 @@
     <div class="progress-wrap" id="progress-wrap" hidden>
       <div class="progress-bar"><div id="progress-fill"></div></div>
       <div class="progress-meta"><span id="progress-text">en cours…</span></div>
+    </div>
+
+    <div class="queue-box" id="queue-box" hidden>
+      <div class="queue-head">
+        <span>⏳ File d'attente (<span id="queue-count">0</span>)</span>
+        <button type="button" class="link danger" id="queue-clear-btn">Vider la file</button>
+      </div>
+      <div class="queue-list" id="queue-list"></div>
     </div>
 
     <div id="results" class="results"></div>

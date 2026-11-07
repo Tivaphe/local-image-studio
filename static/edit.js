@@ -37,6 +37,29 @@ let tempOutpaintItem = null;
 let outpaintDragState = null;
 let isRestoringEditDraft = false;
 
+// --- État Recadrage / Rotation & Inpainting au pinceau ---
+let originalCanvasBackup = null;
+let cropState = {
+  open: false,
+  ratio: 'free',
+  rect: null, // { x, y, w, h } en coordonnées image
+  drag: null,
+};
+let inpaintState = {
+  tool: 'brush', // 'brush' | 'eraser'
+  size: 36,
+  maskCanvas: null, // offscreen canvas binaire (alpha > 0 = zone peinte)
+  undoStack: [],
+  drawing: false,
+  lastPt: null,
+  cursorPt: null,
+};
+let tempInpaintCanvasItem = null;
+let tempInpaintMaskItem = null;
+let lastRunWasInpaint = false;
+let lastInpaintMaskSnapshot = null; // offscreen canvas du masque au moment du lancement
+let lastInpaintOrigImgEl = null;
+
 // --------------------------------------------------- sauvegarde inter-pages --
 function saveEditDraft() {
   if (isRestoringEditDraft) return;
@@ -880,9 +903,15 @@ function wireOutpaintCanvasDrag() {
 wireOutpaintCanvasDrag();
 
 $('#outpaint-enabled')?.addEventListener('change', () => {
-  if ($('#outpaint-enabled').checked && canvas) {
-    currentRatio = 'original';
-    buildRatios();
+  if ($('#outpaint-enabled').checked) {
+    if ($('#inpaint-enabled')?.checked) {
+      $('#inpaint-enabled').checked = false;
+      updateInpaintUI();
+    }
+    if (canvas) {
+      currentRatio = 'original';
+      buildRatios();
+    }
   }
   updateOutpaintUI();
   updateTagWarning();
@@ -1245,6 +1274,9 @@ async function setCanvas(files) {
   if (canvas) await removeUploaded(canvas);
   if (canvas && canvas.objectUrl) URL.revokeObjectURL(canvas.objectUrl);
   canvas = items[0];
+  originalCanvasBackup = { ...canvas };
+  resetInpaintMask();
+  closeCropPanel();
   showGenError('');
   if (items.length > 1) refs = [...items.slice(1), ...refs].slice(0, refsLimit());
   if (currentRatio !== 'original') ratioBeforeOriginal = currentRatio;
@@ -1289,6 +1321,7 @@ function refreshAll() {
   renderTagChips();
   updateVramAdvice();
   updateOutpaintUI();
+  updateInpaintUI();
   updateTagWarning();
   const m = currentModel();
   if (m) $('#refs-order-hint').textContent = m.ref_tag_syntax
@@ -1299,11 +1332,24 @@ function refreshAll() {
 
 function renderCanvas() {
   const ph = $('#canvas-placeholder'), pv = $('#canvas-preview');
-  if (!canvas) { ph.classList.remove('hidden'); pv.classList.add('hidden'); $('#canvas-img').src = ''; return; }
+  const tfBar = $('#canvas-transform-bar');
+  const restoreBtn = $('#tf-restore-orig');
+  if (!canvas) {
+    ph.classList.remove('hidden');
+    pv.classList.add('hidden');
+    $('#canvas-img').src = '';
+    if (tfBar) tfBar.hidden = true;
+    closeCropPanel();
+    return;
+  }
   ph.classList.add('hidden');
   pv.classList.remove('hidden');
   $('#canvas-img').src = canvas.url;
   $('#canvas-name').textContent = `${canvas.name} (${canvas.width} × ${canvas.height})`;
+  if (tfBar) tfBar.hidden = false;
+  if (restoreBtn) {
+    restoreBtn.hidden = !originalCanvasBackup || originalCanvasBackup.path === canvas.path;
+  }
 }
 
 function buildInputLightboxItems() {
@@ -1450,7 +1496,828 @@ wireDropzone($('#canvas-drop'), setCanvas);
 wireDropzone($('#refs-drop'), addRefs);
 wireDropzone($('.edit-panel'), files => (canvas ? addRefs(files) : setCanvas(files)));
 
-// ---------------------------------------------------------------- mmproj ----
+// ===========================================================================
+//  RECADRAGE & ROTATION RAPIDE (CROP / FLIP) AVANT ÉDITION
+// ===========================================================================
+async function replaceCanvasWithCanvasSurface(surfCanvas, labelSuffix = 'edit') {
+  if (!canvas) return;
+  if (!originalCanvasBackup) {
+    originalCanvasBackup = { ...canvas };
+  }
+  const blob = await new Promise((resolve, reject) => {
+    surfCanvas.toBlob(b => (b ? resolve(b) : reject(new Error('Échec export PNG'))), 'image/png');
+  });
+  const baseName = (canvas.name || 'canvas.png').replace(/\.[^.]+$/, '');
+  const file = new File([blob], `${baseName}_${labelSuffix}.png`, { type: 'image/png' });
+  const uploaded = await uploadFiles([file]);
+  if (!uploaded.length) return;
+  if (canvas && (!originalCanvasBackup || canvas.path !== originalCanvasBackup.path)) {
+    await removeUploaded(canvas);
+  }
+  canvas = uploaded[0];
+  resetInpaintMask();
+  closeCropPanel();
+  refreshAll();
+}
+
+async function rotateOrFlipCanvas(mode) {
+  if (!canvas || !canvas.imgEl) return;
+  const srcW = canvas.width;
+  const srcH = canvas.height;
+  const c = document.createElement('canvas');
+  if (mode === 'rotLeft' || mode === 'rotRight') {
+    c.width = srcH;
+    c.height = srcW;
+  } else {
+    c.width = srcW;
+    c.height = srcH;
+  }
+  const ctx = c.getContext('2d');
+  ctx.save();
+  if (mode === 'rotLeft') {
+    ctx.translate(0, c.height);
+    ctx.rotate(-Math.PI / 2);
+  } else if (mode === 'rotRight') {
+    ctx.translate(c.width, 0);
+    ctx.rotate(Math.PI / 2);
+  } else if (mode === 'flipH') {
+    ctx.translate(c.width, 0);
+    ctx.scale(-1, 1);
+  } else if (mode === 'flipV') {
+    ctx.translate(0, c.height);
+    ctx.scale(1, -1);
+  }
+  ctx.drawImage(canvas.imgEl, 0, 0, srcW, srcH);
+  ctx.restore();
+  await replaceCanvasWithCanvasSurface(c, mode);
+  if (window.showToast) window.showToast('✓ Transformation appliquée au Canvas');
+}
+
+$('#tf-rot-left')?.addEventListener('click', () => rotateOrFlipCanvas('rotLeft'));
+$('#tf-rot-right')?.addEventListener('click', () => rotateOrFlipCanvas('rotRight'));
+$('#tf-flip-h')?.addEventListener('click', () => rotateOrFlipCanvas('flipH'));
+$('#tf-flip-v')?.addEventListener('click', () => rotateOrFlipCanvas('flipV'));
+
+$('#tf-restore-orig')?.addEventListener('click', async () => {
+  if (!originalCanvasBackup) return;
+  if (canvas && canvas.path !== originalCanvasBackup.path) {
+    await removeUploaded(canvas);
+  }
+  canvas = { ...originalCanvasBackup };
+  resetInpaintMask();
+  closeCropPanel();
+  refreshAll();
+  if (window.showToast) window.showToast("⟲ Image d'origine restaurée");
+});
+
+function closeCropPanel() {
+  cropState.open = false;
+  cropState.drag = null;
+  const panel = $('#canvas-crop-panel');
+  if (panel) panel.hidden = true;
+}
+
+function initCropRectForRatio(ratioStr) {
+  if (!canvas) return;
+  const W = canvas.width;
+  const H = canvas.height;
+  if (!ratioStr || ratioStr === 'free') {
+    const padX = Math.round(W * 0.08);
+    const padY = Math.round(H * 0.08);
+    cropState.rect = { x: padX, y: padY, w: Math.max(32, W - 2 * padX), h: Math.max(32, H - 2 * padY) };
+    return;
+  }
+  const [rw, rh] = ratioStr.split(':').map(Number);
+  const target = rw / rh;
+  let boxW = W * 0.86;
+  let boxH = boxW / target;
+  if (boxH > H * 0.86) {
+    boxH = H * 0.86;
+    boxW = boxH * target;
+  }
+  boxW = Math.max(32, Math.round(boxW));
+  boxH = Math.max(32, Math.round(boxH));
+  cropState.rect = {
+    x: Math.round((W - boxW) / 2),
+    y: Math.round((H - boxH) / 2),
+    w: boxW,
+    h: boxH,
+  };
+}
+
+function renderCropCanvas() {
+  const c = $('#canvas-crop-canvas');
+  if (!c || !canvas || !canvas.imgEl || !cropState.rect) return;
+  const maxSide = 340;
+  const scale = Math.min(1, maxSide / Math.max(canvas.width, canvas.height));
+  c.width = Math.max(80, Math.round(canvas.width * scale));
+  c.height = Math.max(80, Math.round(canvas.height * scale));
+  c.dataset.scale = String(scale);
+
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.drawImage(canvas.imgEl, 0, 0, c.width, c.height);
+
+  // Voile sombre autour de la zone recadrée
+  ctx.fillStyle = 'rgba(8, 10, 16, 0.62)';
+  ctx.fillRect(0, 0, c.width, c.height);
+
+  const r = cropState.rect;
+  const sx = r.x * scale, sy = r.y * scale, sw = r.w * scale, sh = r.h * scale;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(sx, sy, sw, sh);
+  ctx.clip();
+  ctx.drawImage(canvas.imgEl, 0, 0, c.width, c.height);
+  ctx.restore();
+
+  // Cadre + grille des tiers
+  ctx.strokeStyle = '#7c5cff';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(sx + 0.5, sy + 0.5, sw, sh);
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(sx + sw / 3, sy); ctx.lineTo(sx + sw / 3, sy + sh);
+  ctx.moveTo(sx + (2 * sw) / 3, sy); ctx.lineTo(sx + (2 * sw) / 3, sy + sh);
+  ctx.moveTo(sx, sy + sh / 3); ctx.lineTo(sx + sw, sy + sh / 3);
+  ctx.moveTo(sx, sy + (2 * sh) / 3); ctx.lineTo(sx + sw, sy + (2 * sh) / 3);
+  ctx.stroke();
+
+  // Poignées aux 4 coins
+  ctx.fillStyle = '#ffffff';
+  const hs = 7;
+  [[sx, sy], [sx + sw, sy], [sx, sy + sh], [sx + sw, sy + sh]].forEach(([hx, hy]) => {
+    ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
+    ctx.strokeRect(hx - hs / 2, hy - hs / 2, hs, hs);
+  });
+
+  const lbl = $('#crop-dims-label');
+  if (lbl) lbl.textContent = `${Math.round(r.w)} × ${Math.round(r.h)} px`;
+}
+
+$('#tf-crop-toggle')?.addEventListener('click', () => {
+  if (!canvas) return;
+  const panel = $('#canvas-crop-panel');
+  if (!panel) return;
+  if (!panel.hidden) {
+    closeCropPanel();
+    return;
+  }
+  cropState.open = true;
+  cropState.ratio = 'free';
+  $$('[data-crop-ratio]').forEach(b => b.classList.toggle('active', b.dataset.cropRatio === 'free'));
+  initCropRectForRatio('free');
+  panel.hidden = false;
+  renderCropCanvas();
+});
+
+$$('[data-crop-ratio]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    cropState.ratio = btn.dataset.cropRatio || 'free';
+    $$('[data-crop-ratio]').forEach(b => b.classList.toggle('active', b === btn));
+    initCropRectForRatio(cropState.ratio);
+    renderCropCanvas();
+  });
+});
+
+(function wireCropCanvasInteractions() {
+  const c = $('#canvas-crop-canvas');
+  if (!c) return;
+
+  c.addEventListener('pointerdown', e => {
+    if (!canvas || !cropState.rect || e.button !== 0) return;
+    e.preventDefault();
+    try { c.setPointerCapture(e.pointerId); } catch (_) {}
+    const rectDom = c.getBoundingClientRect();
+    const scale = parseFloat(c.dataset.scale || '1') * (rectDom.width / Math.max(1, c.width));
+    const ix = (e.clientX - rectDom.left) / Math.max(0.0001, scale);
+    const iy = (e.clientY - rectDom.top) / Math.max(0.0001, scale);
+    const r = cropState.rect;
+    const hitTol = 18 / Math.max(0.0001, scale);
+
+    let mode = 'new';
+    const nearL = Math.abs(ix - r.x) <= hitTol;
+    const nearR = Math.abs(ix - (r.x + r.w)) <= hitTol;
+    const nearT = Math.abs(iy - r.y) <= hitTol;
+    const nearB = Math.abs(iy - (r.y + r.h)) <= hitTol;
+
+    if (nearL && nearT) mode = 'nw';
+    else if (nearR && nearT) mode = 'ne';
+    else if (nearL && nearB) mode = 'sw';
+    else if (nearR && nearB) mode = 'se';
+    else if (ix >= r.x && ix <= r.x + r.w && iy >= r.y && iy <= r.y + r.h) mode = 'move';
+
+    cropState.drag = {
+      pointerId: e.pointerId,
+      mode,
+      startX: ix,
+      startY: iy,
+      startRect: { ...r },
+      scale,
+    };
+  });
+
+  c.addEventListener('pointermove', e => {
+    const st = cropState.drag;
+    if (!st || st.pointerId !== e.pointerId || !canvas) return;
+    const rectDom = c.getBoundingClientRect();
+    const ix = Math.max(0, Math.min(canvas.width, (e.clientX - rectDom.left) / Math.max(0.0001, st.scale)));
+    const iy = Math.max(0, Math.min(canvas.height, (e.clientY - rectDom.top) / Math.max(0.0001, st.scale)));
+    const dx = ix - st.startX;
+    const dy = iy - st.startY;
+    const sr = st.startRect;
+    const minS = 32;
+    let nx = sr.x, ny = sr.y, nw = sr.w, nh = sr.h;
+
+    if (st.mode === 'move') {
+      nx = Math.max(0, Math.min(canvas.width - nw, Math.round(sr.x + dx)));
+      ny = Math.max(0, Math.min(canvas.height - nh, Math.round(sr.y + dy)));
+    } else if (st.mode === 'new') {
+      nx = Math.round(Math.min(st.startX, ix));
+      ny = Math.round(Math.min(st.startY, iy));
+      nw = Math.max(minS, Math.round(Math.abs(ix - st.startX)));
+      nh = Math.max(minS, Math.round(Math.abs(iy - st.startY)));
+    } else {
+      if (st.mode.includes('w')) {
+        nx = Math.max(0, Math.min(sr.x + sr.w - minS, Math.round(sr.x + dx)));
+        nw = sr.x + sr.w - nx;
+      }
+      if (st.mode.includes('e')) {
+        nw = Math.max(minS, Math.min(canvas.width - sr.x, Math.round(sr.w + dx)));
+      }
+      if (st.mode.includes('n')) {
+        ny = Math.max(0, Math.min(sr.y + sr.h - minS, Math.round(sr.y + dy)));
+        nh = sr.y + sr.h - ny;
+      }
+      if (st.mode.includes('s')) {
+        nh = Math.max(minS, Math.min(canvas.height - sr.y, Math.round(sr.h + dy)));
+      }
+    }
+
+    if (cropState.ratio && cropState.ratio !== 'free' && st.mode !== 'move') {
+      const [rw, rh] = cropState.ratio.split(':').map(Number);
+      const target = rw / rh;
+      nh = Math.round(nw / target);
+      if (ny + nh > canvas.height) {
+        nh = canvas.height - ny;
+        nw = Math.round(nh * target);
+      }
+    }
+
+    cropState.rect = { x: nx, y: ny, w: Math.max(minS, nw), h: Math.max(minS, nh) };
+    renderCropCanvas();
+  });
+
+  const endCropDrag = e => {
+    if (!cropState.drag) return;
+    try { c.releasePointerCapture(cropState.drag.pointerId); } catch (_) {}
+    cropState.drag = null;
+  };
+  c.addEventListener('pointerup', endCropDrag);
+  c.addEventListener('pointercancel', endCropDrag);
+})();
+
+$('#crop-cancel-btn')?.addEventListener('click', closeCropPanel);
+$('#crop-apply-btn')?.addEventListener('click', async () => {
+  if (!canvas || !canvas.imgEl || !cropState.rect) return;
+  const r = cropState.rect;
+  const out = document.createElement('canvas');
+  out.width = Math.max(16, Math.round(r.w));
+  out.height = Math.max(16, Math.round(r.h));
+  out.getContext('2d').drawImage(
+    canvas.imgEl,
+    Math.round(r.x), Math.round(r.y), Math.round(r.w), Math.round(r.h),
+    0, 0, out.width, out.height
+  );
+  await replaceCanvasWithCanvasSurface(out, 'crop');
+  if (window.showToast) window.showToast(`✂️ Image recadrée (${out.width} × ${out.height})`);
+});
+
+// ===========================================================================
+//  MODE INPAINTING AU PINCEAU (MASQUE DESSINÉ À LA SOURIS)
+// ===========================================================================
+function modelSupportsInpaint() {
+  const m = currentModel();
+  return Boolean(m && m.supports_inpainting !== false && m.supports_ref_images);
+}
+
+function isInpaintActive() {
+  return modelSupportsInpaint() && Boolean($('#inpaint-enabled')?.checked) && Boolean(canvas);
+}
+
+function ensureInpaintMaskCanvas() {
+  if (!canvas || !canvas.width || !canvas.height) return null;
+  if (
+    !inpaintState.maskCanvas ||
+    inpaintState.maskCanvas.width !== canvas.width ||
+    inpaintState.maskCanvas.height !== canvas.height
+  ) {
+    const mc = document.createElement('canvas');
+    mc.width = canvas.width;
+    mc.height = canvas.height;
+    inpaintState.maskCanvas = mc;
+    inpaintState.undoStack = [];
+  }
+  return inpaintState.maskCanvas;
+}
+
+function resetInpaintMask() {
+  if (inpaintState.maskCanvas) {
+    const ctx = inpaintState.maskCanvas.getContext('2d');
+    ctx.clearRect(0, 0, inpaintState.maskCanvas.width, inpaintState.maskCanvas.height);
+  }
+  inpaintState.maskCanvas = null;
+  inpaintState.undoStack = [];
+  renderInpaintCanvas();
+}
+
+function pushInpaintUndo() {
+  const mc = ensureInpaintMaskCanvas();
+  if (!mc) return;
+  const snap = document.createElement('canvas');
+  snap.width = mc.width;
+  snap.height = mc.height;
+  snap.getContext('2d').drawImage(mc, 0, 0);
+  inpaintState.undoStack.push(snap);
+  if (inpaintState.undoStack.length > 15) inpaintState.undoStack.shift();
+}
+
+function computeInpaintBbox() {
+  const mc = inpaintState.maskCanvas;
+  if (!mc) return null;
+  const w = mc.width, h = mc.height;
+  const data = mc.getContext('2d').getImageData(0, 0, w, h).data;
+  let minX = w, minY = h, maxX = -1, maxY = -1, count = 0;
+  const step = Math.max(1, Math.floor(Math.min(w, h) / 256));
+  for (let y = 0; y < h; y += step) {
+    for (let x = 0; x < w; x += step) {
+      if (data[(y * w + x) * 4 + 3] > 20) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        count++;
+      }
+    }
+  }
+  if (maxX < 0 || maxY < 0) return null;
+  return {
+    x1: Math.round((minX / w) * 1000) / 10,
+    y1: Math.round((minY / h) * 1000) / 10,
+    x2: Math.round((Math.min(w, maxX + step) / w) * 1000) / 10,
+    y2: Math.round((Math.min(h, maxY + step) / h) * 1000) / 10,
+    pxRect: { x: minX, y: minY, w: Math.max(1, maxX - minX + step), h: Math.max(1, maxY - minY + step) },
+    coveragePct: Math.max(0.1, Math.round((count / ((w / step) * (h / step))) * 1000) / 10),
+  };
+}
+
+function renderInpaintCanvas() {
+  const disp = $('#inpaint-canvas');
+  const infoEl = $('#inpaint-bbox-info');
+  if (!disp || !canvas || !canvas.imgEl) return;
+
+  const mc = ensureInpaintMaskCanvas();
+  const maxSide = 360;
+  const scale = Math.min(1, maxSide / Math.max(canvas.width, canvas.height));
+  const dw = Math.max(80, Math.round(canvas.width * scale));
+  const dh = Math.max(80, Math.round(canvas.height * scale));
+  if (disp.width !== dw || disp.height !== dh) {
+    disp.width = dw;
+    disp.height = dh;
+  }
+  disp.dataset.scale = String(scale);
+
+  const ctx = disp.getContext('2d');
+  ctx.clearRect(0, 0, dw, dh);
+  ctx.drawImage(canvas.imgEl, 0, 0, dw, dh);
+
+  if (mc) {
+    ctx.save();
+    ctx.globalAlpha = 0.58;
+    ctx.drawImage(mc, 0, 0, dw, dh);
+    ctx.restore();
+  }
+
+  const bbox = computeInpaintBbox();
+  if (bbox) {
+    const rx = bbox.pxRect.x * scale;
+    const ry = bbox.pxRect.y * scale;
+    const rw = bbox.pxRect.w * scale;
+    const rh = bbox.pxRect.h * scale;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(rx, ry, rw, rh);
+    ctx.restore();
+    if (infoEl) {
+      infoEl.textContent = `Zone masquée : [${Math.round(bbox.x1)}%, ${Math.round(bbox.y1)}%] → [${Math.round(bbox.x2)}%, ${Math.round(bbox.y2)}%] (${bbox.coveragePct}% de l'image)`;
+    }
+  } else if (infoEl) {
+    infoEl.textContent = "Peignez en rose sur l'image la zone que vous souhaitez modifier ou effacer.";
+  }
+
+  // Aperçu du cercle du pinceau sous le curseur
+  if (inpaintState.cursorPt) {
+    const r = Math.max(3, (inpaintState.size * scale) / 2);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(inpaintState.cursorPt.x * scale, inpaintState.cursorPt.y * scale, r, 0, Math.PI * 2);
+    ctx.strokeStyle = inpaintState.tool === 'eraser' ? '#38d996' : '#ff4da6';
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function updateInpaintUI() {
+  const box = $('#inpaint-box');
+  const controls = $('#inpaint-controls');
+  if (!box || !controls) return;
+  const sup = modelSupportsInpaint() && Boolean(canvas);
+  box.hidden = !sup;
+  if (!sup) return;
+  const enabled = Boolean($('#inpaint-enabled')?.checked);
+  controls.hidden = !enabled;
+  if (enabled) {
+    ensureInpaintMaskCanvas();
+    renderInpaintCanvas();
+  }
+}
+
+$('#inpaint-enabled')?.addEventListener('change', () => {
+  if ($('#inpaint-enabled').checked && $('#outpaint-enabled')?.checked) {
+    $('#outpaint-enabled').checked = false;
+    updateOutpaintUI();
+  }
+  updateInpaintUI();
+  updateTagWarning();
+  saveEditDraft();
+});
+
+$('#inpaint-tool-brush')?.addEventListener('click', () => {
+  inpaintState.tool = 'brush';
+  $('#inpaint-tool-brush').className = 'btn small primary';
+  $('#inpaint-tool-eraser').className = 'btn small ghost';
+  renderInpaintCanvas();
+});
+
+$('#inpaint-tool-eraser')?.addEventListener('click', () => {
+  inpaintState.tool = 'eraser';
+  $('#inpaint-tool-eraser').className = 'btn small primary';
+  $('#inpaint-tool-brush').className = 'btn small ghost';
+  renderInpaintCanvas();
+});
+
+$('#inpaint-size')?.addEventListener('input', e => {
+  inpaintState.size = parseInt(e.target.value, 10) || 36;
+  if ($('#inpaint-size-val')) $('#inpaint-size-val').textContent = `${inpaintState.size} px`;
+  renderInpaintCanvas();
+});
+
+$('#inpaint-undo-btn')?.addEventListener('click', () => {
+  const mc = ensureInpaintMaskCanvas();
+  if (!mc || !inpaintState.undoStack.length) return;
+  const prev = inpaintState.undoStack.pop();
+  const ctx = mc.getContext('2d');
+  ctx.clearRect(0, 0, mc.width, mc.height);
+  ctx.drawImage(prev, 0, 0);
+  renderInpaintCanvas();
+});
+
+$('#inpaint-clear-btn')?.addEventListener('click', () => {
+  pushInpaintUndo();
+  const mc = ensureInpaintMaskCanvas();
+  if (mc) mc.getContext('2d').clearRect(0, 0, mc.width, mc.height);
+  renderInpaintCanvas();
+});
+
+$('#inpaint-invert-btn')?.addEventListener('click', () => {
+  const mc = ensureInpaintMaskCanvas();
+  if (!mc) return;
+  pushInpaintUndo();
+  const ctx = mc.getContext('2d');
+  const imgData = ctx.getImageData(0, 0, mc.width, mc.height);
+  const d = imgData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const painted = d[i + 3] > 20;
+    if (painted) {
+      d[i + 3] = 0;
+    } else {
+      d[i] = 255; d[i + 1] = 56; d[i + 2] = 152; d[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
+  renderInpaintCanvas();
+});
+
+(function wireInpaintCanvasDrawing() {
+  const disp = $('#inpaint-canvas');
+  if (!disp) return;
+
+  const getImgCoords = e => {
+    const rect = disp.getBoundingClientRect();
+    const scale = parseFloat(disp.dataset.scale || '1') * (rect.width / Math.max(1, disp.width));
+    return {
+      x: Math.max(0, Math.min(canvas.width, (e.clientX - rect.left) / Math.max(0.0001, scale))),
+      y: Math.max(0, Math.min(canvas.height, (e.clientY - rect.top) / Math.max(0.0001, scale))),
+    };
+  };
+
+  const paintSegment = (p1, p2) => {
+    const mc = ensureInpaintMaskCanvas();
+    if (!mc) return;
+    const ctx = mc.getContext('2d');
+    const scaleFactor = Math.max(canvas.width, canvas.height) / 360;
+    const radius = Math.max(2, (inpaintState.size * scaleFactor) / 2);
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = radius * 2;
+    if (inpaintState.tool === 'eraser') {
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.strokeStyle = 'rgba(0,0,0,1)';
+      ctx.fillStyle = 'rgba(0,0,0,1)';
+    } else {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = '#ff3898';
+      ctx.fillStyle = '#ff3898';
+    }
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(p2.x, p2.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  };
+
+  disp.addEventListener('pointerdown', e => {
+    if (!canvas || e.button !== 0) return;
+    e.preventDefault();
+    try { disp.setPointerCapture(e.pointerId); } catch (_) {}
+    pushInpaintUndo();
+    inpaintState.drawing = true;
+    const pt = getImgCoords(e);
+    inpaintState.lastPt = pt;
+    inpaintState.cursorPt = pt;
+    paintSegment(pt, pt);
+    renderInpaintCanvas();
+  });
+
+  disp.addEventListener('pointermove', e => {
+    if (!canvas) return;
+    const pt = getImgCoords(e);
+    inpaintState.cursorPt = pt;
+    if (inpaintState.drawing && inpaintState.lastPt) {
+      paintSegment(inpaintState.lastPt, pt);
+      inpaintState.lastPt = pt;
+    }
+    renderInpaintCanvas();
+  });
+
+  const stopDraw = e => {
+    if (!inpaintState.drawing) return;
+    inpaintState.drawing = false;
+    inpaintState.lastPt = null;
+    try { disp.releasePointerCapture(e.pointerId); } catch (_) {}
+    renderInpaintCanvas();
+  };
+  disp.addEventListener('pointerup', stopDraw);
+  disp.addEventListener('pointercancel', stopDraw);
+  disp.addEventListener('pointerleave', () => {
+    inpaintState.cursorPt = null;
+    if (!inpaintState.drawing) renderInpaintCanvas();
+  });
+
+  disp.addEventListener('wheel', e => {
+    if (!isInpaintActive()) return;
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 4 : -4;
+    inpaintState.size = Math.max(6, Math.min(140, inpaintState.size + delta));
+    if ($('#inpaint-size')) $('#inpaint-size').value = String(inpaintState.size);
+    if ($('#inpaint-size-val')) $('#inpaint-size-val').textContent = `${inpaintState.size} px`;
+    renderInpaintCanvas();
+  }, { passive: false });
+})();
+
+async function prepareInpaintFiles() {
+  const mc = ensureInpaintMaskCanvas();
+  const bbox = computeInpaintBbox();
+  if (!mc || !bbox || !canvas || !canvas.imgEl) return null;
+
+  // 1) Masque binaire noir & blanc (blanc = zone à modifier, noir = conserver)
+  const bin = document.createElement('canvas');
+  bin.width = canvas.width;
+  bin.height = canvas.height;
+  const bctx = bin.getContext('2d');
+  bctx.fillStyle = '#000000';
+  bctx.fillRect(0, 0, bin.width, bin.height);
+  const srcData = mc.getContext('2d').getImageData(0, 0, mc.width, mc.height).data;
+  const binImg = bctx.getImageData(0, 0, bin.width, bin.height);
+  const bd = binImg.data;
+  for (let i = 0; i < srcData.length; i += 4) {
+    if (srcData[i + 3] > 20) {
+      bd[i] = 255; bd[i + 1] = 255; bd[i + 2] = 255; bd[i + 3] = 255;
+    }
+  }
+  bctx.putImageData(binImg, 0, 0);
+  const maskBlob = await new Promise(res => bin.toBlob(res, 'image/png'));
+  const maskFile = new File([maskBlob], 'inpaint_mask.png', { type: 'image/png' });
+
+  // 2) Optionnel : pré-adoucir la zone masquée sur le canvas envoyé au modèle
+  let neutralizedFile = null;
+  if ($('#inpaint-neutralize-zone')?.checked) {
+    const nc = document.createElement('canvas');
+    nc.width = canvas.width;
+    nc.height = canvas.height;
+    const nctx = nc.getContext('2d');
+    nctx.drawImage(canvas.imgEl, 0, 0);
+
+    // Couche floutée locale sous le masque
+    const blurred = document.createElement('canvas');
+    blurred.width = canvas.width;
+    blurred.height = canvas.height;
+    const blCtx = blurred.getContext('2d');
+    blCtx.filter = 'blur(26px)';
+    blCtx.drawImage(canvas.imgEl, 0, 0);
+    blCtx.filter = 'none';
+    blCtx.globalCompositeOperation = 'destination-in';
+    blCtx.drawImage(mc, 0, 0);
+
+    nctx.drawImage(blurred, 0, 0);
+    const nBlob = await new Promise(res => nc.toBlob(res, 'image/png'));
+    neutralizedFile = new File([nBlob], 'inpaint_canvas.png', { type: 'image/png' });
+  }
+
+  // Snapshot du masque pour le Seamless Blend au retour
+  const snapMask = document.createElement('canvas');
+  snapMask.width = mc.width;
+  snapMask.height = mc.height;
+  snapMask.getContext('2d').drawImage(mc, 0, 0);
+
+  return { bbox, maskFile, neutralizedFile, snapMask };
+}
+
+async function createSeamlessBlendedDataUrl(resultUrl, origImgEl, maskSnapCanvas) {
+  const resDims = await readImageDimensions(resultUrl);
+  const W = resDims.width;
+  const H = resDims.height;
+  const out = document.createElement('canvas');
+  out.width = W;
+  out.height = H;
+  const ctx = out.getContext('2d');
+
+  // Dessine l'image d'origine intacte partout
+  ctx.drawImage(origImgEl, 0, 0, W, H);
+
+  // Crée une couche avec le résultat découpé par le masque adouci (feather)
+  const feather = document.createElement('canvas');
+  feather.width = W;
+  feather.height = H;
+  const fctx = feather.getContext('2d');
+  fctx.filter = 'blur(10px)';
+  fctx.drawImage(maskSnapCanvas, 0, 0, W, H);
+  fctx.filter = 'none';
+  fctx.globalCompositeOperation = 'source-in';
+  fctx.drawImage(resDims.imgEl, 0, 0, W, H);
+
+  ctx.drawImage(feather, 0, 0, W, H);
+  return out.toDataURL('image/png');
+}
+
+// ===========================================================================
+//  COLLER UNE IMAGE AVEC CTRL+V N'IMPORTE OÙ SUR LA PAGE
+// ===========================================================================
+window.addEventListener('paste', async e => {
+  const items = e.clipboardData?.items ? [...e.clipboardData.items] : [];
+  const imgItem = items.find(it => it.type && it.type.startsWith('image/'));
+  if (!imgItem) return;
+  const file = imgItem.getAsFile();
+  if (!file) return;
+  e.preventDefault();
+
+  if (!canvas) {
+    await setCanvas([file]);
+    if (window.showToast) window.showToast('📋 Image collée comme Canvas (image 1)');
+  } else {
+    await addRefs([file]);
+    if (window.showToast) {
+      window.showToast(
+        `📋 Image collée dans les Références (image ${refs.length + 1})`,
+        'Mettre en Canvas',
+        async () => {
+          const popped = refs.pop();
+          if (popped) {
+            if (canvas) await removeUploaded(canvas);
+            canvas = popped;
+            originalCanvasBackup = { ...canvas };
+            resetInpaintMask();
+            refreshAll();
+          }
+        }
+      );
+    }
+  }
+});
+
+// ===========================================================================
+//  BOUTON « 🧹 NOUVEAU / VIDER LE BROUILLON »
+// ===========================================================================
+$('#reset-edit-draft-btn')?.addEventListener('click', async () => {
+  try {
+    sessionStorage.removeItem(EDIT_DRAFT_KEY);
+    localStorage.removeItem(EDIT_DRAFT_KEY);
+  } catch (e) {}
+  isRestoringEditDraft = true;
+  try {
+    if (canvas) await removeUploaded(canvas);
+    for (const r of refs) await removeUploaded(r);
+    if (tempOutpaintItem) await removeUploaded(tempOutpaintItem);
+    if (tempInpaintCanvasItem) await removeUploaded(tempInpaintCanvasItem);
+    if (tempInpaintMaskItem) await removeUploaded(tempInpaintMaskItem);
+    canvas = null;
+    originalCanvasBackup = null;
+    refs = [];
+    tempOutpaintItem = null;
+    tempInpaintCanvasItem = null;
+    tempInpaintMaskItem = null;
+    resetInpaintMask();
+    closeCropPanel();
+    $('#prompt').value = '';
+    const m = currentModel();
+    $('#negative').value = (m && m.supports_neg) ? (window.DEFAULT_NEG || '') : '';
+    if ($('#seed')) $('#seed').value = '';
+    if ($('#batch')) {
+      $('#batch').value = '1';
+      if ($('#batch-val')) $('#batch-val').textContent = '1 image';
+    }
+    if ($('#outpaint-enabled')) $('#outpaint-enabled').checked = false;
+    if ($('#inpaint-enabled')) $('#inpaint-enabled').checked = false;
+    setOutpaintMargins(25, 25, 25, 25);
+    currentRatio = '1:1';
+    ratioBeforeOriginal = '1:1';
+    lastGeneratedResults = [];
+    comparisonSource = null;
+    if ($('#compare')) $('#compare').hidden = true;
+    if ($('#results')) $('#results').innerHTML = '';
+    if ($('#stats-box')) $('#stats-box').hidden = true;
+    showGenError('');
+    refreshAll();
+  } finally {
+    isRestoringEditDraft = false;
+  }
+  saveEditDraft();
+  if (window.showToast) window.showToast('🧹 Studio d’édition réinitialisé');
+});
+
+// ===========================================================================
+//  FILE D'ATTENTE (QUEUE)
+// ===========================================================================
+function renderEditQueue(queue) {
+  const box = $('#queue-box');
+  const list = $('#queue-list');
+  const countEl = $('#queue-count');
+  if (!box || !list) return;
+  const arr = Array.isArray(queue) ? queue : [];
+  if (countEl) countEl.textContent = String(arr.length);
+  if (!arr.length) {
+    box.hidden = true;
+    list.innerHTML = '';
+    return;
+  }
+  box.hidden = false;
+  list.innerHTML = arr.map(item => `
+    <div class="queue-item" data-qid="${item.queue_id}">
+      <span class="queue-pos">#${item.position}</span>
+      <div class="queue-info">
+        <strong>${esc(item.model_name)} (${esc(item.quant)})</strong> · ${item.width}×${item.height} · ×${item.batch}
+        <div class="queue-prompt">${esc(item.prompt || '')}</div>
+      </div>
+      <button type="button" class="x queue-del" data-qid="${item.queue_id}" title="Retirer de la file">×</button>
+    </div>
+  `).join('');
+  $$('.queue-del', list).forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const r = await fetch('/api/queue/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queue_id: btn.dataset.qid }),
+      });
+      const j = await r.json();
+      if (j.ok) renderEditQueue(j.queue);
+    });
+  });
+}
+
+$('#queue-clear-btn')?.addEventListener('click', async () => {
+  const r = await fetch('/api/queue/clear', { method: 'POST' });
+  const j = await r.json();
+  if (j.ok) renderEditQueue([]);
+});
 async function checkMmproj() {
   const m = currentModel();
   const box = $('#mmproj-status');
@@ -1497,10 +2364,17 @@ $('#generate-btn').addEventListener('click', async () => {
   if (!m.status.ready) { showGenError(`Le modèle « ${m.name} » n'est pas prêt. Téléchargez-le dans l'onglet Modèles.`); return; }
 
   const outpaintOn = isOutpaintActive();
+  const inpaintOn = !outpaintOn && isInpaintActive();
   const autoOutpaintPrompt = outpaintOn && Boolean($('#outpaint-auto-prompt')?.checked);
+  const autoInpaintPrompt = inpaintOn && Boolean($('#inpaint-auto-prompt')?.checked);
   const prompt = $('#prompt').value.trim();
-  if (!prompt && !autoOutpaintPrompt) {
-    showGenError("Décrivez ce qui doit changer (étape 4) — ou activez l'adaptation automatique du prompt Outpainting.");
+
+  if (inpaintOn && !computeInpaintBbox()) {
+    showGenError("Peignez d'abord sur l'image la zone à modifier avec le pinceau Inpainting (ou décochez le mode Inpainting).");
+    return;
+  }
+  if (!prompt && !autoOutpaintPrompt && !autoInpaintPrompt) {
+    showGenError("Décrivez ce qui doit changer (étape 4) — ou activez l'adaptation automatique du prompt.");
     return;
   }
 
@@ -1512,6 +2386,9 @@ $('#generate-btn').addEventListener('click', async () => {
   let customWidth = null;
   let customHeight = null;
   let nextComparisonSource = images[0].url;
+  let inpaintPayload = null;
+  let nextInpaintMaskSnap = null;
+  let nextInpaintOrigImg = null;
 
   if (outpaintOn) {
     try {
@@ -1533,6 +2410,46 @@ $('#generate-btn').addEventListener('click', async () => {
       $('#generate-btn').disabled = false;
       showGenError(e.message || "Erreur lors de la préparation de l'outpainting.");
       return;
+    } finally {
+      $('#generate-btn').disabled = false;
+    }
+  } else if (inpaintOn) {
+    try {
+      $('#generate-btn').disabled = true;
+      const prep = await prepareInpaintFiles();
+      if (!prep) throw new Error("Impossible de préparer le masque d'inpainting.");
+      if (tempInpaintMaskItem) { await removeUploaded(tempInpaintMaskItem); tempInpaintMaskItem = null; }
+      if (tempInpaintCanvasItem) { await removeUploaded(tempInpaintCanvasItem); tempInpaintCanvasItem = null; }
+
+      const upMask = await uploadFiles([prep.maskFile]);
+      if (!upMask.length) throw new Error("Échec de l'envoi du masque.");
+      tempInpaintMaskItem = upMask[0];
+
+      if (prep.neutralizedFile) {
+        const upCanvas = await uploadFiles([prep.neutralizedFile]);
+        if (upCanvas.length) {
+          tempInpaintCanvasItem = upCanvas[0];
+          refPaths = [tempInpaintCanvasItem.path, ...refs.map(x => x.path)];
+        }
+      }
+      const out = getOriginalOutputSize();
+      customWidth = out.width;
+      customHeight = out.height;
+      inpaintPayload = {
+        enabled: true,
+        bbox: { x1: prep.bbox.x1, y1: prep.bbox.y1, x2: prep.bbox.x2, y2: prep.bbox.y2 },
+        auto_prompt: autoInpaintPrompt,
+        mask_image: tempInpaintMaskItem.path,
+        use_cli_mask: true,
+      };
+      nextInpaintMaskSnap = prep.snapMask;
+      nextInpaintOrigImg = canvas.imgEl;
+    } catch (e) {
+      $('#generate-btn').disabled = false;
+      showGenError(e.message || "Erreur lors de la préparation de l'inpainting.");
+      return;
+    } finally {
+      $('#generate-btn').disabled = false;
     }
   } else if (currentRatio === 'original' && canvas) {
     const out = getOriginalOutputSize();
@@ -1545,7 +2462,7 @@ $('#generate-btn').addEventListener('click', async () => {
     quant: $('#quant').value,
     prompt,
     negative: $('#negative').value,
-    ratio: (currentRatio === 'original' || outpaintOn) ? '1:1' : currentRatio,
+    ratio: (currentRatio === 'original' || outpaintOn || inpaintOn) ? '1:1' : currentRatio,
     steps: $('#steps').value,
     cfg: $('#cfg').value,
     seed: $('#seed').value || null,
@@ -1553,6 +2470,7 @@ $('#generate-btn').addEventListener('click', async () => {
     input_mode: 'ref',
     ref_images: refPaths,
     ref_max_pixels: $('#ref-budget').value === 'auto' ? null : parseInt($('#ref-budget').value, 10),
+    allow_queue: true,
   };
   if (customWidth && customHeight) {
     body.width = customWidth;
@@ -1565,6 +2483,9 @@ $('#generate-btn').addEventListener('click', async () => {
       auto_prompt: autoOutpaintPrompt,
     };
   }
+  if (inpaintOn && inpaintPayload) {
+    body.inpaint = inpaintPayload;
+  }
 
   const r = await fetch('/api/generate', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1576,15 +2497,28 @@ $('#generate-btn').addEventListener('click', async () => {
     showGenError(j.error || 'Erreur');
     return;
   }
+
+  if (j.queued) {
+    renderEditQueue(j.queue || []);
+    if (window.showToast) {
+      window.showToast(`⏳ Édition ajoutée à la file d'attente (position #${j.position})`);
+    }
+    if (!pollTimer) pollStatus();
+    return;
+  }
+
   comparisonSource = nextComparisonSource;
   lastRunWasOutpaint = outpaintOn;
+  lastRunWasInpaint = inpaintOn && Boolean($('#inpaint-blend-result')?.checked);
+  lastInpaintMaskSnapshot = nextInpaintMaskSnap;
+  lastInpaintOrigImgEl = nextInpaintOrigImg;
   generationSourceCount = refPaths.length;
   lastGeneratedResults = [];
   activeCompareResultIdx = 0;
   currentBatchStamp = Date.now();
   $('#compare-before').src = comparisonSource;
   $('#compare').hidden = true;
-  $('#generate-btn').disabled = true;
+  $('#generate-btn').textContent = '＋ Ajouter à la file d\'attente';
   $('#cancel-btn').hidden = false;
   $('#results').innerHTML = '';
   $('#stats-box').hidden = true;
@@ -1640,9 +2574,12 @@ function pollStatus() {
     $('#progress-text').textContent = txt;
     if (j.log) $('#log').textContent = j.log + ($('#log').textContent ? '\n' + $('#log').textContent : '');
 
-    if (!j.busy) {
+    renderEditQueue(j.queue || []);
+
+    if (!j.busy && (!j.queue || j.queue.length === 0)) {
       clearInterval(pollTimer); pollTimer = null;
       $('#generate-btn').disabled = false;
+      $('#generate-btn').textContent = '✂️ Lancer l\'édition';
       $('#cancel-btn').hidden = true;
       const imgs = (j.result && j.result.images) || [];
       if (j.error) { showGenError(j.error); $('#log').hidden = false; }
@@ -1656,6 +2593,8 @@ function pollStatus() {
           $('#log').hidden = false;
         }
       }
+    } else if (j.kind === 'generate' && j.result && j.result.images && j.result.images.length) {
+      showResults(j.result.images);
     }
   }, 1000);
 }
@@ -1675,9 +2614,28 @@ function showResults(images) {
   box.innerHTML = '';
   lastGeneratedResults = images.map(img => ({
     ...img,
-    displayUrl: `${img.url}?t=${currentBatchStamp}`,
+    displayUrl: img.displayUrl || `${img.url}?t=${currentBatchStamp}`,
   }));
   activeCompareResultIdx = 0;
+
+  // Si le mode Seamless Blend d'Inpainting est actif, fusionner la zone masquée avec l'image originale
+  if (lastRunWasInpaint && lastInpaintMaskSnapshot && lastInpaintOrigImgEl) {
+    Promise.all(lastGeneratedResults.map(async (item, i) => {
+      try {
+        const blended = await createSeamlessBlendedDataUrl(
+          `${item.url}?t=${currentBatchStamp}`,
+          lastInpaintOrigImgEl,
+          lastInpaintMaskSnapshot
+        );
+        item.displayUrl = blended;
+        const cardImgs = $$('.result img', box);
+        if (cardImgs[i]) cardImgs[i].src = blended;
+        if (i === activeCompareResultIdx && $('#compare-after')) {
+          $('#compare-after').src = blended;
+        }
+      } catch (_) {}
+    }));
+  }
 
   lastGeneratedResults.forEach((img, idx) => {
     const d = document.createElement('div');

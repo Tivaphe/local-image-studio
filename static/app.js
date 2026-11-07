@@ -22,11 +22,44 @@ async function refreshEngineBadge() {
 }
 refreshEngineBadge();
 
+// Notification toast légère (utilisée pour Ctrl+V, File d'attente, Brouillon, etc.)
+let _toastTimer = null;
+window.showToast = function showToast(message, actionLabel = null, actionCb = null, durationMs = 4200) {
+  let box = $('#lis-toast');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'lis-toast';
+    box.className = 'lis-toast';
+    document.body.appendChild(box);
+  }
+  box.innerHTML = `<span class="lis-toast-msg"></span>`;
+  box.querySelector('.lis-toast-msg').textContent = message;
+  if (actionLabel && typeof actionCb === 'function') {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn small lis-toast-btn';
+    btn.textContent = actionLabel;
+    btn.addEventListener('click', () => {
+      box.classList.remove('show');
+      actionCb();
+    });
+    box.appendChild(btn);
+  }
+  box.classList.add('show');
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => {
+    box.classList.remove('show');
+  }, durationMs);
+};
+
 // ===========================================================================
-//  Lightbox plein écran avec préchargement & navigation instantanée (0 reload)
+//  Lightbox plein écran avec :
+//  - Préchargement & navigation instantanée (0 reload)
 //  - Flèches ← / → (ou ↑ / ↓) et Molette souris : défilement sans rechargement
-//  - Espace / bouton « Avant / Après » / clic maintenu sur l'image :
+//  - Espace / bouton « Avant / Après » / clic sur l'image :
 //    bascule instantanée entre l'image source (Avant) et l'image modifiée (Après)
+//  - Zoom (100 % à 800 %) & Déplacement (Pan) 100 % synchronisés entre toutes
+//    les images du lot et la comparaison Avant / Après
 // ===========================================================================
 const _lbState = {
   items: [],
@@ -37,7 +70,10 @@ const _lbState = {
   thumbBtns: [],
   wheelAccum: 0,
   lastWheelStepAt: 0,
-  holdState: null,
+  zoom: 1,
+  panX: 0,
+  panY: 0,
+  pointerSession: null,
 };
 
 function _normalizeLightboxArgs(first, second, third) {
@@ -103,6 +139,56 @@ function _normalizeLightboxArgs(first, second, third) {
   return { items, startIndex, opts };
 }
 
+function _applyLightboxTransform() {
+  const { zoom, panX, panY, stageImgs } = _lbState;
+  const transform = zoom <= 1.001
+    ? 'translate3d(0px, 0px, 0px) scale(1)'
+    : `translate3d(${Math.round(panX)}px, ${Math.round(panY)}px, 0px) scale(${zoom.toFixed(3)})`;
+  stageImgs.forEach(img => {
+    img.style.transform = transform;
+  });
+  const stage = $('#lb-stage');
+  if (stage) {
+    stage.classList.toggle('is-zoomed', zoom > 1.01);
+  }
+  const resetBtn = $('#lb-zoom-reset');
+  if (resetBtn) {
+    resetBtn.textContent = `${Math.round(zoom * 100)}%`;
+    resetBtn.classList.toggle('active-zoom', zoom > 1.01);
+  }
+}
+
+function setLightboxZoom(nextZoom, clientX = null, clientY = null) {
+  const prevZoom = _lbState.zoom || 1;
+  const clamped = Math.max(1, Math.min(8, Number(nextZoom) || 1));
+  if (clamped <= 1.01) {
+    _lbState.zoom = 1;
+    _lbState.panX = 0;
+    _lbState.panY = 0;
+    _applyLightboxTransform();
+    return;
+  }
+
+  const stage = $('#lb-stage');
+  if (stage && clientX !== null && clientY !== null) {
+    const rect = stage.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const ox = clientX - cx;
+    const oy = clientY - cy;
+    const ratio = clamped / prevZoom;
+    _lbState.panX = ox - ratio * (ox - _lbState.panX);
+    _lbState.panY = oy - ratio * (oy - _lbState.panY);
+  } else {
+    const ratio = clamped / prevZoom;
+    _lbState.panX *= ratio;
+    _lbState.panY *= ratio;
+  }
+
+  _lbState.zoom = clamped;
+  _applyLightboxTransform();
+}
+
 function _ensureLightboxDom() {
   let lb = $('#lightbox');
   if (lb) return lb;
@@ -120,6 +206,13 @@ function _ensureLightboxDom() {
         <span class="lb-label" id="lb-label"></span>
       </div>
       <div class="lb-actions">
+        <div class="lb-zoom-controls" title="Zoom & Déplacement synchronisés sur toutes les images (Ctrl+Molette ou Double-clic)">
+          <button type="button" class="btn small ghost lb-zbtn" id="lb-zoom-out" title="Dézoomer (-)">🔍−</button>
+          <button type="button" class="btn small ghost lb-zbtn" id="lb-zoom-reset" title="Réinitialiser le zoom à 100% (0)">100%</button>
+          <button type="button" class="btn small ghost lb-zbtn" id="lb-zoom-in" title="Zoomer (+)">🔍+</button>
+          <button type="button" class="btn small ghost lb-zbtn" id="lb-zoom-2x" title="Zoom ×2 synchronisé">×2</button>
+          <button type="button" class="btn small ghost lb-zbtn" id="lb-zoom-4x" title="Zoom ×4 synchronisé">×4</button>
+        </div>
         <button type="button" class="btn small lb-compare-btn" id="lb-compare-btn" hidden
                 title="Basculer instantanément entre l'image source et l'image modifiée (Touche Espace)">
           ⇄ Avant / Après <kbd>Espace</kbd>
@@ -138,8 +231,9 @@ function _ensureLightboxDom() {
     <div class="lb-bottombar" id="lb-bottombar" hidden>
       <div class="lb-thumbs" id="lb-thumbs"></div>
       <div class="lb-shortcuts">
-        <span><kbd>←</kbd> <kbd>→</kbd> ou <strong>Molette</strong> : défiler sans rechargement</span>
-        <span id="lb-space-hint" hidden>· <kbd>Espace</kbd> ou <strong>clic sur l'image</strong> : basculer Source ↔ Modifiée</span>
+        <span><kbd>←</kbd> <kbd>→</kbd> / <strong>Molette</strong> : défiler (zoom synchronisé)</span>
+        <span id="lb-space-hint" hidden>· <kbd>Espace</kbd> / <strong>clic</strong> : Source ↔ Modifiée</span>
+        <span>· <strong>Ctrl+Molette</strong> / <strong>Double-clic</strong> / <kbd>+</kbd><kbd>-</kbd> : zoomer & glisser</span>
         <span>· <kbd>Échap</kbd> : fermer</span>
       </div>
     </div>
@@ -170,53 +264,122 @@ function _ensureLightboxDom() {
     toggleLightboxSourceCompare();
   });
 
-  // Clic ou clic maintenu sur l'image pour comparer instantanément Avant / Après
-  const stage = lb.querySelector('#lb-stage');
-  stage.addEventListener('pointerdown', e => {
-    if (e.button !== 0 || _lbState.items.length <= 1) return;
+  // Boutons de zoom synchronisé
+  lb.querySelector('#lb-zoom-out').addEventListener('click', e => {
     e.stopPropagation();
-    const sourceIdx = _lbState.items.findIndex(it => it.role === 'source');
-    if (sourceIdx !== -1 && _lbState.activeIndex !== sourceIdx) {
-      _lbState.holdState = {
-        fromIndex: _lbState.activeIndex,
-        downAt: performance.now(),
-      };
-      setLightboxIndex(sourceIdx);
+    setLightboxZoom(_lbState.zoom / 1.35);
+  });
+  lb.querySelector('#lb-zoom-in').addEventListener('click', e => {
+    e.stopPropagation();
+    setLightboxZoom(_lbState.zoom * 1.35);
+  });
+  lb.querySelector('#lb-zoom-reset').addEventListener('click', e => {
+    e.stopPropagation();
+    setLightboxZoom(1);
+  });
+  lb.querySelector('#lb-zoom-2x').addEventListener('click', e => {
+    e.stopPropagation();
+    setLightboxZoom(Math.abs(_lbState.zoom - 2) < 0.05 ? 1 : 2);
+  });
+  lb.querySelector('#lb-zoom-4x').addEventListener('click', e => {
+    e.stopPropagation();
+    setLightboxZoom(Math.abs(_lbState.zoom - 4) < 0.05 ? 1 : 4);
+  });
+
+  const stage = lb.querySelector('#lb-stage');
+
+  // Double-clic : bascule zoom 100% <-> 250% centré sur le point cliqué
+  stage.addEventListener('dblclick', e => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (_lbState.zoom > 1.05) {
+      setLightboxZoom(1);
     } else {
-      _lbState.holdState = {
-        fromIndex: null,
-        downAt: performance.now(),
-      };
+      setLightboxZoom(2.5, e.clientX, e.clientY);
     }
   });
 
-  const endHold = e => {
-    if (!_lbState.holdState) return;
-    const { fromIndex, downAt } = _lbState.holdState;
-    _lbState.holdState = null;
-    const elapsed = performance.now() - downAt;
-    if (fromIndex !== null) {
-      // Si l'utilisateur a maintenu le clic (> 180 ms), on revient à l'image modifiée au relâchement.
-      // Si c'était un clic court, on reste sur la source (bascule).
+  // Glisser pour se déplacer (Pan) quand zoomé, ou clic / clic maintenu pour Avant / Après
+  stage.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    try { stage.setPointerCapture(e.pointerId); } catch (_) {}
+
+    const sourceIdx = _lbState.items.findIndex(it => it.role === 'source');
+    const canHoldCompare = _lbState.zoom <= 1.01 && _lbState.items.length > 1 && sourceIdx !== -1 && _lbState.activeIndex !== sourceIdx;
+
+    _lbState.pointerSession = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startPanX: _lbState.panX,
+      startPanY: _lbState.panY,
+      moved: false,
+      downAt: performance.now(),
+      holdFromIndex: canHoldCompare ? _lbState.activeIndex : null,
+    };
+
+    if (canHoldCompare) {
+      setLightboxIndex(sourceIdx);
+    }
+  });
+
+  stage.addEventListener('pointermove', e => {
+    const sess = _lbState.pointerSession;
+    if (!sess || sess.pointerId !== e.pointerId) return;
+    const dx = e.clientX - sess.startX;
+    const dy = e.clientY - sess.startY;
+    if (Math.hypot(dx, dy) > 5) {
+      sess.moved = true;
+    }
+    if (_lbState.zoom > 1.01 && sess.moved) {
+      stage.classList.add('is-panning');
+      _lbState.panX = sess.startPanX + dx;
+      _lbState.panY = sess.startPanY + dy;
+      _applyLightboxTransform();
+    }
+  });
+
+  const endPointer = e => {
+    const sess = _lbState.pointerSession;
+    if (!sess) return;
+    _lbState.pointerSession = null;
+    stage.classList.remove('is-panning');
+    try { stage.releasePointerCapture(sess.pointerId); } catch (_) {}
+
+    const elapsed = performance.now() - sess.downAt;
+    if (sess.holdFromIndex !== null) {
       if (elapsed > 180) {
-        setLightboxIndex(fromIndex);
+        setLightboxIndex(sess.holdFromIndex);
       }
-    } else if (e.type === 'pointerup' && elapsed <= 250) {
+      return;
+    }
+    // Clic court sans déplacement -> bascule Source <-> Modifiée
+    if (!sess.moved && e.type === 'pointerup' && elapsed <= 260 && _lbState.items.length > 1) {
       toggleLightboxSourceCompare();
     }
   };
-  stage.addEventListener('pointerup', endHold);
-  stage.addEventListener('pointercancel', endHold);
+  stage.addEventListener('pointerup', endPointer);
+  stage.addEventListener('pointercancel', endPointer);
 
-  // Navigation à la molette de la souris (sans rechargement ni scroll de la page)
+  // Molette de la souris :
+  // - Ctrl + Molette (ou Alt + Molette) : Zoom centré sur le curseur
+  // - Molette simple : défilement instantané entre les images (en gardant le zoom synchronisé !)
   lb.addEventListener('wheel', e => {
-    if (!lb.classList.contains('show') || _lbState.items.length <= 1) return;
+    if (!lb.classList.contains('show')) return;
     e.preventDefault();
+
+    if (e.ctrlKey || e.metaKey || e.altKey) {
+      const factor = e.deltaY < 0 ? 1.2 : (1 / 1.2);
+      setLightboxZoom(_lbState.zoom * factor, e.clientX, e.clientY);
+      return;
+    }
+
+    if (_lbState.items.length <= 1) return;
     const rawDelta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
     if (!rawDelta) return;
 
     const now = performance.now();
-    // Molette crantée classique (delta >= 40 ou mode ligne/page)
     if (e.deltaMode !== 0 || Math.abs(rawDelta) >= 40) {
       if (now - _lbState.lastWheelStepAt < 35) return;
       _lbState.lastWheelStepAt = now;
@@ -225,7 +388,6 @@ function _ensureLightboxDom() {
       return;
     }
 
-    // Pavé tactile fluide : accumulation du delta
     _lbState.wheelAccum += rawDelta;
     if (Math.abs(_lbState.wheelAccum) >= 45) {
       const dir = _lbState.wheelAccum > 0 ? +1 : -1;
@@ -235,7 +397,7 @@ function _ensureLightboxDom() {
     }
   }, { passive: false });
 
-  // Navigation au clavier (flèches + Espace + Échap)
+  // Navigation au clavier (flèches + Espace + Zoom +/-/0 + Échap)
   window.addEventListener('keydown', e => {
     if (!lb.classList.contains('show')) return;
     if (e.key === 'Escape') {
@@ -256,6 +418,15 @@ function _ensureLightboxDom() {
         e.preventDefault();
         toggleLightboxSourceCompare();
       }
+    } else if (e.key === '+' || e.key === '=') {
+      e.preventDefault();
+      setLightboxZoom(_lbState.zoom * 1.3);
+    } else if (e.key === '-' || e.key === '_') {
+      e.preventDefault();
+      setLightboxZoom(_lbState.zoom / 1.3);
+    } else if (e.key === '0') {
+      e.preventDefault();
+      setLightboxZoom(1);
     }
   });
 
@@ -339,7 +510,6 @@ function toggleLightboxSourceCompare() {
     }
     return;
   }
-  // Sans image source (ex: batch de plusieurs générations) : bascule entre les 2 dernières vues
   const fallback = prevViewedIndex !== activeIndex ? prevViewedIndex : (activeIndex + 1) % items.length;
   setLightboxIndex(fallback);
 }
@@ -347,7 +517,7 @@ function toggleLightboxSourceCompare() {
 function closeLightbox() {
   const lb = $('#lightbox');
   if (lb) lb.classList.remove('show');
-  _lbState.holdState = null;
+  _lbState.pointerSession = null;
 }
 
 function openLightbox(first, second, third) {
@@ -357,7 +527,10 @@ function openLightbox(first, second, third) {
 
   _lbState.items = items;
   _lbState.wheelAccum = 0;
-  _lbState.holdState = null;
+  _lbState.pointerSession = null;
+  _lbState.zoom = 1;
+  _lbState.panX = 0;
+  _lbState.panY = 0;
 
   const clampedStart = Math.max(0, Math.min(items.length - 1, startIndex || 0));
   _lbState.activeIndex = clampedStart;
@@ -375,7 +548,6 @@ function openLightbox(first, second, third) {
   _lbState.stageImgs = [];
   _lbState.thumbBtns = [];
 
-  // Préchargement et décodage de toutes les images dans le DOM pour un passage à 0 ms
   items.forEach((item, i) => {
     const img = document.createElement('img');
     img.className = 'lb-img' + (i === clampedStart ? ' active' : '');
@@ -411,10 +583,12 @@ function openLightbox(first, second, third) {
 
   $('#lb-prev', lb).hidden = !hasMultiple;
   $('#lb-next', lb).hidden = !hasMultiple;
-  $('#lb-bottombar', lb).hidden = !hasMultiple;
+  $('#lb-bottombar', lb).hidden = false;
+  $('#lb-thumbs', lb).hidden = !hasMultiple;
   $('#lb-compare-btn', lb).hidden = !hasSource;
   $('#lb-space-hint', lb).hidden = !hasMultiple;
 
+  _applyLightboxTransform();
   setLightboxIndex(clampedStart);
   lb.classList.add('show');
 }

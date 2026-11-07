@@ -1099,6 +1099,68 @@ def supports_outpainting(model_id: str) -> bool:
     return bool(m.get("supports_outpainting", False))
 
 
+def supports_inpainting(model_id: str) -> bool:
+    """Indique si le modele supporte le mode Inpainting au pinceau (retouche locale)."""
+    m = MODELS.get(model_id, {})
+    return bool(m.get("supports_inpainting", True) and m.get("supports_ref_images", False))
+
+
+def _describe_bbox_region(bbox: dict | None) -> tuple[str, list[int] | None]:
+    """
+    A partir d'une boite englobante en pourcentages {x1, y1, x2, y2} (0..100),
+    retourne (description_spatiale_en, [ymin, xmin, ymax, xmax] normalise 0..1000).
+    """
+    if not isinstance(bbox, dict):
+        return "in the painted target region", None
+    try:
+        x1 = max(0.0, min(100.0, float(bbox.get("x1", 0))))
+        y1 = max(0.0, min(100.0, float(bbox.get("y1", 0))))
+        x2 = max(x1, min(100.0, float(bbox.get("x2", 100))))
+        y2 = max(y1, min(100.0, float(bbox.get("y2", 100))))
+    except (TypeError, ValueError):
+        return "in the painted target region", None
+
+    cx = (x1 + x2) / 2.0
+    cy = (y1 + y2) / 2.0
+    v_part = "upper" if cy < 36 else ("lower" if cy > 64 else "middle")
+    h_part = "left" if cx < 36 else ("right" if cx > 64 else "center")
+    if v_part == "middle" and h_part == "center":
+        loc = "in the central area"
+    elif v_part == "middle":
+        loc = f"on the {h_part} side"
+    elif h_part == "center":
+        loc = f"in the {v_part} area"
+    else:
+        loc = f"in the {v_part}-{h_part} area"
+
+    norm_box = [
+        int(round(y1 * 10)),
+        int(round(x1 * 10)),
+        int(round(y2 * 10)),
+        int(round(x2 * 10)),
+    ]
+    return loc, norm_box
+
+
+def build_inpaint_prompt(model_id: str, user_prompt: str = "",
+                         bbox: dict | None = None) -> str:
+    """
+    Construit ou enrichit l'instruction d'edition pour un Inpainting localise au pinceau,
+    en ciblant precisement la zone peinte (description spatiale + boite normalisee)
+    et en preservant le reste de l'image intact.
+    """
+    ref_label = _ref_token(model_id, 1)
+    loc, norm_box = _describe_bbox_region(bbox)
+    box_str = f" (region {norm_box})" if norm_box else ""
+    clean = (user_prompt or "").strip()
+    action = clean if clean else "seamlessly remove the unwanted element and reconstruct the background naturally"
+    return (
+        f"Inpaint and modify ONLY the target area {loc}{box_str} of {ref_label}: {action}. "
+        f"Keep everything outside this target area in {ref_label} strictly unchanged and identical, "
+        "with seamless blending, matching lighting, perspective, and textures."
+    )
+
+
 def build_outpaint_prompt(model_id: str, user_prompt: str = "",
                           directions: list[str] | None = None) -> str:
     """
@@ -1542,7 +1604,8 @@ def _diffusion_path(model_id, quant):
 def build_command(model_id, quant, prompt, negative, width, height, steps,
                   cfg, seed, batch, out_template, sd_cli, manifest,
                   source_image=None, lora_dir=None, strength=None,
-                  ref_images=None, input_mode=None, ref_max_pixels=None):
+                  ref_images=None, input_mode=None, ref_max_pixels=None,
+                  mask_image=None):
     m = MODELS[model_id]
     arch = m["arch"]
     args = [sd_cli]
@@ -1689,6 +1752,8 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
             if ref_max_pixels:
                 args += ["--ref-image-args",
                          f"vae_input_max_pixels={int(ref_max_pixels)}"]
+        if mask_image and arch != "fibo2":
+            args += ["--mask", str(mask_image)]
 
     # Parametres (certains checkpoints Turbo imposent un nombre d'etapes/CFG fixe)
     cfg = m.get("fixed_cfg", cfg)
