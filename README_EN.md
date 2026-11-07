@@ -110,7 +110,7 @@ The **✂️ Edit** tab — available on the models that really do editing:
 
 ---
 
-## 🧠 Available models (20)
+## 🧠 Available models (25)
 
 | Model | Speed | License | Best for |
 |---|---|---|---|
@@ -134,8 +134,18 @@ The **✂️ Edit** tab — available on the models that really do editing:
 | **MOSS-Image SFT** (GGUF) | 50 steps, CFG 3 | Apache 2.0 ✅ | Standard generation, text in images |
 | **MOSS-Image Base** (GGUF) | 50 steps, CFG 3 | Apache 2.0 ✅ | Untuned base, for LoRAs trained on Base |
 | **Krea 2 Turbo** (GGUF) | ⚡ 8 steps, CFG 1 | Krea Community ⚠️ | Fast photorealistic rendering |
+| **FLUX.1 Dev** (GGUF) | 24 steps | FLUX [dev] ⚠️ | High fidelity (hands, skin, light), img2img + LoRA |
+| **FLUX.1 Kontext Dev** (GGUF) | 24 steps | FLUX [dev] ⚠️ | Context editing: change things without breaking identity |
+| **Chroma Unlocked** (GGUF) | 26 steps, CFG 4 | Apache 2.0 ✅ | Real negative prompt + organic textures (no "plastic skin") |
+| **Chroma1-Radiance** (GGUF) | 26 steps, CFG 4 | Apache 2.0 ✅ | Pixel-space (no VAE): razor-sharp detail, negative prompt |
+| **LongCat-Image** (GGUF) | 28 steps, CFG 5 | Apache 2.0 ✅ | Photorealism + exact text in "quotes" |
 
 > ✅ = commercial use allowed · ⚠️ = personal/non-commercial use
+>
+> All 5 new models **reuse the existing shared dependencies**: FLUX.1 Dev / Kontext use
+> `vae_flux`, `clip_l` and `t5xxl`; Chroma uses `vae_flux` + `t5xxl`; Chroma1-Radiance only needs
+> `t5xxl`; LongCat-Image reuses `vae_flux` and the **Qwen2.5-VL-7B** encoder (already used by
+> Qwen-Image 2512). If you already have FLUX.1 schnell or Qwen-Image, no big extra download is needed.
 >
 > **Qwen-Image 2.1 Turbo** requires `sd-cli` `c150a6b` or newer (8 steps, CFG 1).
 > **FLUX.3 Image Klein** requires `sd-cli` `8cd731e` (Oct 15, 2026) or newer; its GGUFs are converted with that same engine (documented VRAM peaks: 6.8 GB at Q3_K up to 9.8 GB at Q8_0) and it reuses the FLUX.2 VAE and the **Qwen3-VL-4B** encoder (already downloaded with FLUX.2 Klein / Iris-3B).
@@ -153,9 +163,31 @@ The **✂️ Edit** tab — available on the models that really do editing:
 - **Image editing?** → **Edit** tab: **Qwen-Image 2.1 / 2.1 Turbo** (semantic editing, up to 10
   images) or **FLUX.2 / FLUX.3 Klein** (editing, images addressed by position, up to 10 images)
 - **Classic img2img?** → **SD 3.5 Medium/Large** (strength control)
-- **Readable text in image?** → **ERNIE-Image Turbo** or **Ideogram 4**
+- **Readable text in image?** → **ERNIE-Image Turbo**, **Ideogram 4** or **LongCat-Image**
+- **Edit without breaking identity?** → **FLUX.1 Kontext Dev** (change text, light, scenery)
+- **Realistic hands & textures?** → **Chroma Unlocked** (true negative prompt) + **ADetailer**
 - **Smallest?** → **SD 3.5 Medium** (~2 GB)
 
+---
+
+## ✨ Quality, Detail & Upscaling (one click, explained in-app)
+
+The **Generate** and **Edit** pages include a collapsible "✨ Quality, Detail & Upscaling"
+section with a clear explanation for every option:
+
+| Option | Effect | Where |
+|---|---|---|
+| **🔍 ×4 Upscaling** | Dedicated super-resolution (1024→4096 px): **RealESRGAN ×4** (photo), **4× Nomos2 MoSR** (natural textures), **RealESRGAN Anime 6B** (illustration) | During generation **or** afterwards: one-click "🔍 Upscale ×4" button on every result and in History |
+| **🏗️ Hires Fix (2 passes)** | Pass 1 composes; pass 2 gently re-details at high resolution (up to ×2, ≤ ~2048 px) | Pure generation, img2img-capable models (SD 3.5, FLUX.1 Dev, Chroma) |
+| **🙂 ADetailer** | YOLOv8 detector that finds **faces/hands** and automatically re-details them | Generate & Edit pages (after installing the detector in Models) |
+| **🎛️ Sampler / Scheduler** | Choose the sampler (euler, heun, dpm++2m, euler_a, lcm) and scheduler (karras, beta, exponential…) | Generate & Edit pages |
+| **⚙️ VAE Tiling** | Tiled VAE decode — saves VRAM on large images | Expert settings |
+| **⚙️ SLG (Skip Layer Guidance)** | Better prompt adherence on DiT models (recommended: 3) | Expert settings |
+
+Upscaler models (17–64 MB) and ADetailer detectors (6–22 MB) download in **one click** from the
+dedicated sections at the bottom of the **Models** page.
+
+---
 ---
 
 ## ⚠️ Gated models
@@ -196,7 +228,7 @@ local-image-studio/
 ├── app.py                 ← Web server (Flask) + startup options
 ├── browser_launch.py      ← Opens Chrome automatically at startup
 ├── engine.py              ← sd-cli engine + downloads
-├── registry.py            ← 15 model definitions
+├── registry.py            ← 25 model definitions + ×4 upscalers + ADetailer detectors
 ├── prompt_enhancer.py     ← Enrichment & translation (LLM)
 ├── gpu_info.py            ← VRAM detection
 ├── db.py                  ← History & statistics

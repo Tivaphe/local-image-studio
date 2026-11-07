@@ -27,7 +27,9 @@ from registry import (MODELS, DEPS, RATIOS, DEFAULT_NEGATIVE, input_modes,
                       max_ref_images, check_images_input, clamp_ref_max_pixels,
                       supports_outpainting, build_outpaint_prompt,
                       supports_inpainting, build_inpaint_prompt,
-                      outpaint_prompt_presets, edit_prompt_presets, gen_prompt_presets)
+                      outpaint_prompt_presets, edit_prompt_presets, gen_prompt_presets,
+                      UPSCALERS, ADETAILERS, upscaler_status, adetailer_status,
+                      SAMPLERS_INFO, SCHEDULERS_INFO)
 import gpu_info
 import uuid
 try:
@@ -79,20 +81,29 @@ def history():
         search_query=(search_query or None),
         favorites_only=fav_only,
     )
+    upscaler_ready = any(upscaler_status(uid)["downloaded"] for uid in UPSCALERS)
     return render_template("history.html", images=images, models=MODELS,
                            model_filter=model_filter, search_query=search_query,
-                           fav_only=fav_only, count=db.count_images())
+                           fav_only=fav_only, count=db.count_images(),
+                           upscaler_ready=upscaler_ready)
 
 
 @app.route("/models")
 def models_page():
     statuses = {mid: model_status(mid) for mid in MODELS}
     vram_mb, gpu_name = gpu_info.get_gpu_info()
+    upscale_cards = [
+        {**u, "status": upscaler_status(uid)} for uid, u in UPSCALERS.items()
+    ]
+    adetailer_cards = [
+        {**d, "status": adetailer_status(did)} for did, d in ADETAILERS.items()
+    ]
     return render_template("models.html", models=MODELS, deps=DEPS,
                            statuses=statuses, engine_ready=engine_ready(),
                            token_set=bool(hf_token()),
                            vram_gb=round(vram_mb/1024, 1) if vram_mb else 0,
-                           gpu_name=gpu_name)
+                           gpu_name=gpu_name,
+                           upscalers=upscale_cards, adetailers=adetailer_cards)
 
 
 @app.route("/settings")
@@ -251,6 +262,111 @@ def api_download_engine():
 
 
 # --------------------------------------------------------------------------- #
+#  API : Qualité, Upscaling ×4 & ADetailer
+# --------------------------------------------------------------------------- #
+@app.route("/api/quality-info")
+def api_quality_info():
+    """Catalogue qualité : échantillonneurs, planificateurs, modèles ×4 et détecteurs."""
+    return jsonify({
+        "ok": True,
+        "engine_ready": engine_ready(),
+        "samplers": SAMPLERS_INFO,
+        "schedulers": SCHEDULERS_INFO,
+        "upscalers": [
+            {**u, "status": upscaler_status(uid)} for uid, u in UPSCALERS.items()
+        ],
+        "adetailers": [
+            {**d, "status": adetailer_status(did)} for did, d in ADETAILERS.items()
+        ],
+    })
+
+
+@app.route("/api/download-upscaler", methods=["POST"])
+def api_download_upscaler():
+    data = request.get_json(force=True)
+    uid = data.get("upscaler_id", "")
+    if uid not in UPSCALERS:
+        return jsonify({"ok": False, "error": "Modèle d'agrandissement inconnu"}), 400
+    try:
+        tasks.start_upscaler_download(uid)
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 409
+    return jsonify({"ok": True})
+
+
+@app.route("/api/download-adetailer", methods=["POST"])
+def api_download_adetailer():
+    data = request.get_json(force=True)
+    did = data.get("detector_id", "")
+    if did not in ADETAILERS:
+        return jsonify({"ok": False, "error": "Détecteur ADetailer inconnu"}), 400
+    try:
+        tasks.start_adetailer_download(did)
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 409
+    return jsonify({"ok": True})
+
+
+@app.route("/api/upscale", methods=["POST"])
+def api_upscale():
+    """Agrandit ×4 une image déjà générée (sorties de output/ ou entrée de l'historique)."""
+    data = request.get_json(force=True)
+    uid = (data.get("upscaler_id") or "").strip()
+    if uid and uid not in UPSCALERS:
+        return jsonify({"ok": False, "error": "Modèle d'agrandissement inconnu."}), 400
+    if not uid:
+        # Choix automatique : le premier modèle ×4 installé (ordre du registre).
+        uid = next((k for k in UPSCALERS if upscaler_status(k)["downloaded"]), None)
+        if not uid:
+            return jsonify({"ok": False, "error": (
+                "Aucun modèle d'agrandissement n'est installé. Téléchargez-en un dans "
+                "l'onglet Modèles, section « 🔍 Upscaling ×4 » (quelques dizaines de Mo)."
+            )}), 400
+    elif not upscaler_status(uid)["downloaded"]:
+        return jsonify({"ok": False, "error": (
+            f"« {UPSCALERS[uid]['name']} » n'est pas installé. Téléchargez-le dans "
+            "l'onglet Modèles, section « 🔍 Upscaling ×4 »."
+        )}), 400
+
+    # Résolution de l'image source : identifiant d'historique, ou chemin dans output/.
+    if data.get("image_id") is not None:
+        try:
+            img = db.get_image(int(data["image_id"]))
+        except Exception:
+            img = None
+        if not img:
+            return jsonify({"ok": False, "error": "Image introuvable dans l'historique."}), 404
+        fn = img["filename"]
+        if not (config.OUTPUT_DIR / fn).exists():
+            return jsonify({"ok": False,
+                            "error": "Le fichier image n'existe plus sur le disque."}), 404
+        src_rel = str(Path("output") / fn)
+    else:
+        raw = str(data.get("path") or "").strip().lstrip("/")
+        if raw.startswith("output/"):
+            raw = raw[len("output/"):]
+        cand = config.OUTPUT_DIR / raw
+        try:
+            cand.resolve().relative_to(config.OUTPUT_DIR.resolve())
+        except Exception:
+            return jsonify({"ok": False, "error": "Chemin d'image invalide."}), 400
+        if not raw or not cand.exists():
+            return jsonify({"ok": False, "error": "Image introuvable sur le disque."}), 404
+        src_rel = str(Path("output") / raw)
+
+    params = {
+        "task_kind": "upscale",
+        "upscaler_id": uid,
+        "source_image": src_rel,
+    }
+    try:
+        q_info = tasks.enqueue_generate(params)
+        return jsonify({"ok": True, "upscaler_id": uid, **q_info})
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 409
+
+
+# --------------------------------------------------------------------------- #
 #  API : génération
 # --------------------------------------------------------------------------- #
 @app.route("/api/generate", methods=["POST"])
@@ -355,6 +471,60 @@ def api_generate():
         "inpaint": bool(inpaint_cfg),
         "mask_image": mask_rel_path,
     }
+
+    # --- Options Qualité / Détails / Upscaling (validées côté serveur) ---
+    valid_samplers = {s["id"] for s in SAMPLERS_INFO} | {m["defaults"]["sampler"] for m in MODELS.values()}
+    valid_schedulers = {s["id"] for s in SCHEDULERS_INFO}
+    sampler = (data.get("sampler") or "default").strip()
+    if sampler not in valid_samplers:
+        return jsonify({"ok": False, "error": f"Échantillonneur inconnu : {sampler}"}), 400
+    scheduler = (data.get("scheduler") or "default").strip()
+    if scheduler not in valid_schedulers:
+        return jsonify({"ok": False, "error": f"Planificateur inconnu : {scheduler}"}), 400
+    params["sampler"] = sampler
+    params["scheduler"] = scheduler
+    params["vae_tiling"] = bool(data.get("vae_tiling"))
+    slg = data.get("slg_scale")
+    if slg in ("", None):
+        slg = None
+    else:
+        try:
+            slg = float(slg)
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "Valeur SLG invalide."}), 400
+        slg = max(0.0, min(5.0, slg)) or None
+    params["slg_scale"] = slg
+
+    upscale_id = (data.get("upscale_id") or "").strip() or None
+    if upscale_id:
+        if upscale_id not in UPSCALERS:
+            return jsonify({"ok": False, "error": "Modèle d'agrandissement inconnu."}), 400
+        if not upscaler_status(upscale_id)["downloaded"]:
+            return jsonify({"ok": False, "error": (
+                f"« {UPSCALERS[upscale_id]['name']} » n'est pas installé. Téléchargez-le "
+                "dans l'onglet Modèles (section « 🔍 Upscaling ×4 »)."
+            )}), 400
+    params["upscale_id"] = upscale_id
+
+    adetailer_id = (data.get("adetailer_id") or "").strip() or None
+    if adetailer_id:
+        if adetailer_id not in ADETAILERS:
+            return jsonify({"ok": False, "error": "Détecteur ADetailer inconnu."}), 400
+        if not adetailer_status(adetailer_id)["downloaded"]:
+            return jsonify({"ok": False, "error": (
+                f"Le détecteur « {ADETAILERS[adetailer_id]['name']} » n'est pas installé. "
+                "Téléchargez-le dans l'onglet Modèles (section « 🙂 ADetailer »)."
+            )}), 400
+    params["adetailer_id"] = adetailer_id
+
+    # Hires Fix (2 passes) : uniquement en génération pure (jamais avec une image de départ)
+    params["hires_fix"] = bool(data.get("hires_fix")) and not images and not mask_rel_path
+    try:
+        params["hires_strength"] = float(data.get("hires_strength") or 0.35)
+    except (TypeError, ValueError):
+        params["hires_strength"] = 0.35
+    params["hires_strength"] = max(0.1, min(0.8, params["hires_strength"]))
+
     if not params["prompt"]:
         return jsonify({"ok": False, "error": "Le prompt est vide."}), 400
     allow_queue = bool(data.get("allow_queue", True))

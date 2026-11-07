@@ -2294,7 +2294,7 @@ function renderEditQueue(queue) {
     <div class="queue-item" data-qid="${item.queue_id}">
       <span class="queue-pos">#${item.position}</span>
       <div class="queue-info">
-        <strong>${esc(item.model_name)} (${esc(item.quant)})</strong> · ${item.width}×${item.height} · ×${item.batch}
+        <strong>${esc(item.model_name)}${item.quant ? ' (' + esc(item.quant) + ')' : ''}</strong>${item.width && item.height ? ` · ${item.width}×${item.height}` : ''}${item.batch > 1 ? ` · ×${item.batch}` : ''}
         <div class="queue-prompt">${esc(item.prompt || '')}</div>
       </div>
       <button type="button" class="x queue-del" data-qid="${item.queue_id}" title="Retirer de la file">×</button>
@@ -2476,6 +2476,9 @@ $('#generate-btn').addEventListener('click', async () => {
     body.width = customWidth;
     body.height = customHeight;
   }
+  // Options Qualité/Détails/Agrandissement (section ✨) : sampler, scheduler,
+  // upscale ×4 après édition, ADetailer visages/mains, VAE tiling, SLG…
+  if (window.LisQuality) Object.assign(body, LisQuality.collect());
   if (outpaintOn) {
     body.outpaint = {
       enabled: true,
@@ -2575,6 +2578,15 @@ function pollStatus() {
     if (j.log) $('#log').textContent = j.log + ($('#log').textContent ? '\n' + $('#log').textContent : '');
 
     renderEditQueue(j.queue || []);
+
+    // Agrandissement ×4 terminé (même si d'autres tâches suivent dans la file)
+    if (j.kind === 'upscale' && j.busy) window.__upscaleDonePending = true;
+    if (window.__upscaleDonePending && !j.busy) {
+      window.__upscaleDonePending = false;
+      if (j.result && j.result.type === 'upscale' && window.LisQuality) {
+        LisQuality._done(j.result.error || j.result.cancelled ? [] : (j.result.images || []));
+      }
+    }
 
     if (!j.busy && (!j.queue || j.queue.length === 0)) {
       clearInterval(pollTimer); pollTimer = null;
@@ -2692,6 +2704,10 @@ function showResults(images) {
       }
     });
     d.appendChild(useAsSource);
+    // Bouton 1-clic « 🔍 Agrandir ×4 » (super-résolution, enregistré en historique)
+    if (window.LisQuality && typeof LisQuality.makeUpscaleButton === 'function') {
+      d.appendChild(LisQuality.makeUpscaleButton({ imageId: img.id }));
+    }
     box.appendChild(d);
   });
   if (comparisonSource && lastGeneratedResults.length) {
@@ -2766,5 +2782,63 @@ async function applyReusePayload() {
   refreshAll();
 }
 
+// ---------- Agrandissement ×4 : affichage du résultat dans la grille ----------
+function appendUpscaledResults(images) {
+  const box = $('#results');
+  if (!box || !Array.isArray(images)) return;
+  images.forEach(img => {
+    const displayUrl = `${img.url}?u=${Date.now()}`;
+    const d = document.createElement('div');
+    d.className = 'result result-upscaled';
+    d.innerHTML = `
+      <span class="upscaled-badge" title="Version agrandie ×${img.scale || 4} et renforcée en netteté, enregistrée dans l'historique">🔍 AGRANDIE ×${img.scale || 4}</span>
+      <img src="${displayUrl}" alt="">
+      <div class="rbar"><span>haute résolution</span>
+        <a class="link" href="${img.url}" download>télécharger</a></div>`;
+    d.querySelector('img').addEventListener('click', () => {
+      openLightbox([{
+        src: displayUrl, downloadUrl: img.url,
+        label: `Version agrandie ×${img.scale || 4}`,
+        role: 'result', badge: `🔍 AGRANDIE ×${img.scale || 4}`,
+      }], 0);
+    });
+    const useAsSource = document.createElement('button');
+    useAsSource.type = 'button';
+    useAsSource.className = 'btn small result-use-source';
+    useAsSource.textContent = 'Utiliser comme image à modifier';
+    useAsSource.addEventListener('click', async () => {
+      useAsSource.disabled = true;
+      useAsSource.textContent = 'Chargement…';
+      try {
+        const response = await fetch(img.url);
+        if (!response.ok) throw new Error("Image générée introuvable.");
+        const blob = await response.blob();
+        const file = new File([blob], img.filename.split('/').pop(), { type: 'image/png' });
+        if (await setCanvas([file])) {
+          useAsSource.textContent = '✓ Image de départ remplacée';
+          $('#canvas-drop').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+          useAsSource.textContent = 'Utiliser comme image à modifier';
+        }
+      } catch (e) {
+        showGenError(e.message || "Impossible d'utiliser cette image.");
+        useAsSource.textContent = 'Utiliser comme image à modifier';
+      } finally {
+        useAsSource.disabled = false;
+      }
+    });
+    d.appendChild(useAsSource);
+    if (window.LisQuality) d.appendChild(LisQuality.makeUpscaleButton({ imageId: img.id }));
+    box.appendChild(d);
+  });
+}
+
+// Branche la section Qualité sur le poller de la page (un seul timer partagé)
+window.__lisPagePoll = pollStatus;
+window.__lisOnUpscaleDone = appendUpscaledResults;
+
 loadModels();
 loadGpu();
+if (window.LisQuality) {
+  LisQuality.initSection({ container: '#quality-section', withHires: false });
+}

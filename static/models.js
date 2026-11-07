@@ -33,7 +33,8 @@ function startPolling() {
       if (fill) fill.style.width = pct + '%';
       if (text) text.textContent = j.log || (j.busy ? 'en cours…' : 'termine');
       // desactive les boutons pendant la tache
-      document.querySelectorAll('.dl-btn, #install-engine').forEach(b => b.disabled = true);
+      document.querySelectorAll('.dl-btn, .dl-upscale-btn, .dl-ad-btn, #install-engine')
+        .forEach(b => b.disabled = true);
       if (!j.busy) {
         clearInterval(taskTimer); taskTimer = null;
         if (j.error) {
@@ -110,6 +111,62 @@ $$('.model-card').forEach(card => {
   if (sel) {
     sel.addEventListener('change', () => updateDlBtn(card));
   }
+});
+
+// --- Boutons : telecharger un modele d'agrandissement ×4 ---
+$$('.dl-upscale-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const uid = btn.dataset.upscaler;
+    btn.disabled = true;
+    btn.textContent = 'en cours…';
+    showBanner('Téléchargement du modèle d\'agrandissement…');
+    try {
+      const r = await fetch('/api/download-upscaler', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ upscaler_id: uid })
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        btn.disabled = false;
+        btn.textContent = 'Télécharger';
+        alert(j.error || 'Erreur');
+        return;
+      }
+      startPolling();
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Télécharger';
+      alert('Connexion au serveur impossible : ' + e.message);
+    }
+  });
+});
+
+// --- Boutons : telecharger un detecteur ADetailer (visages/mains) ---
+$$('.dl-ad-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const did = btn.dataset.detector;
+    btn.disabled = true;
+    btn.textContent = 'en cours…';
+    showBanner('Téléchargement du détecteur ADetailer…');
+    try {
+      const r = await fetch('/api/download-adetailer', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ detector_id: did })
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        btn.disabled = false;
+        btn.textContent = 'Télécharger';
+        alert(j.error || 'Erreur');
+        return;
+      }
+      startPolling();
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Télécharger';
+      alert('Connexion au serveur impossible : ' + e.message);
+    }
+  });
 });
 
 // --- Boutons : telecharger un modele ---

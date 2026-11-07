@@ -98,6 +98,64 @@
     </div>
     {% endfor %}
   </div>
+
+  <!-- ==================================================== Upscaling ×4 -->
+  <div class="aux-header">
+    <h2>🔍 Agrandissement ×4 <span class="muted small">(super-résolution)</span></h2>
+    <p class="muted">
+      Ces modèles ultra-légers (17–64&nbsp;Mo) multiplient la résolution d'une image par 4
+      (ex. 1024×1024 → 4096×4096) en renforçant la netteté. Une fois installés, un bouton
+      «&nbsp;🔍&nbsp;Agrandir&nbsp;×4&nbsp;» apparaît sur chaque image générée et dans l'historique,
+      et vous pouvez agrandir automatiquement pendant la génération via la section
+      «&nbsp;✨&nbsp;Qualité, Détails &amp; Agrandissement&nbsp;».
+    </p>
+  </div>
+  <div class="model-grid">
+    {% for u in upscalers %}
+    <div class="model-card" data-id="up-{{ u.id }}">
+      <div class="mc-head">
+        <h3>{{ u.name }}</h3>
+        <span class="tag">×{{ u.scale }}</span>
+        {% if u.status.downloaded %}<span class="tag tag-ok">installé ✓</span>{% endif %}
+      </div>
+      <p class="muted mc-desc">{{ u.desc }}</p>
+      <p class="mc-hf-link"><a href="https://huggingface.co/leejet/stable-diffusion.cpp/blob/master/docs/esrgan.md" target="_blank" rel="noopener">📖 Doc technique (esrgan.md) ↗</a></p>
+      <div class="mc-actions">
+        <button class="btn {% if u.status.downloaded %}ghost{% else %}primary{% endif %} dl-upscale-btn" data-upscaler="{{ u.id }}">
+          {% if u.status.downloaded %}Re-télécharger{% else %}Télécharger (~{{ u.size_mb }} Mo){% endif %}
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- ==================================================== ADetailer -->
+  <div class="aux-header">
+    <h2>🙂 ADetailer <span class="muted small">(retouche automatique visages &amp; mains)</span></h2>
+    <p class="muted">
+      Ces détecteurs YOLOv8 (6–22&nbsp;Mo) repèrent les visages ou les mains d'une image générée,
+      puis le moteur re-détaille juste ces zones avec votre modèle. On les choisit dans la section
+      «&nbsp;✨&nbsp;Qualité, Détails &amp; Agrandissement&nbsp;» des pages Générer et Édition.
+      Poids issus de <code>Bingsu/adetailer</code>, convertis en safetensors pour sd-cli.
+    </p>
+  </div>
+  <div class="model-grid">
+    {% for d in adetailers %}
+    <div class="model-card" data-id="ad-{{ d.id }}">
+      <div class="mc-head">
+        <h3>{{ d.name }}</h3>
+        {% if d.status.downloaded %}<span class="tag tag-ok">installé ✓</span>{% endif %}
+      </div>
+      <p class="muted mc-desc">{{ d.desc }}</p>
+      <p class="mc-hf-link"><a href="https://huggingface.co/{{ d.repo }}" target="_blank" rel="noopener">🔗 {{ d.repo }} ↗</a></p>
+      <div class="mc-actions">
+        <button class="btn {% if d.status.downloaded %}ghost{% else %}primary{% endif %} dl-ad-btn" data-detector="{{ d.id }}">
+          {% if d.status.downloaded %}Re-télécharger{% else %}Télécharger (~{{ d.size_mb }} Mo){% endif %}
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
 </section>
 {% endblock %}
 

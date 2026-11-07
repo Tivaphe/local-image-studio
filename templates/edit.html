@@ -332,6 +332,9 @@
       </div>
     </details>
 
+    <!-- Section Qualité / Détails / Agrandissement (rendue par quality.js) -->
+    <div id="quality-section"></div>
+
     <div id="vram-advice" class="advice" hidden></div>
 
     <div class="actions">
@@ -394,5 +397,6 @@
 window.RATIOS = {{ ratios | tojson }};
 window.PAGE = "edit";
 </script>
+<script src="{{ url_for('static', filename='quality.js') }}"></script>
 <script src="{{ url_for('static', filename='edit.js') }}"></script>
 {% endblock %}

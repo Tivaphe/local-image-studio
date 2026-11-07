@@ -9,7 +9,198 @@ import json
 import re
 from pathlib import Path
 
-from config import (DIFFUSION_DIR, VAE_DIR, TEXTENC_DIR, LLM_DIR, MANIFEST_PATH)
+from config import (DIFFUSION_DIR, VAE_DIR, TEXTENC_DIR, LLM_DIR, UPSCALE_DIR,
+                    ADETAILER_DIR, MANIFEST_PATH)
+
+
+# --------------------------------------------------------------------------- #
+#  Modeles d'Upscaling (Super-Resolution ESRGAN / MoSR pour sd-cli)
+# --------------------------------------------------------------------------- #
+UPSCALERS = {
+    "realesrgan-x4plus": {
+        "id": "realesrgan-x4plus",
+        "name": "RealESRGAN ×4 Plus (Photo & Généraliste)",
+        "short_label": "📸 Photo & Généraliste ×4 (RealESRGAN)",
+        "filename": "RealESRGAN_x4plus.pth",
+        "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+        "size_mb": 64,
+        "scale": 4,
+        "desc": (
+            "Modèle ×4 polyvalent de référence (64 Mo) : multiplie la résolution par 4 "
+            "(ex. 1024×1024 → 4096×4096) et renforce la netteté des photos, portraits et paysages."
+        ),
+    },
+    "4x-nomos2-hq": {
+        "id": "4x-nomos2-hq",
+        "name": "4× Nomos2 HQ MoSR (Textures naturelles)",
+        "short_label": "✨ Textures naturelles ×4 (Nomos2 MoSR)",
+        "filename": "4xNomos2_hq_mosr.pth",
+        "url": "https://github.com/Phhofm/models/releases/download/4xNomos2_hq_mosr/4xNomos2_hq_mosr.pth",
+        "size_mb": 35,
+        "scale": 4,
+        "desc": (
+            "Architecture MoSR PixelShuffle prise en charge nativement par sd-cli (35 Mo) : "
+            "préserve le grain de peau, les cheveux, le tissu et les micro-détails sans effet plastique."
+        ),
+    },
+    "realesrgan-anime-6b": {
+        "id": "realesrgan-anime-6b",
+        "name": "RealESRGAN ×4 Anime 6B (Illustration & Dessin)",
+        "short_label": "🎨 Illustration & Anime ×4 (Anime 6B)",
+        "filename": "RealESRGAN_x4plus_anime_6B.pth",
+        "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth",
+        "size_mb": 17,
+        "scale": 4,
+        "desc": (
+            "Ultra-léger (17 Mo) et très rapide : idéal pour les illustrations, l'anime, "
+            "le concept art, les bandes dessinées et les affiches à contours nets."
+        ),
+    },
+}
+
+
+def upscaler_path(upscaler_id: str) -> Path | None:
+    u = UPSCALERS.get(upscaler_id)
+    if not u:
+        return None
+    return UPSCALE_DIR / u["filename"]
+
+
+def upscaler_status(upscaler_id: str) -> dict:
+    u = UPSCALERS.get(upscaler_id)
+    if not u:
+        return {"downloaded": False, "path": None}
+    p = UPSCALE_DIR / u["filename"]
+    ok = p.exists() and p.is_file() and p.stat().st_size > 1024 * 100
+    return {"downloaded": ok, "path": str(p) if ok else None}
+
+
+# --------------------------------------------------------------------------- #
+#  Detecteurs ADetailer (YOLOv8 convertis en safetensors pour sd-cli)
+#  Repo HF exeterminal/adetailer-yolov8-safetensors : poids Bingsu/adetailer
+#  convertis avec scripts/convert_yolov8_to_safetensors.py de stable-diffusion.cpp.
+# --------------------------------------------------------------------------- #
+ADETAILERS = {
+    "face_yolov8n": {
+        "id": "face_yolov8n",
+        "name": "Visages (YOLOv8n — rapide)",
+        "short_label": "😊 Visages (rapide)",
+        "filename": "face_yolov8n.safetensors",
+        "repo": "exeterminal/adetailer-yolov8-safetensors",
+        "size_mb": 6,
+        "desc": (
+            "Détecteur de visages léger (~6 Mo) : repère chaque visage de l'image puis "
+            "le re-détaille avec votre modèle pour corriger les yeux, les dents et les sourires."
+        ),
+    },
+    "face_yolov8s": {
+        "id": "face_yolov8s",
+        "name": "Visages (YOLOv8s — précis)",
+        "short_label": "😊 Visages (précis)",
+        "filename": "face_yolov8s.safetensors",
+        "repo": "exeterminal/adetailer-yolov8-safetensors",
+        "size_mb": 22,
+        "desc": (
+            "Version « small » plus fiable (~22 Mo) : à préférer pour les portraits de loin, "
+            "les groupes de personnes ou les visages partiellement cachés."
+        ),
+    },
+    "hand_yolov8n": {
+        "id": "hand_yolov8n",
+        "name": "Mains (YOLOv8n)",
+        "short_label": "🖐 Mains",
+        "filename": "hand_yolov8n.safetensors",
+        "repo": "exeterminal/adetailer-yolov8-safetensors",
+        "size_mb": 6,
+        "desc": (
+            "Détecteur de mains (~6 Mo) : corrige doigts et proportions, le point faible "
+            "classique des modèles de génération."
+        ),
+    },
+}
+
+
+def adetailer_path(detector_id: str) -> Path | None:
+    d = ADETAILERS.get(detector_id)
+    if not d:
+        return None
+    return ADETAILER_DIR / d["filename"]
+
+
+def adetailer_status(detector_id: str) -> dict:
+    d = ADETAILERS.get(detector_id)
+    if not d:
+        return {"downloaded": False, "path": None}
+    p = ADETAILER_DIR / d["filename"]
+    ok = p.exists() and p.is_file() and p.stat().st_size > 16 * 1024
+    return {"downloaded": ok, "path": str(p) if ok else None}
+
+
+SAMPLERS_INFO = [
+    {
+        "id": "default",
+        "label": "Auto (recommandé par le modèle)",
+        "desc": "Utilise l'échantillonneur optimal prévu pour ce modèle (généralement Euler).",
+    },
+    {
+        "id": "euler",
+        "label": "Euler — Rapide & fidèle (standard DiT / FLUX)",
+        "desc": "Le meilleur compromis vitesse/qualité pour FLUX, Qwen-Image, Fibo et Z-Image.",
+    },
+    {
+        "id": "heun",
+        "label": "Heun — Finesse des dégradés & textures (2× plus précis)",
+        "desc": "Méthode du 2e ordre : affine les textures et les transitions de lumière (plus lent par étape).",
+    },
+    {
+        "id": "dpm++2m",
+        "label": "DPM++ 2M — Piqué élevé (excellent sur SD 3.5 & portraits)",
+        "desc": "Renforce le micro-contraste et la netteté dès 20-28 étapes.",
+    },
+    {
+        "id": "euler_a",
+        "label": "Euler Ancestral — Créatif & grain organique",
+        "desc": "Ajoute une légère variation stochastique à chaque étape, utile pour casser un aspect trop lisse.",
+    },
+    {
+        "id": "lcm",
+        "label": "LCM — Spécial modèles distillés ultra-courts",
+        "desc": "Conçu pour les checkpoints distillés en très peu d'étapes (4 à 8 étapes).",
+    },
+]
+
+SCHEDULERS_INFO = [
+    {
+        "id": "default",
+        "label": "Auto (défaut du moteur)",
+        "desc": "Laisse sd-cli choisir la courbe de bruit adaptée à l'architecture du modèle.",
+    },
+    {
+        "id": "discrete",
+        "label": "Discrete — Progression linéaire standard",
+        "desc": "Répartition classique des étapes de débruitage.",
+    },
+    {
+        "id": "karras",
+        "label": "Karras — Micro-détails & finitions soignées",
+        "desc": "Concentre davantage d'étapes sur la fin du débruitage pour soigner le grain et les petits détails.",
+    },
+    {
+        "id": "beta",
+        "label": "Beta — Contraste & richesse des matières",
+        "desc": "Courbe récente très appréciée sur les modèles DiT/Flow pour améliorer la densité des textures.",
+    },
+    {
+        "id": "sgm_uniform",
+        "label": "SGM Uniform — Stable sur les modèles Turbo / SD3",
+        "desc": "Répartition uniforme recommandée pour plusieurs checkpoints basés sur le Flow Matching.",
+    },
+    {
+        "id": "exponential",
+        "label": "Exponential — Transitions douces",
+        "desc": "Décroissance exponentielle du bruit, utile pour des éclairages très progressifs.",
+    },
+]
 
 
 # --------------------------------------------------------------------------- #
@@ -915,6 +1106,194 @@ MODELS = {
         "defaults": {"steps": 8, "cfg": 1.0, "sampler": "euler"},
         "min_steps": 4, "max_steps": 20,
     },
+    # ---- Nouveaux modeles Qualite / Details / Edition (reutilisant les dependances existantes) ----
+    "flux-dev": {
+        "presets": {
+            "rapide":    {"steps": 18, "cfg": 1.0, "quant": "Q4_K_S", "label": "⚡ Rapide (18 étapes, Q4_K_S)"},
+            "equilibre": {"steps": 24, "cfg": 1.0, "quant": "Q5_K_S", "label": "⚖️ Équilibre (24 étapes, Q5_K_S)"},
+            "qualite":   {"steps": 28, "cfg": 1.0, "quant": "Q8_0",   "label": "✨ Qualité max (28 étapes, Q8_0)"},
+        },
+        "name": "FLUX.1 Dev (Haute Finesse)",
+        "arch": "flux",
+        "repo": "unsloth/FLUX.1-dev-GGUF",
+        "quants": ["Q4_K_S", "Q5_K_S", "Q6_K", "Q8_0"],
+        "default_quant": "Q5_K_S",
+        "file_for_quant": {
+            "Q4_K_S": "flux1-dev-Q4_K_S.gguf",
+            "Q5_K_S": "flux1-dev-Q5_K_S.gguf",
+            "Q6_K":   "flux1-dev-Q6_K.gguf",
+            "Q8_0":   "flux1-dev-Q8_0.gguf",
+        },
+        "size_gb": {"Q4_K_S": 6.8, "Q5_K_S": 8.3, "Q6_K": 9.8, "Q8_0": 12.7},
+        "deps": ["vae_flux", "clip_l", "t5xxl"],
+        "supports_neg": False,
+        "supports_img2img": True,
+        "input_modes": ["init"],
+        "needs_token": False,
+        "license": "FLUX.1 [dev] Non-Commercial License",
+        "hf_url": "https://huggingface.co/unsloth/FLUX.1-dev-GGUF",
+        "vram_min_gb": 8,
+        "desc": (
+            "Version complète de FLUX.1 (20 à 28 étapes) : nettement supérieure à FLUX Schnell "
+            "pour le grain de peau, les mains, la lumière cinématique et les micro-détails. "
+            "Supporte l'img2img et les LoRA FLUX, et réutilise exactement les dépendances de FLUX Schnell."
+        ),
+        "defaults": {"steps": 24, "cfg": 1.0, "sampler": "euler"},
+        "min_steps": 12, "max_steps": 40,
+    },
+    "flux-kontext-dev": {
+        "presets": {
+            "rapide":    {"steps": 18, "cfg": 1.0, "quant": "Q4_K_S", "label": "⚡ Rapide (18 étapes, Q4_K_S)"},
+            "equilibre": {"steps": 24, "cfg": 1.0, "quant": "Q5_K_M", "label": "⚖️ Équilibre (24 étapes, Q5_K_M)"},
+            "qualite":   {"steps": 28, "cfg": 1.0, "quant": "Q8_0",   "label": "✨ Qualité (28 étapes, Q8_0)"},
+        },
+        "name": "FLUX.1 Kontext Dev (Édition & Cohérence)",
+        "arch": "flux_kontext",
+        "repo": "QuantStack/FLUX.1-Kontext-dev-GGUF",
+        "quants": ["Q4_K_S", "Q5_K_M", "Q6_K", "Q8_0"],
+        "default_quant": "Q5_K_M",
+        "file_for_quant": {
+            "Q4_K_S": "flux1-kontext-dev-Q4_K_S.gguf",
+            "Q5_K_M": "flux1-kontext-dev-Q5_K_M.gguf",
+            "Q6_K":   "flux1-kontext-dev-Q6_K.gguf",
+            "Q8_0":   "flux1-kontext-dev-Q8_0.gguf",
+        },
+        "size_gb": {"Q4_K_S": 6.8, "Q5_K_M": 8.5, "Q6_K": 9.8, "Q8_0": 12.7},
+        "deps": ["vae_flux", "clip_l", "t5xxl"],
+        "supports_neg": False,
+        "supports_img2img": True,
+        "supports_ref_images": True,
+        "supports_outpainting": True,
+        "input_modes": ["ref"],
+        "max_ref_images": 4,
+        "ref_tag_syntax": None,
+        "ref_needs_vlm": False,
+        "ref_hint": (
+            "FLUX.1 Kontext excelle pour modifier un élément précis, changer un texte, l'éclairage "
+            "ou l'angle d'un même personnage en gardant son identité intacte. Décrivez directement "
+            "la modification souhaitée en langage naturel (sans balise <image1>)."
+        ),
+        "ref_examples": [
+            "Keep the character's face and outfit identical, place them in a sunlit Parisian cafe",
+            "Change the text on the sign to 'LOCAL STUDIO' while keeping the exact font style and lighting",
+        ],
+        "needs_token": False,
+        "license": "FLUX.1 [dev] Non-Commercial License",
+        "hf_url": "https://huggingface.co/QuantStack/FLUX.1-Kontext-dev-GGUF",
+        "vram_min_gb": 8,
+        "desc": (
+            "Modèle d'édition contextuelle de Black Forest Labs : modifie une scène, un texte "
+            "ou un personnage avec le piqué photographique de FLUX.1. Réutilise 100 % des "
+            "dépendances de FLUX.1 (vae_flux, clip_l, t5xxl)."
+        ),
+        "defaults": {"steps": 24, "cfg": 1.0, "sampler": "euler"},
+        "min_steps": 12, "max_steps": 36,
+    },
+    "chroma": {
+        "presets": {
+            "rapide":    {"steps": 20, "cfg": 4.0, "quant": "Q4_K_M", "label": "⚡ Rapide (20 étapes, Q4_K_M)"},
+            "equilibre": {"steps": 26, "cfg": 4.0, "quant": "Q5_K_M", "label": "⚖️ Équilibre (26 étapes, Q5_K_M)"},
+            "qualite":   {"steps": 32, "cfg": 4.5, "quant": "Q8_0",   "label": "✨ Qualité (32 étapes, Q8_0)"},
+        },
+        "name": "Chroma Unlocked (Textures & Prompt Négatif)",
+        "arch": "chroma",
+        "repo": "silveroxides/Chroma-GGUF",
+        "quants": ["Q4_K_M", "Q5_K_M", "Q6_K", "Q8_0"],
+        "default_quant": "Q5_K_M",
+        "file_for_quant": {
+            "Q4_K_M": "chroma-unlocked-v40-Q4_K_M.gguf",
+            "Q5_K_M": "chroma-unlocked-v40-Q5_K_M.gguf",
+            "Q6_K":   "chroma-unlocked-v40-Q6_K.gguf",
+            "Q8_0":   "chroma-unlocked-v40-Q8_0.gguf",
+        },
+        "size_gb": {"Q4_K_M": 5.4, "Q5_K_M": 6.3, "Q6_K": 7.3, "Q8_0": 9.5},
+        "deps": ["vae_flux", "t5xxl"],
+        "supports_neg": True,
+        "supports_img2img": True,
+        "input_modes": ["init"],
+        "needs_token": False,
+        "license": "Apache 2.0 (lodestones)",
+        "hf_url": "https://huggingface.co/silveroxides/Chroma-GGUF",
+        "vram_min_gb": 6,
+        "desc": (
+            "Dérivé dé-distillé de FLUX (8,9B) : contrairement à FLUX classique, Chroma comprend "
+            "un vrai Prompt Négatif (CFG 4.0), évite l'effet peau lissée/plastique et produit des "
+            "textures organiques ultra-détaillées. N'utilise que vae_flux et t5xxl."
+        ),
+        "defaults": {"steps": 26, "cfg": 4.0, "sampler": "euler"},
+        "min_steps": 16, "max_steps": 45,
+    },
+    "chroma-radiance": {
+        "presets": {
+            "rapide":    {"steps": 20, "cfg": 4.0, "quant": "Q4_K_M", "label": "⚡ Rapide (20 étapes, Q4_K_M)"},
+            "equilibre": {"steps": 26, "cfg": 4.0, "quant": "Q6_K",   "label": "⚖️ Équilibre (26 étapes, Q6_K)"},
+            "qualite":   {"steps": 32, "cfg": 4.5, "quant": "Q8_0",   "label": "✨ Qualité (32 étapes, Q8_0)"},
+        },
+        "name": "Chroma1-Radiance (Pixel-Space sans VAE)",
+        "arch": "chroma_radiance",
+        "repo": "silveroxides/Chroma1-Radiance-GGUF",
+        "quants": ["Q4_K_M", "Q6_K", "Q8_0"],
+        "default_quant": "Q6_K",
+        "file_for_quant": {
+            "Q4_K_M": "Chroma1-Radiance-v0.4-Q4_K_M.gguf",
+            "Q6_K":   "Chroma1-Radiance-v0.4-Q6_K.gguf",
+            "Q8_0":   "Chroma1-Radiance-v0.4-Q8_0.gguf",
+        },
+        "size_gb": {"Q4_K_M": 5.5, "Q6_K": 7.4, "Q8_0": 9.6},
+        "deps": ["t5xxl"],
+        "needs_vae": False,
+        "supports_neg": True,
+        "supports_img2img": False,
+        "needs_token": False,
+        "license": "Apache 2.0 (lodestones)",
+        "hf_url": "https://huggingface.co/silveroxides/Chroma1-Radiance-GGUF",
+        "vram_min_gb": 6,
+        "desc": (
+            "Variante Radiance de Chroma qui génère directement dans l'espace pixel (sans perte "
+            "de compression VAE) : piqué micro-détails remarquable, lumière réaliste et support "
+            "du Prompt Négatif. Ne requiert que t5xxl."
+        ),
+        "defaults": {"steps": 26, "cfg": 4.0, "sampler": "euler"},
+        "min_steps": 16, "max_steps": 45,
+    },
+    "longcat-image": {
+        "presets": {
+            "rapide":    {"steps": 20, "cfg": 4.5, "quant": "Q4_K_M", "label": "⚡ Rapide (20 étapes, Q4_K_M)"},
+            "equilibre": {"steps": 28, "cfg": 5.0, "quant": "Q6_K",   "label": "⚖️ Équilibre (28 étapes, Q6_K)"},
+            "qualite":   {"steps": 35, "cfg": 5.0, "quant": "Q8_0",   "label": "✨ Qualité (35 étapes, Q8_0)"},
+        },
+        "name": "LongCat-Image (Photoréalisme & Texte)",
+        "arch": "longcat",
+        "repo": "vantagewithai/LongCat-Image-GGUF",
+        "quants": ["Q4_K_M", "Q6_K", "Q8_0"],
+        "default_quant": "Q4_K_M",
+        "file_for_quant": {
+            "Q4_K_M": "LongCat-Image-Q4_K_M.gguf",
+            "Q6_K":   "LongCat-Image-Q6_K.gguf",
+            "Q8_0":   "LongCat-Image-Q8_0.gguf",
+        },
+        "remote_file_for_quant": {
+            "Q4_K_M": "comfy/LongCat-Image-Q4_K_M.gguf",
+            "Q6_K":   "comfy/LongCat-Image-Q6_K.gguf",
+            "Q8_0":   "comfy/LongCat-Image-Q8_0.gguf",
+        },
+        "size_gb": {"Q4_K_M": 4.8, "Q6_K": 6.4, "Q8_0": 8.2},
+        "deps": ["vae_flux", "qwen25vl_7b"],
+        "llm_dep": "qwen25vl_7b",
+        "supports_neg": True,
+        "supports_img2img": False,
+        "needs_token": False,
+        "license": "Apache 2.0 (Meituan LongCat)",
+        "hf_url": "https://huggingface.co/vantagewithai/LongCat-Image-GGUF",
+        "vram_min_gb": 8,
+        "desc": (
+            "Modèle DiT photoréaliste avec rendu de texte caractère par caractère (mettez le "
+            "texte entre guillemets) et excellente fidélité aux prompts complexes. Réutilise "
+            "vae_flux et Qwen2.5-VL-7B (déjà utilisé par Qwen-Image 2512)."
+        ),
+        "defaults": {"steps": 28, "cfg": 5.0, "sampler": "euler"},
+        "min_steps": 16, "max_steps": 50,
+    },
 }
 
 
@@ -1468,6 +1847,26 @@ def gen_prompt_presets(model_id: str) -> list[dict]:
                 "clean vector-inspired illustration"
             ),
         })
+    elif arch == "longcat":
+        # LongCat rend le texte caractère par caractère : le mettre entre guillemets.
+        common.insert(0, {
+            "id": "gen_typography",
+            "label": "🔤 Texte exact entre guillemets (spécialité LongCat)",
+            "prompt": (
+                "Minimalist movie poster of a lighthouse in a storm at dusk, the title "
+                "\"LOCAL IMAGE STUDIO\" written in large elegant serif letters across the sky, "
+                "cinematic volumetric light, photorealistic, 8k"
+            ),
+        })
+    elif arch == "flux_kontext":
+        common.insert(0, {
+            "id": "gen_kontext_relight",
+            "label": "💡 Changer l'ambiance lumineuse (Kontext)",
+            "prompt": (
+                "Keep the subject, composition and details identical, relight the scene with "
+                "warm golden-hour sunlight coming from the left, soft long shadows"
+            ),
+        })
     elif arch in ("sd3",):
         common.append({
             "id": "gen_img2img_restyle",
@@ -1605,19 +2004,18 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
                   cfg, seed, batch, out_template, sd_cli, manifest,
                   source_image=None, lora_dir=None, strength=None,
                   ref_images=None, input_mode=None, ref_max_pixels=None,
-                  mask_image=None):
+                  mask_image=None, sampler=None, scheduler=None,
+                  vae_tiling=False, slg_scale=None, upscale_model=None,
+                  adetailer_model=None):
     m = MODELS[model_id]
     arch = m["arch"]
     args = [sd_cli]
 
     # --- Entrees image : references (edition) ou image de depart (img2img) ---
-    # `ref_images` est la liste ordonnee (index 0 = canvas edite). `source_image`
-    # (chaine unique) est conserve pour la retro-compatibilite.
     images = [str(p) for p in (ref_images or []) if p]
     if not images and source_image:
         images = [str(source_image)]
     if input_mode is None:
-        # Retro-compatibilite : -i pour les UNet, -r pour les DiT.
         input_mode = "init" if arch in ("sd3", "sd") else "ref"
     has_refs = bool(images) and input_mode == "ref"
     has_init = bool(images) and input_mode == "init"
@@ -1632,7 +2030,7 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
         if uncond:
             args += ["--uncond-diffusion-model", str(DIFFUSION_DIR / uncond)]
 
-    # VAE : SD3 a le VAE integre -> pas de --vae
+    # VAE : SD3 et Chroma1-Radiance n'utilisent pas --vae externe
     if m.get("needs_vae", True):
         if arch == "sd3":
             vae_key = "vae_sd3"
@@ -1649,13 +2047,21 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
             args += ["--vae", str(vpath)]
 
     # Encodeurs de texte
-    if arch == "flux":
+    if arch in ("flux", "flux_kontext"):
         cl = _dep_path(manifest, "clip_l")
         t5 = _dep_path(manifest, "t5xxl")
         if cl:
             args += ["--clip_l", str(cl)]
         if t5:
             args += ["--t5xxl", str(t5)]
+    elif arch in ("chroma", "chroma_radiance"):
+        t5 = _dep_path(manifest, "t5xxl")
+        if t5:
+            args += ["--t5xxl", str(t5)]
+    elif arch == "longcat":
+        llm = _dep_path(manifest, m.get("llm_dep", "qwen25vl_7b"))
+        if llm:
+            args += ["--llm", str(llm)]
     elif arch == "sd3":
         cl = _dep_path(manifest, "clip_l")
         cg = _dep_path(manifest, "clip_g")
@@ -1758,9 +2164,10 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     # Parametres (certains checkpoints Turbo imposent un nombre d'etapes/CFG fixe)
     cfg = m.get("fixed_cfg", cfg)
     steps = m.get("fixed_steps", steps)
+    chosen_sampler = (sampler if (sampler and sampler != "default") else m["defaults"]["sampler"])
     args += ["--cfg-scale", f"{cfg}",
              "--steps", f"{int(steps)}",
-             "--sampling-method", m["defaults"]["sampler"],
+             "--sampling-method", chosen_sampler,
              "-H", f"{int(height)}",
              "-W", f"{int(width)}",
              "--seed", f"{int(seed)}",
@@ -1769,6 +2176,8 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
              "-o", out_template,
              "-v",
              "--offload-to-cpu"]
+    if scheduler and scheduler != "default":
+        args += ["--scheduler", str(scheduler)]
     if m.get("sigmas"):
         args += ["--sigmas", m["sigmas"]]
 
@@ -1776,17 +2185,36 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     if m.get("diffusion_fa", True):
         args += ["--diffusion-fa"]
 
-    # --clip-on-cpu pour les gros encodeurs
-    if arch in ("flux", "sd3"):
+    # --clip-on-cpu pour les gros encodeurs T5 / CLIP
+    if arch in ("flux", "flux_kontext", "chroma", "chroma_radiance", "sd3"):
         args += ["--clip-on-cpu"]
 
-    # --flow-shift pour ERNIE et Qwen-Image 2512 ; Turbo utilise ses sigmas fixes.
-    if arch == "ernie" or model_id == "qwen-image-2512":
+    # Argument specifique Chroma (docs/chroma.md)
+    if arch == "chroma":
+        args += ["--model-args", "chroma_use_dit_mask=false"]
+
+    # --flow-shift pour ERNIE, Qwen-Image 2512 et LongCat
+    if arch in ("ernie", "longcat") or model_id == "qwen-image-2512":
         args += ["--flow-shift", "3"]
 
     # zero-cond-t pour l'edition des modeles Qwen-Image 2.1
     if m.get("zero_cond_t_on_edit") and has_refs:
         args += ["--model-args", "qwen_image_zero_cond_t=true"]
+
+    # Options Qualité & Détails : VAE Tiling, Skip Layer Guidance (SLG), Upscaling, ADetailer
+    if vae_tiling:
+        args += ["--vae-tiling"]
+    if slg_scale is not None:
+        try:
+            slg_val = float(slg_scale)
+            if slg_val > 0:
+                args += ["--slg-scale", f"{slg_val}"]
+        except (TypeError, ValueError):
+            pass
+    if upscale_model:
+        args += ["--upscale-model", str(upscale_model), "--upscale-tile-size", "256"]
+    if adetailer_model:
+        args += ["--ad-model", str(adetailer_model)]
 
     # LoRA : --lora-model-dir (option officielle sd-cli, pas --lora-dir)
     if lora_dir:
@@ -1796,6 +2224,21 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
             args += ["--lora-model-dir", str(lora_p)]
 
     return args
+
+
+def build_upscale_command(sd_cli, input_path, output_path, upscale_model_path, tile_size=256):
+    """
+    Construit la commande sd-cli pour agrandir une image existante en mode autonome (-M upscale).
+    """
+    return [
+        str(sd_cli),
+        "-M", "upscale",
+        "-i", str(input_path),
+        "-o", str(output_path),
+        "--upscale-model", str(upscale_model_path),
+        "--upscale-tile-size", str(int(tile_size)),
+        "-v",
+    ]
 
 
 # --------------------------------------------------------------------------- #

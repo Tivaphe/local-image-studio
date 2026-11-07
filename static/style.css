@@ -470,3 +470,42 @@ small{color:var(--muted)}
 .inpaint-canvas{max-width:100%;height:auto;border-radius:8px;border:1px solid var(--border);
   background:#0d0f14;cursor:crosshair;touch-action:none}
 
+
+/* ===== Section « ✨ Qualité, Détails & Agrandissement » ===== */
+.quality-details{margin-top:14px}
+.quality-details summary{font-weight:700}
+.q-block{margin-top:12px;padding-top:12px;border-top:1px dashed var(--border)}
+.q-block:first-of-type{margin-top:10px;padding-top:4px;border-top:none}
+.q-head{margin-bottom:6px}
+.q-title{font-size:13px;font-weight:700;color:var(--accent2)}
+.q-toggle{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin:4px 0}
+.q-toggle input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent)}
+.q-toggle em{color:var(--muted);font-style:normal;font-size:12px}
+.q-indent{margin-left:24px}
+.quality-details .hint.warn{color:var(--warn)}
+.q-sub{margin-top:12px;border-top:1px dashed var(--border);padding-top:8px}
+.q-sub summary{font-size:13px;font-weight:600;cursor:pointer}
+.q-foot{margin-top:10px}
+.q-disabled{opacity:.55}
+.quality-details input[type="range"]{accent-color:var(--accent)}
+.quality-details select{max-width:100%}
+
+/* Bouton « 🔍 Agrandir ×4 » sur les cartes résultat */
+.upscale-mini{margin-top:6px;width:100%;text-align:center}
+.upscale-mini:disabled{opacity:.6}
+
+/* Carte résultat agrandie (version ×4) */
+.result-upscaled{position:relative;outline:1px solid #7c5cff55;border-radius:10px}
+.upscaled-badge{position:absolute;top:8px;left:8px;z-index:2;background:rgba(20,16,40,.85);
+  color:#cbb8ff;border:1px solid #7c5cff88;border-radius:8px;padding:3px 8px;
+  font-size:11px;font-weight:800;letter-spacing:.4px;pointer-events:none}
+
+/* Historique : lien 🔍 ×4 dans les actions de carte + info barre d'outils */
+.upscale-link{font-size:12px}
+.upscale-link:disabled{opacity:.6;pointer-events:none}
+.upscale-hint{white-space:nowrap}
+
+/* Page Modèles : sections auxiliaires (upscaling / ADetailer) */
+.aux-header{margin-top:34px;margin-bottom:4px}
+.aux-header h2{margin:0 0 6px;font-size:18px}
+.aux-header .muted{margin:0;font-size:13px;line-height:1.55}

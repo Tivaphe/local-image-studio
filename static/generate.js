@@ -508,6 +508,8 @@ function onModelChange() {
 
   renderGenPreprompts();
   checkMmproj();
+  // Section Qualité/Agrandissement : grise le Hires Fix si le modèle ne fait pas d'img2img
+  if (window.LisQuality) LisQuality.setModelCapabilities(m);
 }
 
 // Appliquer un preset aux champs
@@ -601,6 +603,7 @@ async function handleFileSelect(file) {
     buildRatios();
     saveGenDraft();
     uploaded = true;
+    if (window.LisQuality) LisQuality.setSourceImageActive(true);
   } catch (e) {
     alert('Erreur: ' + e.message);
   } finally {
@@ -663,6 +666,7 @@ function clearSourceImage(unlink = true) {
   }
   buildRatios();
   saveGenDraft();
+  if (window.LisQuality) LisQuality.setSourceImageActive(false);
   if (gone && unlink) {
     fetch('/api/delete-source-image', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -768,7 +772,7 @@ function renderGenQueue(queue) {
     <div class="queue-item" data-qid="${item.queue_id}">
       <span class="queue-pos">#${item.position}</span>
       <div class="queue-info">
-        <strong>${item.model_name} (${item.quant})</strong> · ${item.width}×${item.height} · ×${item.batch}
+        <strong>${item.model_name}${item.quant ? ' (' + item.quant + ')' : ''}</strong>${item.width && item.height ? ` · ${item.width}×${item.height}` : ''}${item.batch > 1 ? ` · ×${item.batch}` : ''}
         <div class="queue-prompt">${(item.prompt || '').replace(/</g, '&lt;')}</div>
       </div>
       <button type="button" class="x queue-del" data-qid="${item.queue_id}" title="Retirer de la file">×</button>
@@ -841,6 +845,9 @@ $('#generate-btn').addEventListener('click', async () => {
     strength: strengthVal ? parseFloat(strengthVal) : null,
     allow_queue: true,
   };
+  // Options Qualité/Détails/Agrandissement (section ✨) : sampler, scheduler,
+  // hires_fix, upscale ×4, ADetailer, VAE tiling, SLG…
+  if (window.LisQuality) Object.assign(body, LisQuality.collect());
   if (currentRatio === 'original' && sourceImageSize) {
     const outputSize = getOriginalOutputSize();
     body.width = outputSize.width;
@@ -929,6 +936,15 @@ function pollStatus() {
     if (j.log) $('#log').textContent = j.log + ($('#log').textContent ? '\n' + $('#log').textContent : '');
 
     renderGenQueue(j.queue || []);
+
+    // Agrandissement ×4 terminé (même si d'autres tâches suivent dans la file)
+    if (j.kind === 'upscale' && j.busy) window.__upscaleDonePending = true;
+    if (window.__upscaleDonePending && !j.busy) {
+      window.__upscaleDonePending = false;
+      if (j.result && j.result.type === 'upscale' && window.LisQuality) {
+        LisQuality._done(j.result.error || j.result.cancelled ? [] : (j.result.images || []));
+      }
+    }
 
     // affichage des images au fur et a mesure
     if (j.kind === 'generate' && j.result && j.result.images && j.result.images.length > 0) {
@@ -1040,10 +1056,76 @@ function showResults(images) {
       }
     });
     d.appendChild(sendToEdit);
+    // Bouton 1-clic « 🔍 Agrandir ×4 » (super-résolution ESRGAN/MoSR, enregistré en historique)
+    if (window.LisQuality && typeof LisQuality.makeUpscaleButton === 'function') {
+      d.appendChild(LisQuality.makeUpscaleButton({ imageId: img.id }));
+    }
     box.appendChild(d);
   });
   saveGenDraft();
 }
+
+// ---------- Agrandissement ×4 : affichage du résultat dans la grille ----------
+function appendUpscaledResults(images) {
+  const box = $('#results');
+  if (!box || !Array.isArray(images)) return;
+  images.forEach(img => {
+    const displayUrl = `${img.url}?u=${Date.now()}`;
+    const d = document.createElement('div');
+    d.className = 'result result-upscaled';
+    d.innerHTML = `
+      <span class="upscaled-badge" title="Version agrandie ×${img.scale || 4} et renforcée en netteté, enregistrée dans l'historique">🔍 AGRANDIE ×${img.scale || 4}</span>
+      <img src="${displayUrl}" alt="">
+      <div class="rbar">
+        <span>haute résolution</span>
+        <a class="link" href="${img.url}" download>telecharger</a>
+      </div>`;
+    d.querySelector('img').addEventListener('click', () => {
+      openLightbox([{
+        src: displayUrl,
+        downloadUrl: img.url,
+        label: `Version agrandie ×${img.scale || 4}`,
+        role: 'result',
+        badge: `🔍 AGRANDIE ×${img.scale || 4}`,
+      }], 0);
+    });
+    const sendToEdit = document.createElement('button');
+    sendToEdit.type = 'button';
+    sendToEdit.className = 'btn small result-use-source';
+    sendToEdit.textContent = '✂️ Utiliser comme source (Édition)';
+    sendToEdit.addEventListener('click', async () => {
+      sendToEdit.disabled = true;
+      sendToEdit.textContent = 'Envoi…';
+      try {
+        const r = await fetch('/api/use-output-as-source', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: img.id, filename: img.filename }),
+        });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || "Impossible d'envoyer l'image.");
+        sessionStorage.setItem('edit_incoming_source', JSON.stringify({
+          mode: 'canvas',
+          file: { filename: j.filename, url: j.url, name: j.name },
+        }));
+        window.location.href = '/edit';
+      } catch (e) {
+        alert(e.message || 'Erreur');
+        sendToEdit.disabled = false;
+        sendToEdit.textContent = '✂️ Utiliser comme source (Édition)';
+      }
+    });
+    d.appendChild(sendToEdit);
+    if (window.LisQuality) {
+      d.appendChild(LisQuality.makeUpscaleButton({ imageId: img.id }));
+    }
+    box.appendChild(d);
+  });
+}
+
+// Branche la section Qualité sur le poller de la page (un seul timer partagé)
+window.__lisPagePoll = pollStatus;
+window.__lisOnUpscaleDone = appendUpscaledResults;
 
 
 // ---------- enrichissement de prompt (LLM) ----------
@@ -1204,3 +1286,6 @@ async function loadDefaultNegative() {
 
 loadModels();
 loadDefaultNegative();
+if (window.LisQuality) {
+  LisQuality.initSection({ container: '#quality-section', withHires: true });
+}

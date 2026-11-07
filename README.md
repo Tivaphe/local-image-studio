@@ -108,7 +108,7 @@ gardez l'onglet **Générer** → *Image de départ* (SD 3.5).
 
 ---
 
-## 🧠 Modèles disponibles (20)
+## 🧠 Modèles disponibles (25)
 
 | Modèle | Vitesse | Licence | Idéal pour |
 |---|---|---|---|
@@ -132,8 +132,19 @@ gardez l'onglet **Générer** → *Image de départ* (SD 3.5).
 | **MOSS-Image SFT** (GGUF) | 50 étapes, CFG 3 | Apache 2.0 ✅ | Génération standard, texte dans l'image |
 | **MOSS-Image Base** (GGUF) | 50 étapes, CFG 3 | Apache 2.0 ✅ | Base non ajustée, pour LoRA entraînés sur Base |
 | **Krea 2 Turbo** (GGUF) | ⚡ 8 étapes, CFG 1 | Krea Community ⚠️ | Rendu photoréaliste rapide |
+| **FLUX.1 Dev** (GGUF) | 24 étapes | FLUX [dev] ⚠️ | Haute finesse (mains, peau, lumière), img2img + LoRA |
+| **FLUX.1 Kontext Dev** (GGUF) | 24 étapes | FLUX [dev] ⚠️ | Édition contextuelle : modifier sans casser l'identité |
+| **Chroma Unlocked** (GGUF) | 26 étapes, CFG 4 | Apache 2.0 ✅ | Prompt négatif + textures organiques (anti « peau plastique ») |
+| **Chroma1-Radiance** (GGUF) | 26 étapes, CFG 4 | Apache 2.0 ✅ | Espace pixel sans VAE : piqué remarquable, prompt négatif |
+| **LongCat-Image** (GGUF) | 28 étapes, CFG 5 | Apache 2.0 ✅ | Photoréalisme + texte exact entre «guillemets» |
 
 > ✅ = usage commercial autorisé · ⚠️ = usage personnel/non-commercial
+>
+> Les 5 derniers modèles **réutilisent les dépendances existantes** : FLUX.1 Dev / Kontext utilisent
+> `vae_flux`, `clip_l` et `t5xxl` ; Chroma utilise `vae_flux` + `t5xxl` ; Chroma1-Radiance n'a besoin
+> que de `t5xxl` ; LongCat-Image réutilise `vae_flux` et l'encodeur **Qwen2.5-VL-7B** (déjà utilisé
+> par Qwen-Image 2512). Si vous avez déjà FLUX.1 schnell ou Qwen-Image, aucun gros téléchargement
+> supplémentaire n'est nécessaire.
 >
 > **Qwen-Image 2.1 Turbo** nécessite `sd-cli` `c150a6b` ou plus récent (8 étapes, CFG 1).
 > **FLUX.3 Image Klein** nécessite `sd-cli` `8cd731e` (15 oct. 2026) ou plus récent ; ses GGUF sont convertis avec ce même moteur (pics VRAM documentés : 6,8 Go en Q3_K à 9,8 Go en Q8_0) et il réutilise le VAE FLUX.2 et l'encodeur **Qwen3-VL-4B** (déjà téléchargés avec FLUX.2 Klein / Iris-3B).
@@ -151,8 +162,29 @@ gardez l'onglet **Générer** → *Image de départ* (SD 3.5).
 - **Édition d'images ?** → onglet **Édition** : **Qwen-Image 2.1 / 2.1 Turbo** (édition sémantique,
   jusqu'à 10 images), **FLUX.2 / FLUX.3 Klein** (édition par position, jusqu'à 10 images) ou **Fibo 2.0 Edit Turbo** (4 étapes)
 - **Img2img classique ?** → **SD 3.5 Medium/Large** (contrôle de la force)
-- **Texte lisible dans l'image ?** → **ERNIE-Image Turbo** ou **Ideogram 4**
+- **Texte lisible dans l'image ?** → **ERNIE-Image Turbo**, **Ideogram 4** ou **LongCat-Image**
+- **Éditer sans casser l'identité ?** → **FLUX.1 Kontext Dev** (changer le texte, la lumière, le décor)
+- **Mains et textures réalistes ?** → **Chroma Unlocked** (vrai prompt négatif) + **ADetailer**
 - **Le plus léger ?** → **SD 3.5 Medium** (~2 Go)
+
+---
+
+## ✨ Qualité, Détails & Agrandissement (1 clic, explications intégrées)
+
+Sur les pages **Générer** et **Édition**, une section repliable « ✨ Qualité, Détails &
+Agrandissement » regroupe toutes les options avancées, chacune avec une **explication en français** :
+
+| Option | Effet | Où ? |
+|---|---|---|
+| **🔍 Agrandissement ×4** | Super-résolution dédiée (1024→4096 px). Choix : **RealESRGAN ×4** (photo), **4× Nomos2 MoSR** (textures naturelles), **RealESRGAN Anime 6B** (illustration) | Pendant la génération (case option) **ou** après coup : bouton « 🔍 Agrandir ×4 » sur chaque résultat et dans l'historique |
+| **🏗️ Hires Fix (2 passes)** | 1ʳᵉ passe : composition à taille choisie ; 2ᵉ passe : re-détaillage doux en haute résolution (jusqu'à ×2, ≤ ~2048 px) | Génération pure, modèles compatibles img2img (SD 3.5, FLUX.1 Dev, Chroma) |
+| **🙂 ADetailer** | Détecteur YOLOv8 qui repère **visages/mains** puis les re-détaille automatiquement | Pages Générer & Édition (après installation du détecteur dans Modèles) |
+| **🎛️ Sampler / Scheduler** | Choix de l'échantillonneur (euler, heun, dpm++2m, euler_a, lcm) et du planificateur (karras, beta, exponential…) | Pages Générer & Édition |
+| **⚙️ VAE Tiling** | Décodage par tuiles — économise la VRAM sur grandes images | Réglages experts |
+| **⚙️ SLG (Skip Layer Guidance)** | Améliore le respect du prompt sur les modèles DiT (valeur conseillée : 3) | Réglages experts |
+
+Les modèles d'agrandissement (17–64 Mo) et les détecteurs ADetailer (6–22 Mo) se téléchargent
+en **1 clic** depuis la page **Modèles** (sections dédiées en bas de page).
 
 ---
 
@@ -194,7 +226,7 @@ local-image-studio/
 ├── app.py                 ← Serveur web (Flask) + options de démarrage
 ├── browser_launch.py      ← Ouvrir Chrome automatiquement au démarrage
 ├── engine.py              ← Moteur sd-cli + téléchargements
-├── registry.py            ← Définition des 15 modèles
+├── registry.py            ← Définition des 25 modèles + upscalers ×4 + détecteurs ADetailer
 ├── prompt_enhancer.py     ← Enrichissement & traduction (LLM)
 ├── gpu_info.py            ← Détection VRAM
 ├── db.py                  ← Historique & statistiques
