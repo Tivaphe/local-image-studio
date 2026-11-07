@@ -908,6 +908,51 @@ MODELS = {
         "defaults": {"steps": 8, "cfg": 1.0, "sampler": "euler"},
         "min_steps": 4, "max_steps": 20,
     },
+
+    # ---- FLUX.1 Fill [dev] (BFL, arch flux_fill -> VERSION_FLUX_FILL dans sd-cli) ----
+    # Modèle dédié inpainting / outpainting : -i <canvas> --mask <masque> --guidance 30 --cfg-scale 1.
+    # Réutilise intégralement vae_flux + clip_l + t5xxl (déjà partagés avec FLUX.1 schnell / FHDR).
+    "flux1-fill-dev": {
+        "presets": {
+            "leger":     {"steps": 20, "cfg": 1.0, "quant": "Q3_K_S", "label": "💾 Léger (20 étapes, Q3_K_S, 4,9 Go)"},
+            "rapide":    {"steps": 20, "cfg": 1.0, "quant": "Q4_K_S", "label": "⚡ Rapide (20 étapes, Q4_K_S)"},
+            "equilibre": {"steps": 28, "cfg": 1.0, "quant": "Q5_K_S", "label": "⚖️ Équilibre (28 étapes, Q5_K_S)"},
+            "qualite":   {"steps": 36, "cfg": 1.0, "quant": "Q6_K",   "label": "✨ Qualité (36 étapes, Q6_K)"},
+        },
+        "name": "FLUX.1 Fill [dev]",
+        "arch": "flux_fill",
+        "repo": "YarvixPA/FLUX.1-Fill-dev-GGUF",
+        "quants": ["Q3_K_S", "Q4_K_S", "Q5_K_S", "Q6_K", "Q8_0"],
+        "default_quant": "Q5_K_S",
+        "file_for_quant": {
+            "Q3_K_S": "flux1-fill-dev-Q3_K_S.gguf",
+            "Q4_K_S": "flux1-fill-dev-Q4_K_S.gguf",
+            "Q5_K_S": "flux1-fill-dev-Q5_K_S.gguf",
+            "Q6_K":   "flux1-fill-dev-Q6_K.gguf",
+            "Q8_0":   "flux1-fill-dev-Q8_0.gguf",
+        },
+        "size_gb": {"Q3_K_S": 4.9, "Q4_K_S": 6.3, "Q5_K_S": 7.7, "Q6_K": 9.2, "Q8_0": 11.9},
+        "deps": ["vae_flux", "clip_l", "t5xxl"],
+        "supports_neg": False,
+        "needs_token": False,
+        "inpaint_only": True,
+        "supports_outpaint": True,
+        "outpaint_mode": "fill",
+        "input_modes": ["outpaint"],
+        "max_ref_images": 1,
+        "distilled_guidance": 30.0,
+        "fixed_cfg": 1.0,
+        "outpaint_hint": ("Modèle BFL spécialisé dans l'outpainting/inpainting : il conserve "
+                          "nativement l'image centrale et génère la zone étendue sans couture "
+                          "(guidance 30 appliquée automatiquement). Décrivez la scène complète."),
+        "license": "FLUX.1-dev Non-Commercial (usage perso uniquement)",
+        "hf_url": "https://huggingface.co/YarvixPA/FLUX.1-Fill-dev-GGUF",
+        "vram_min_gb": 6,
+        "desc": ("Modèle officiel BFL spécialisé dans l'outpainting et l'inpainting (extension "
+                 "de cadre sans couture, guidance 30). Réutilise le VAE et les encodeurs de FLUX.1."),
+        "defaults": {"steps": 28, "cfg": 1.0, "sampler": "euler"},
+        "min_steps": 12, "max_steps": 50,
+    },
 }
 
 
@@ -1064,16 +1109,42 @@ def build_ideogram_prompt(text, negative, width, height):
 # aucune, mais chaque reference ajoute des tokens (donc VRAM + temps).
 
 
-def input_modes(model_id: str) -> list:
-    """Modes d'entree image acceptes par un modele ("ref" et/ou "init")."""
+def outpaint_mode(model_id: str) -> str | None:
+    """
+    Mode d'outpainting pris en charge par un modèle :
+      - "fill"      : checkpoint inpaint/outpaint dédié (ex. FLUX.1 Fill [dev], -i + --mask)
+      - "ref_mask"  : modèle d'édition sémantique (-r sur le canvas étendu + -i/--mask optionnel)
+      - "init_mask" : modèle latent img2img (-i + --mask + --strength 1.0)
+      - None        : modèle sans support outpainting
+    """
     m = MODELS[model_id]
-    modes = m.get("input_modes")
-    if modes:
-        return list(modes)
-    # Retro-compatibilite : les architectures UNet utilisent -i, les DiT -r.
-    if m.get("supports_img2img") or m.get("supports_ref_images"):
-        return ["init"] if m.get("arch") in ("sd3", "sd") else ["ref"]
-    return []
+    if "supports_outpaint" in m and not m["supports_outpaint"]:
+        return None
+    if m.get("outpaint_mode"):
+        return m["outpaint_mode"]
+    raw_modes = m.get("input_modes") or []
+    if "ref" in raw_modes or m.get("supports_ref_images"):
+        return "ref_mask"
+    if "init" in raw_modes or (m.get("supports_img2img") and m.get("arch") in ("sd3", "sd")):
+        return "init_mask"
+    if m.get("supports_outpaint"):
+        return "init_mask"
+    return None
+
+
+def supports_outpaint(model_id: str) -> bool:
+    return outpaint_mode(model_id) is not None
+
+
+def input_modes(model_id: str) -> list:
+    """Modes d'entree image acceptes par un modele ("ref", "init" et/ou "outpaint")."""
+    m = MODELS[model_id]
+    modes = list(m.get("input_modes") or [])
+    if not modes and (m.get("supports_img2img") or m.get("supports_ref_images")):
+        modes = ["init"] if m.get("arch") in ("sd3", "sd") else ["ref"]
+    if supports_outpaint(model_id) and "outpaint" not in modes:
+        modes.append("outpaint")
+    return modes
 
 
 def max_ref_images(model_id: str, input_mode: str | None = None) -> int:
@@ -1082,6 +1153,8 @@ def max_ref_images(model_id: str, input_mode: str | None = None) -> int:
     modes = input_modes(model_id)
     mode = input_mode or (modes[0] if modes else None)
     if mode == "init":
+        return 1
+    if mode == "outpaint" and outpaint_mode(model_id) != "ref_mask":
         return 1
     return int(m.get("max_ref_images", 1))
 
@@ -1099,9 +1172,10 @@ def clamp_ref_max_pixels(value) -> int | None:
     return max(65536, min(4 * 1024 * 1024, px))  # 256x256 .. 4 MP
 
 
-def check_images_input(model_id: str, images, input_mode: str | None = None):
+def check_images_input(model_id: str, images, input_mode: str | None = None,
+                       mask_image: str | None = None):
     """
-    Valide le couple (modele, images).
+    Valide le couple (modele, images, masque).
     Retourne (images_normalisees, input_mode, message_erreur) — erreur None si OK.
     La presence du mmproj (encodeur visuel) est verifiee cote moteur.
     """
@@ -1111,15 +1185,24 @@ def check_images_input(model_id: str, images, input_mode: str | None = None):
     # ordre preserve, doublons retire
     seen = set()
     imgs = [p for p in imgs if not (p in seen or seen.add(p))]
+    mask_clean = str(mask_image).strip() if mask_image else ""
 
     if not imgs:
+        if m.get("inpaint_only"):
+            return [], "outpaint", (
+                f"{m['name']} est un modèle spécialisé dans l'outpainting / inpainting : "
+                "il nécessite une image et un masque. Utilisez l'onglet Édition → Outpainting."
+            )
+        if input_mode == "outpaint":
+            return [], "outpaint", "Ajoutez d'abord l'image à étendre pour lancer l'outpainting."
         return [], None, None
+
     if not modes:
         return imgs, None, (
             f"{m['name']} n'accepte pas d'image en entrée.\n"
-            "Pour de l'édition multi-images, choisis Qwen-Image 2.1 (ou 2.1 Turbo) ou "
-            "FLUX.2 / FLUX.3 Klein dans le Studio d'édition ; pour de l'img2img avec force de "
-            "dénouage, choisis Stable Diffusion 3.5."
+            "Pour de l'édition ou de l'outpainting, choisis FLUX.1 Fill [dev], "
+            "Qwen-Image 2.1 (ou 2.1 Turbo) ou FLUX.2 / FLUX.3 Klein dans le Studio d'édition ; "
+            "pour de l'img2img avec force de dénouage, choisis Stable Diffusion 3.5."
         )
     mode = input_mode or modes[0]
     if mode not in modes:
@@ -1127,9 +1210,20 @@ def check_images_input(model_id: str, images, input_mode: str | None = None):
             f"{m['name']} n'accepte pas le mode d'entrée « {mode} » "
             f"(modes disponibles : {', '.join(modes)})."
         )
+    if mode == "outpaint":
+        omode = outpaint_mode(model_id)
+        if not omode:
+            return imgs, mode, f"{m['name']} ne prend pas en charge l'outpainting."
+        if omode in ("fill", "init_mask") and not mask_clean:
+            return imgs, mode, f"{m['name']} requiert un masque d'extension pour l'outpainting."
     limit = max_ref_images(model_id, mode)
     if len(imgs) > limit:
-        label = "image de départ (img2img)" if mode == "init" else "référence(s)"
+        if mode == "init":
+            label = "image de départ (img2img)"
+        elif mode == "outpaint" and outpaint_mode(model_id) != "ref_mask":
+            label = "image à étendre (outpainting)"
+        else:
+            label = "référence(s)"
         return imgs, mode, (
             f"{m['name']} accepte au maximum {limit} {label} — "
             f"{len(imgs)} image(s) fournie(s). Retirez des images ou changez de modèle."
@@ -1210,12 +1304,13 @@ def _diffusion_path(model_id, quant):
 def build_command(model_id, quant, prompt, negative, width, height, steps,
                   cfg, seed, batch, out_template, sd_cli, manifest,
                   source_image=None, lora_dir=None, strength=None,
-                  ref_images=None, input_mode=None, ref_max_pixels=None):
+                  ref_images=None, input_mode=None, ref_max_pixels=None,
+                  mask_image=None, guidance=None):
     m = MODELS[model_id]
     arch = m["arch"]
     args = [sd_cli]
 
-    # --- Entrees image : references (edition) ou image de depart (img2img) ---
+    # --- Entrees image : references (edition), img2img, ou outpainting ---
     # `ref_images` est la liste ordonnee (index 0 = canvas edite). `source_image`
     # (chaine unique) est conserve pour la retro-compatibilite.
     images = [str(p) for p in (ref_images or []) if p]
@@ -1224,8 +1319,13 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     if input_mode is None:
         # Retro-compatibilite : -i pour les UNet, -r pour les DiT.
         input_mode = "init" if arch in ("sd3", "sd") else "ref"
-    has_refs = bool(images) and input_mode == "ref"
-    has_init = bool(images) and input_mode == "init"
+    omode = outpaint_mode(model_id) if input_mode == "outpaint" else None
+    has_refs = bool(images) and (
+        input_mode == "ref" or (input_mode == "outpaint" and omode == "ref_mask")
+    )
+    has_init = bool(images) and (
+        input_mode == "init" or (input_mode == "outpaint" and omode in ("fill", "init_mask"))
+    )
 
     # Modele de diffusion
     diff_file = _diffusion_path(model_id, quant)
@@ -1254,7 +1354,7 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
             args += ["--vae", str(vpath)]
 
     # Encodeurs de texte
-    if arch == "flux":
+    if arch in ("flux", "flux_fill"):
         cl = _dep_path(manifest, "clip_l")
         t5 = _dep_path(manifest, "t5xxl")
         if cl:
@@ -1343,13 +1443,37 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
             args += ["-n", negative]
 
     # Images fournies au modele.
-    #  - "ref"  : -r repete une fois par image (edition semantique, multi-refs)
-    #  - "init" : -i unique + --strength (img2img classique)
+    #  - "ref"      : -r repete une fois par image (edition semantique, multi-refs)
+    #  - "init"     : -i unique + --strength (+ --mask optionnel)
+    #  - "outpaint" :
+    #      * "fill" / "init_mask" -> -i <canvas_etendu> --mask <masque> --strength 1.0
+    #      * "ref_mask"           -> -r <canvas_etendu> (+ refs) ET -i/--mask si fourni
     if images:
         if input_mode == "init":
             args += ["-i", images[0]]
+            if mask_image:
+                args += ["--mask", str(mask_image)]
             if strength is not None:
                 args += ["--strength", f"{strength}"]
+        elif input_mode == "outpaint":
+            if omode == "ref_mask":
+                for ref in images:
+                    args += ["-r", ref]
+                if ref_max_pixels:
+                    args += ["--ref-image-args",
+                             f"vae_input_max_pixels={int(ref_max_pixels)}"]
+                if mask_image:
+                    init_src = str(source_image) if source_image else images[0]
+                    eff_strength = 1.0 if strength is None else strength
+                    args += ["-i", init_src, "--mask", str(mask_image),
+                             "--strength", f"{eff_strength}"]
+            else:
+                init_src = str(source_image) if source_image else images[0]
+                eff_strength = 1.0 if strength is None else strength
+                args += ["-i", init_src]
+                if mask_image:
+                    args += ["--mask", str(mask_image)]
+                args += ["--strength", f"{eff_strength}"]
         else:
             for ref in images:
                 args += ["-r", ref]
@@ -1372,6 +1496,9 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
              "-o", out_template,
              "-v",
              "--offload-to-cpu"]
+    distilled_g = guidance if guidance is not None else m.get("distilled_guidance")
+    if distilled_g is not None:
+        args += ["--guidance", f"{distilled_g}"]
     if m.get("sigmas"):
         args += ["--sigmas", m["sigmas"]]
 
@@ -1380,7 +1507,7 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
         args += ["--diffusion-fa"]
 
     # --clip-on-cpu pour les gros encodeurs
-    if arch in ("flux", "sd3"):
+    if arch in ("flux", "flux_fill", "sd3"):
         args += ["--clip-on-cpu"]
 
     # --flow-shift pour ERNIE et Qwen-Image 2512 ; Turbo utilise ses sigmas fixes.

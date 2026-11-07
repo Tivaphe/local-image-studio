@@ -2,189 +2,278 @@
 {% block title %}Studio d'édition · Local Image Studio{% endblock %}
 
 {% block content %}
-<div class="gen-grid edit-grid">
-
-  <!-- ==================================================== Colonne assistant -->
-  <section class="panel form-panel edit-panel">
-    <h2>✂️ Studio d'édition</h2>
-    <p class="muted small">
-      Une image à modifier (le <strong>canvas</strong>) + jusqu'à
-      <strong><span id="max-label">10</span> images</strong> selon le modèle.
-      Rien ne quitte votre ordinateur.
-    </p>
-
-    <!-- ① Modèle -->
-    <div class="edit-step">
-      <span class="step-num">1</span><span class="step-title">Modèle d'édition</span>
+<div class="grid-2 edit-layout">
+  <!-- ========= Colonne gauche : contrôles d'édition / outpainting ========= -->
+  <section class="panel">
+    <div class="edit-head">
+      <h2>Studio d'édition</h2>
+      <span class="muted small">Édition par instruction &amp; Outpainting</span>
     </div>
-    <label class="field">
-      <span>Modèle</span>
-      <select id="model"></select>
-    </label>
-    <div class="row">
-      <label class="field grow"><span>Quant.</span><select id="quant"></select></label>
-      <label class="field grow"><span>Présélection</span>
-        <select id="preset"><option value="default">→ Config par défaut ←</option></select>
-      </label>
-    </div>
-    <div id="mmproj-status" class="mmproj-notice hidden">
-      <span id="mmproj-msg">Vérification…</span>
-      <button id="mmproj-download-btn" class="btn small primary">
-        Télécharger mmproj (requis pour l'édition)
+
+    <!-- Sélecteur de sous-mode : Édition vs Outpainting -->
+    <div class="studio-mode-tabs" role="tablist" aria-label="Mode du studio">
+      <button type="button" class="studio-mode-tab active" data-studio-mode="edit" role="tab" aria-selected="true">
+        ✂️ Édition / Références
+      </button>
+      <button type="button" class="studio-mode-tab" data-studio-mode="outpaint" role="tab" aria-selected="false">
+        🖼️ Outpainting (étendre)
       </button>
     </div>
-    <p id="model-warn" class="error" hidden></p>
 
-    <!-- ② Canvas -->
-    <div class="edit-step">
-      <span class="step-num">2</span><span class="step-title">Image à modifier (canvas)</span>
-    </div>
-    <div class="dropzone dropzone-canvas" id="canvas-drop">
-      <input type="file" id="canvas-input" accept="image/png,image/jpeg,image/webp" hidden>
-      <div class="upload-placeholder" id="canvas-placeholder">
-        <i class="icon">🖼️</i>
-        <span>Cliquez ou glissez <strong>l'image à éditer</strong></span>
-        <small class="muted">PNG, JPG, WEBP — elle sera « image 1 »</small>
+    <div class="row-2">
+      <div>
+        <label id="model-select-label">Modèle d'édition</label>
+        <select id="model"></select>
       </div>
-      <div class="upload-preview hidden" id="canvas-preview">
-        <img id="canvas-img" alt="Canvas">
-        <div class="preview-info">
-          <span id="canvas-name"></span>
-          <span class="preview-btns">
-            <button id="canvas-replace" class="btn ghost small">Remplacer</button>
-            <button id="canvas-remove" class="btn ghost small">Retirer</button>
-          </span>
+      <div>
+        <label>Préréglage</label>
+        <select id="preset">
+          <option value="default">Par défaut</option>
+        </select>
+      </div>
+    </div>
+    <p id="model-hint" class="muted small"></p>
+
+    <div id="token-warning" class="alert warn" hidden>
+      Ce modèle nécessite un token Hugging Face.
+      <a href="{{ url_for('settings_page') }}">Configurer →</a>
+    </div>
+    <div id="not-installed" class="alert info" hidden>
+      Ce modèle n'est pas encore téléchargé.
+      <a href="{{ url_for('models_page') }}">Aller dans Modèles →</a>
+    </div>
+    <div id="mmproj-warning" class="alert warn" hidden>
+      <strong>Encodeur visuel (mmproj) requis</strong> pour que ce modèle lise vos images.
+      <button type="button" id="download-mmproj-btn" class="btn small primary" style="margin-left:8px;">
+        📥 Télécharger mmproj
+      </button>
+    </div>
+
+    <label id="prompt-label">Instruction d'édition</label>
+    <div class="prompt-toolbar" id="ref-chips-bar" hidden>
+      <span class="muted small">Insérer dans le prompt :</span>
+      <div id="ref-chips" class="chips"></div>
+    </div>
+    <textarea id="prompt" rows="4"
+      placeholder="Décrivez précisément la modification : remplacer le fond par…, transférer la tenue de @image2 sur le sujet, corriger le texte…"></textarea>
+
+    <div id="examples-wrap" class="examples-wrap" hidden>
+      <span class="muted small">Exemples :</span>
+      <div id="examples" class="chips"></div>
+    </div>
+
+    <!-- ========= Contrôles dédiés Outpainting ========= -->
+    <div id="outpaint-controls" class="outpaint-box" hidden>
+      <div class="outpaint-box-head">
+        <strong>🖼️ Paramètres d'extension du cadre</strong>
+        <span id="outpaint-size-summary" class="badge">1024 × 1024</span>
+      </div>
+
+      <label class="small muted">Préréglages rapides</label>
+      <div class="chips outpaint-presets">
+        <button type="button" class="chip op-preset" data-op="lr">↔️ Gauche + Droite</button>
+        <button type="button" class="chip op-preset" data-op="tb">↕️ Haut + Bas</button>
+        <button type="button" class="chip op-preset" data-op="zoom15">🔍 Dézoom ×1,5</button>
+        <button type="button" class="chip op-preset" data-op="zoom20">🔍 Dézoom ×2</button>
+        <button type="button" class="chip op-preset" data-op="r16_9">🎬 Cadrer 16:9</button>
+        <button type="button" class="chip op-preset" data-op="r9_16">📱 Cadrer 9:16</button>
+        <button type="button" class="chip op-preset" data-op="reset">↺ Réinitialiser</button>
+      </div>
+
+      <div class="outpaint-margins-grid">
+        <div>
+          <label>⬅ Gauche : <span id="op-left-val">256</span> px</label>
+          <input type="range" id="op-left" min="0" max="768" step="32" value="256">
         </div>
-        <span class="idx-badge idx-canvas">1</span>
+        <div>
+          <label>➡ Droite : <span id="op-right-val">256</span> px</label>
+          <input type="range" id="op-right" min="0" max="768" step="32" value="256">
+        </div>
+        <div>
+          <label>⬆ Haut : <span id="op-top-val">0</span> px</label>
+          <input type="range" id="op-top" min="0" max="768" step="32" value="0">
+        </div>
+        <div>
+          <label>⬇ Bas : <span id="op-bottom-val">0</span> px</label>
+          <input type="range" id="op-bottom" min="0" max="768" step="32" value="0">
+        </div>
+      </div>
+
+      <div class="row-2" style="margin-top:8px;">
+        <div>
+          <label>Échelle source : <span id="op-scale-val">100</span>%</label>
+          <input type="range" id="op-scale" min="50" max="100" step="5" value="100">
+        </div>
+        <div>
+          <label title="Marge de fondu côté image existante pour éviter toute coupure visible">
+            Transition couture : <span id="op-overlap-val">16</span> px
+          </label>
+          <input type="range" id="op-overlap" min="0" max="64" step="8" value="16">
+        </div>
+      </div>
+      <small class="muted" style="display:block; margin-top:6px;">
+        Astuce : vous pouvez aussi faire glisser l'image directement dans l'aperçu à droite pour la repositionner dans le nouveau cadre.
+      </small>
+    </div>
+
+    <div id="neg-wrap">
+      <label>Prompt négatif <span class="muted">(optionnel)</span></label>
+      <input id="negative" type="text" value="{{ default_neg }}">
+    </div>
+
+    <div id="format-section">
+      <label>Format de sortie</label>
+      <div class="ratios" id="ratios">
+        <button type="button" class="ratio active" data-ratio="canvas">Format du canvas</button>
+        {% for r, wh in ratios.items() %}
+        <button type="button" class="ratio" data-ratio="{{ r }}">{{ r }}<small>{{ wh[0] }}×{{ wh[1] }}</small></button>
+        {% endfor %}
       </div>
     </div>
 
-    <!-- ③ Références -->
-    <div class="edit-step">
-      <span class="step-num">3</span><span class="step-title">Images de référence <em>(optionnel)</em></span>
-    </div>
-    <div class="refs-head">
-      <span class="muted small" id="refs-count">0 / 9 référence(s)</span>
-      <span class="refs-actions">
-        <button id="add-refs-btn" class="btn small ghost">＋ Ajouter</button>
-        <button id="clear-refs-btn" class="btn small ghost" hidden>Tout retirer</button>
-      </span>
-      <input type="file" id="refs-input" accept="image/png,image/jpeg,image/webp" multiple hidden>
-    </div>
-    <div class="dropzone dropzone-refs" id="refs-drop">
-      <div class="upload-placeholder">
-        <i class="icon">📚</i>
-        <span>Glissez ici un vêtement, un objet, un style…</span>
-        <small class="muted">Plusieurs fichiers d'un coup acceptés — l'ordre compte</small>
+    <details class="adv">
+      <summary>Réglages avancés</summary>
+      <div class="row-3">
+        <div>
+          <label>Étapes : <span id="steps-val">20</span></label>
+          <input type="range" id="steps" min="1" max="50" value="20">
+        </div>
+        <div>
+          <label>CFG : <span id="cfg-val">2.5</span></label>
+          <input type="range" id="cfg" min="1" max="10" step="0.5" value="2.5">
+        </div>
+        <div>
+          <label>Variantes</label>
+          <select id="batch">
+            <option value="1" selected>1 image</option>
+            <option value="2">2 images</option>
+            <option value="3">3 images</option>
+            <option value="4">4 images</option>
+          </select>
+        </div>
       </div>
-      <div class="ref-grid" id="ref-grid"></div>
-    </div>
-    <p class="hint" id="refs-order-hint"></p>
-
-    <!-- ④ Instruction -->
-    <div class="edit-step">
-      <span class="step-num">4</span><span class="step-title">Instruction d'édition</span>
-    </div>
-    <label class="field">
-      <span>Ce que vous voulez changer</span>
-      <textarea id="prompt" rows="4"
-                placeholder="ex: garde le personnage et la pose de l'image 1, mets-lui la chemise en jean de l'image 2"></textarea>
-      <div class="prompt-tools">
-        <button id="enrich-btn" class="btn ghost small" title="Enrichir l'instruction avec un LLM">✨ Enrichir</button>
-        <button id="rephrase-btn" class="btn ghost small" title="Reformuler différemment">🔄 Reformuler</button>
-        <button id="translate-btn" class="btn ghost small" title="Traduire en anglais">🌐 Traduire EN</button>
-        <span id="enrich-status" class="muted small"></span>
+      <div class="row-3">
+        <div>
+          <label>Quantification</label>
+          <select id="quant"></select>
+        </div>
+        <div>
+          <label>Seed <span class="muted">(vide = aléatoire)</span></label>
+          <input id="seed" type="number" placeholder="aléatoire">
+        </div>
+        <div id="ref-pixels-wrap">
+          <label title="Réduit la taille des références envoyées à l'encodeur pour économiser la VRAM">
+            Budget VRAM réf.
+          </label>
+          <select id="ref-max-pixels">
+            <option value="0" selected>Auto (défaut moteur)</option>
+            <option value="1048576">1 MP (~1024×1024)</option>
+            <option value="589824">0,6 MP (~768×768 · éco VRAM)</option>
+            <option value="262144">0,25 MP (~512×512 · 8 Go VRAM)</option>
+          </select>
+        </div>
       </div>
-    </label>
-    <div class="tag-chips" id="tag-chips" hidden></div>
-    <div id="tag-warning" class="advice" hidden></div>
-    <div class="ref-hint" id="ref-hint"></div>
-    <details class="advanced" id="negative-box">
-      <summary>Prompt négatif <em>(optionnel)</em></summary>
-      <textarea id="negative" rows="2" placeholder="ce qu'il faut éviter : blurry, low quality"></textarea>
+      <div>
+        <label>Dossier LoRA <span class="muted">(optionnel, syntaxe <code>&lt;lora:nom:poids&gt;</code>)</span></label>
+        <input id="lora-dir" type="text" placeholder="ex : C:\mes_loras">
+      </div>
     </details>
-
-    <!-- ⑤ Réglages -->
-    <div class="edit-step">
-      <span class="step-num">5</span><span class="step-title">Format &amp; réglages</span>
-    </div>
-    <div class="field">
-      <span>Format de sortie</span>
-      <div class="ratios" id="ratios"></div>
-      <small id="original-ratio-info" class="muted" hidden></small>
-    </div>
-
-    <div class="row">
-      <label class="field grow">
-        <span>Nombre de variantes</span>
-        <input type="range" id="batch" min="1" max="4" value="1">
-        <small id="batch-val">1 image</small>
-      </label>
-    </div>
-
-    <div class="field">
-      <span>Budget pixels des références <em>(VRAM)</em></span>
-      <select id="ref-budget">
-        <option value="auto">Auto (recommandé — recommandé par le moteur)</option>
-        <option value="524288">0,5 MP — économie de VRAM</option>
-        <option value="262144">0,25 MP — petites cartes</option>
-      </select>
-      <small class="muted">Réduit la résolution interne des images fournies, jamais celle de la sortie.</small>
-    </div>
-
-    <details class="advanced">
-      <summary>Avancé (étapes, guidance, seed)</summary>
-      <div class="row">
-        <label class="field"><span>Étapes</span><input type="number" id="steps" min="1" max="50"></label>
-        <label class="field"><span>Guidance (CFG)</span><input type="number" id="cfg" step="0.1"></label>
-        <label class="field"><span>Seed</span><input type="number" id="seed" placeholder="aléatoire"></label>
-      </div>
-    </details>
-
-    <div id="vram-advice" class="advice" hidden></div>
 
     <div class="actions">
-      <button id="generate-btn" class="btn primary big">✂️ Lancer l'édition</button>
+      <button id="edit-btn" class="btn primary big">✂️ Appliquer l'édition</button>
       <button id="cancel-btn" class="btn danger" hidden>Annuler</button>
     </div>
-
-    <p id="gen-error" class="error" hidden></p>
   </section>
 
-  <!-- ==================================================== Colonne résultat -->
+  <!-- ========= Colonne droite : images d'entrée + résultat ========= -->
   <section class="panel result-panel">
-    <div class="progress-wrap" id="progress-wrap" hidden>
-      <div class="progress-bar"><div id="progress-fill"></div></div>
-      <div class="progress-meta"><span id="progress-text">en cours…</span></div>
+    <!-- Image principale (canvas) -->
+    <div class="slot-head">
+      <h3 id="canvas-slot-title">Image à éditer <span class="tag" id="canvas-tag">@image1</span></h3>
+      <span id="canvas-info" class="muted small"></span>
     </div>
 
-    <div id="compare" class="compare" hidden>
-      <div class="compare-side">
-        <span class="compare-label">Avant (canvas)</span>
-        <img id="compare-before" alt="">
+    <div id="canvas-drop" class="dropzone canvas-drop">
+      <input type="file" id="canvas-input" accept="image/*" hidden>
+      <div id="canvas-empty" class="drop-empty">
+        <div class="drop-icon">🖼️</div>
+        <p id="canvas-empty-title"><strong>Glissez l'image à modifier</strong> ou cliquez pour parcourir</p>
+        <small class="muted">PNG, JPG, WebP · Vous pouvez aussi coller une image (Ctrl+V)</small>
       </div>
-      <div class="compare-side">
-        <span class="compare-label">Après</span>
-        <img id="compare-after" alt="">
+      <div id="canvas-filled" class="canvas-filled" hidden>
+        <img id="canvas-img" src="" alt="Image à éditer">
+        <div class="canvas-actions">
+          <button type="button" id="canvas-replace" class="btn small ghost">Remplacer</button>
+          <button type="button" id="canvas-clear" class="btn small danger">Retirer</button>
+        </div>
       </div>
+    </div>
+
+    <!-- Aperçu interactif du cadre étendu (visible en mode Outpainting) -->
+    <div id="outpaint-preview-wrap" class="outpaint-preview-wrap" hidden>
+      <div class="slot-head">
+        <h3>Aperçu du cadre étendu</h3>
+        <span id="outpaint-preview-meta" class="muted small"></span>
+      </div>
+      <div class="outpaint-canvas-holder">
+        <canvas id="outpaint-preview-canvas" width="520" height="340"></canvas>
+      </div>
+    </div>
+
+    <!-- Références additionnelles -->
+    <div id="refs-section" class="refs-section">
+      <div class="slot-head">
+        <h3>Références additionnelles <span class="muted small" id="refs-quota"></span></h3>
+        <button type="button" id="add-ref-btn" class="btn small ghost">+ Ajouter une référence</button>
+        <input type="file" id="ref-input" accept="image/*" multiple hidden>
+      </div>
+      <p class="muted small" id="refs-help">
+        Optionnel : ajoutez une tenue, un style, un visage ou un décor à combiner avec <code>@image1</code>.
+      </p>
+      <div id="refs-strip" class="refs-strip"></div>
+    </div>
+
+    <!-- Progression -->
+    <div id="progress-wrap" hidden>
+      <div class="progress-bar"><div id="progress-fill"></div></div>
+      <div class="progress-meta">
+        <span id="progress-text">Démarrage…</span>
+        <button id="log-toggle" class="link">voir logs</button>
+      </div>
+      <pre id="log" class="log" hidden></pre>
+    </div>
+
+    <div id="edit-error" class="alert warn" hidden style="margin-bottom:12px; white-space:pre-wrap;"></div>
+
+    <!-- Résultat / Comparaison avant-après -->
+    <div class="slot-head result-head">
+      <h3>Résultat</h3>
+      <div id="compare-modes" class="compare-modes" hidden>
+        <button type="button" class="chip active" data-view="split">Côte à côte</button>
+        <button type="button" class="chip" data-view="after">Après seul</button>
+        <button type="button" class="chip" data-view="hold" title="Maintenez le clic sur l'image pour voir l'original">Maintenir = Avant</button>
+        <button type="button" class="chip primary-chip" id="open-fullscreen-compare" title="Ouvrir en grand : flèches / molette / Espace sans rechargement">🔍 Comparer en grand</button>
+      </div>
+    </div>
+
+    <div id="compare" class="compare split" hidden>
+      <figure class="compare-pane before" title="Cliquer pour comparer en grand (flèches / molette / Espace)">
+        <img id="compare-before" src="" alt="Avant">
+        <figcaption>Avant · 🔍 cliquer</figcaption>
+      </figure>
+      <figure class="compare-pane after" title="Cliquer pour comparer en grand (flèches / molette / Espace)">
+        <img id="compare-after" src="" alt="Après">
+        <figcaption id="compare-after-cap">Après · 🔍 cliquer</figcaption>
+      </figure>
     </div>
 
     <div id="results" class="results"></div>
 
     <div id="stats-box" class="stats-box" hidden>
-      <div class="stats-head">Statistiques de génération</div>
-      <div class="stats-grid">
-        <div class="stat"><span class="stat-label">Temps total</span><span class="stat-val" id="st-total">-</span></div>
-        <div class="stat"><span class="stat-label">Denoising</span><span class="stat-val" id="st-denoise">-</span></div>
-        <div class="stat"><span class="stat-label">Par étape</span><span class="stat-val" id="st-perstep">-</span></div>
-        <div class="stat"><span class="stat-label">Vitesse</span><span class="stat-val" id="st-its">-</span></div>
-        <div class="stat"><span class="stat-label">Références</span><span class="stat-val" id="st-refs">-</span></div>
-      </div>
-    </div>
-
-    <div class="log-box">
-      <div class="log-head">Journal <button id="log-toggle" class="link">afficher/masquer</button></div>
-      <pre id="log" class="log" hidden></pre>
+      <div class="stat"><span class="stat-label">Temps total</span><strong id="st-total">—</strong></div>
+      <div class="stat"><span class="stat-label">Débruitage</span><strong id="st-denoise">—</strong></div>
+      <div class="stat"><span class="stat-label">Par étape</span><strong id="st-perstep">—</strong></div>
+      <div class="stat"><span class="stat-label">Vitesse</span><strong id="st-its">—</strong></div>
     </div>
   </section>
 </div>
@@ -192,8 +281,8 @@
 
 {% block scripts %}
 <script>
-window.RATIOS = {{ ratios | tojson }};
 window.PAGE = "edit";
+window.PRELOAD_SOURCE = {{ (preload_source or None)|tojson }};
 </script>
 <script src="{{ url_for('static', filename='edit.js') }}"></script>
 {% endblock %}

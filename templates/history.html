@@ -22,8 +22,12 @@
     {% for p in im.source_images_list %}
       {% set _ = sources.append({'filename': p, 'url': '/source-images/' ~ p.split('/')|last}) %}
     {% endfor %}
-    <div class="card" data-id="{{ im.id }}">
-      <div class="thumb" style="background-image:url('{{ url_for('serve_output', filename=im.filename) }}')"></div>
+    <div class="card" data-id="{{ im.id }}"
+         data-url="{{ url_for('serve_output', filename=im.filename) }}"
+         data-label="{{ im.model_name|e }} ({{ im.quant }}) · {{ im.width }}×{{ im.height }} · seed {{ im.seed }}"
+         data-source-url="{{ sources[0].url if sources else '' }}">
+      <div class="thumb" title="Cliquer pour agrandir (flèches / molette pour défiler)"
+           style="background-image:url('{{ url_for('serve_output', filename=im.filename) }}')"></div>
       {% if sources %}
       <div class="card-sources" title="{{ sources|length }} image(s) fournie(s) au modèle">
         {% for s in sources %}<img src="{{ s.url }}" alt="source">{% endfor %}
@@ -59,6 +63,30 @@
 </section>
 
 <script>
+function getHistoryLightboxItems() {
+  const cards = [...document.querySelectorAll('.gallery .card')];
+  return {
+    cards,
+    items: cards.map(c => ({
+      src: c.dataset.url,
+      label: c.dataset.label || '',
+      kind: 'result',
+      downloadUrl: c.dataset.url,
+      sourceSrc: c.dataset.sourceUrl || null,
+      sourceLabel: 'Avant (image source)',
+    })),
+  };
+}
+
+document.querySelectorAll('.gallery .card .thumb').forEach(th => {
+  th.addEventListener('click', () => {
+    const card = th.closest('.card');
+    const { cards, items } = getHistoryLightboxItems();
+    const idx = Math.max(0, cards.indexOf(card));
+    if (typeof openLightbox === 'function') openLightbox(items, idx);
+  });
+});
+
 document.querySelectorAll('.del').forEach(b=>{
   b.addEventListener('click', async ()=>{
     if(!confirm('Supprimer cette image ?')) return;

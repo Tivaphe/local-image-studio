@@ -44,11 +44,15 @@ async function loadModels() {
   // restauration du modele choisi precedemment
   const prefs = loadPrefs();
   let savedModel = prefs.model;
-  // verifie que le modele sauvegarde existe encore
-  if (!savedModel || !MODELS[savedModel]) savedModel = null;
+  // verifie que le modele sauvegarde existe encore et supporte la generation directe
+  if (!savedModel || !MODELS[savedModel] || MODELS[savedModel].inpaint_only) savedModel = null;
 
   let firstReady = null;
+  let firstSelectable = null;
   for (const [id, m] of Object.entries(MODELS)) {
+    // Les modèles dédiés uniquement à l'outpainting/inpainting (ex. FLUX.1 Fill) s'utilisent dans Édition
+    if (m.inpaint_only) continue;
+    if (!firstSelectable) firstSelectable = id;
     const opt = document.createElement('option');
     opt.value = id;
     opt.textContent = m.name + (m.status.ready ? ' ✓' : '  (à télécharger)');
@@ -57,7 +61,7 @@ async function loadModels() {
     if (m.status.ready && !firstReady) firstReady = id; // 1er modele pret par defaut
   }
   // ordre de priorite : modele sauvegarde > 1er pret > 1er de la liste
-  sel.value = savedModel || firstReady || Object.keys(MODELS)[0];
+  sel.value = savedModel || firstReady || firstSelectable || Object.keys(MODELS)[0];
   sel.addEventListener('change', () => {
     savePrefs({ model: sel.value, quant: $('#quant')?.value });
     onModelChange();
@@ -324,6 +328,9 @@ $('#batch').addEventListener('input', e => {
 
 // ---------- Gestion de l'upload d'image source (img2img) ----------
 let uploadedImagePath = null;
+let uploadedImageUrl = null;
+let lastGenSourceUrl = null;
+let lastRenderedSig = '';
 
 function readImageDimensions(src) {
   return new Promise((resolve, reject) => {
@@ -367,6 +374,7 @@ async function handleFileSelect(file) {
       return;
     }
     uploadedImagePath = j.filename;
+    uploadedImageUrl = j.url || null;
     sourceImageSize = dimensions;
     $('#source-image-path').value = j.filename;
 
@@ -429,6 +437,7 @@ if (uploadArea) {
 function clearSourceImage(unlink = true) {
   const gone = uploadedImagePath;
   uploadedImagePath = null;
+  uploadedImageUrl = null;
   sourceImageSize = null;
   if (sourcePreviewUrl) URL.revokeObjectURL(sourcePreviewUrl);
   sourcePreviewUrl = null;
@@ -516,6 +525,8 @@ $('#generate-btn').addEventListener('click', async () => {
   $('#gen-error').textContent = '';
   $('#generate-btn').hidden = true;
   $('#cancel-btn').hidden = false;
+  lastGenSourceUrl = (canInit && uploadedImagePath && uploadedImageUrl) ? uploadedImageUrl : null;
+  lastRenderedSig = '';
   $('#results').innerHTML = '';
   $('#stats-box').hidden = true;
   $('#progress-wrap').hidden = false;
@@ -613,18 +624,60 @@ function showStats(stats) {
 }
 
 function showResults(images) {
+  const sig = images.map(x => x.url).join('|');
+  if (sig === lastRenderedSig) return;
+  lastRenderedSig = sig;
+
   const box = $('#results');
   box.innerHTML = '';
-  images.forEach(img => {
+
+  const preloadList = images.map(x => x.url);
+  if (lastGenSourceUrl) preloadList.unshift(lastGenSourceUrl);
+  if (typeof window.preloadImages === 'function') window.preloadImages(preloadList);
+
+  const lbItems = [];
+  if (lastGenSourceUrl) {
+    lbItems.push({
+      src: lastGenSourceUrl,
+      label: 'Image source (Avant)',
+      kind: 'source',
+    });
+  }
+  images.forEach((img, idx) => {
+    lbItems.push({
+      src: img.url,
+      label: `${images.length > 1 ? `Image ${idx + 1}/${images.length} · ` : ''}seed ${img.seed}`,
+      kind: 'result',
+      seed: img.seed,
+      downloadUrl: img.url,
+    });
+  });
+
+  if (images.length > 1 || lastGenSourceUrl) {
+    const bar = document.createElement('div');
+    bar.className = 'results-nav-banner';
+    const text = lastGenSourceUrl
+      ? '💡 Cliquez sur une image pour comparer en grand (◀ ▶ / molette / Espace : Avant ↔ Après sans rechargement)'
+      : `💡 Cliquez sur une image pour comparer les ${images.length} variantes (◀ ▶ du clavier ou molette souris sans rechargement)`;
+    bar.innerHTML = `<span>${text}</span><button type="button" class="btn small ghost">🔍 Comparer en grand</button>`;
+    bar.querySelector('button').addEventListener('click', () => {
+      openLightbox(lbItems, lastGenSourceUrl ? 1 : 0);
+    });
+    box.appendChild(bar);
+  }
+
+  images.forEach((img, idx) => {
     const d = document.createElement('div');
     d.className = 'result';
     d.innerHTML = `
-      <img src="${img.url}?t=${Date.now()}" alt="">
+      <img src="${img.url}" alt="">
       <div class="rbar">
-        <span>seed ${img.seed}</span>
-        <a class="link" href="${img.url}" download>telecharger</a>
+        <span>${images.length > 1 ? `#${idx + 1} · ` : ''}seed ${img.seed}</span>
+        <a class="link" href="${img.url}" download>télécharger</a>
       </div>`;
-    d.querySelector('img').addEventListener('click', e => openLightbox(e.target.src));
+    d.querySelector('img').addEventListener('click', () => {
+      openLightbox(lbItems, lastGenSourceUrl ? idx + 1 : idx);
+    });
     box.appendChild(d);
   });
 }
