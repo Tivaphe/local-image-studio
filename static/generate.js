@@ -24,7 +24,126 @@ let pollTimer = null;
 
 // ---------- memoire de la selection (FIX 4) ----------
 const STORE_KEY = "lis_generate_prefs";
+const GEN_DRAFT_KEY = "lis_generate_draft_v1";
 const GEN_CUSTOM_PREPROMPTS_KEY = "lis_gen_custom_preprompts";
+let isRestoringGenDraft = false;
+let lastGeneratedImages = [];
+let uploadedImageServerUrl = null;
+let uploadedImageName = '';
+
+function saveGenDraft() {
+  if (isRestoringGenDraft) return;
+  try {
+    const draft = {
+      model: $('#model')?.value || null,
+      quant: $('#quant')?.value || null,
+      preset: $('#preset')?.value || 'default',
+      prompt: $('#prompt')?.value || '',
+      negative: $('#negative')?.value || '',
+      steps: $('#steps')?.value || '',
+      cfg: $('#cfg')?.value || '',
+      seed: $('#seed')?.value || '',
+      batch: $('#batch')?.value || '1',
+      loraDir: $('#lora-dir')?.value || '',
+      loraPrompt: $('#lora-prompt')?.value || '',
+      strength: $('#strength')?.value || '0.75',
+      currentRatio,
+      ratioBeforeOriginal,
+      sourceImage: uploadedImagePath ? {
+        path: uploadedImagePath,
+        url: uploadedImageServerUrl || `/source-images/${uploadedImagePath.split('/').pop()}`,
+        name: uploadedImageName,
+        size: sourceImageSize,
+      } : null,
+      lastGeneratedImages,
+      activeGenSourceUrl: (activeGenSourceUrl && !String(activeGenSourceUrl).startsWith('blob:'))
+        ? activeGenSourceUrl
+        : null,
+      currentBatchStamp,
+    };
+    const json = JSON.stringify(draft);
+    sessionStorage.setItem(GEN_DRAFT_KEY, json);
+    localStorage.setItem(GEN_DRAFT_KEY, json);
+  } catch (e) {}
+}
+
+async function restoreGenDraft() {
+  let draft = null;
+  try {
+    const raw = sessionStorage.getItem(GEN_DRAFT_KEY) || localStorage.getItem(GEN_DRAFT_KEY);
+    draft = raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    draft = null;
+  }
+  if (!draft) return;
+
+  isRestoringGenDraft = true;
+  try {
+    const sel = $('#model');
+    if (draft.model && MODELS[draft.model] && sel) {
+      sel.value = draft.model;
+      onModelChange();
+    }
+    const m = MODELS[sel?.value];
+    if (draft.quant && m && m.quants.includes(draft.quant) && $('#quant')) {
+      $('#quant').value = draft.quant;
+    }
+    if (draft.preset && $('#preset')) {
+      const opt = $('#preset').querySelector(`option[value="${draft.preset}"]`);
+      if (opt) $('#preset').value = draft.preset;
+    }
+    if (typeof draft.prompt === 'string') $('#prompt').value = draft.prompt;
+    if (typeof draft.negative === 'string' && draft.negative) $('#negative').value = draft.negative;
+    if (draft.steps && !(m && m.fixed_steps != null)) $('#steps').value = draft.steps;
+    if (draft.cfg && !(m && m.fixed_cfg != null)) $('#cfg').value = draft.cfg;
+    if (draft.seed !== undefined && draft.seed !== null) $('#seed').value = draft.seed;
+    if (draft.batch && $('#batch')) {
+      $('#batch').value = draft.batch;
+      const v = parseInt(draft.batch, 10) || 1;
+      if ($('#batch-val')) $('#batch-val').textContent = v + ' image' + (v > 1 ? 's' : '');
+    }
+    if (typeof draft.loraDir === 'string' && $('#lora-dir')) $('#lora-dir').value = draft.loraDir;
+    if (typeof draft.loraPrompt === 'string' && $('#lora-prompt')) $('#lora-prompt').value = draft.loraPrompt;
+    if (draft.strength && $('#strength')) $('#strength').value = draft.strength;
+    if (draft.ratioBeforeOriginal && RATIOS[draft.ratioBeforeOriginal]) {
+      ratioBeforeOriginal = draft.ratioBeforeOriginal;
+    }
+    if (draft.currentRatio && (draft.currentRatio === 'original' || RATIOS[draft.currentRatio])) {
+      currentRatio = draft.currentRatio;
+    }
+
+    // Restauration de l'image source img2img si le modèle l'accepte et qu'elle existe toujours
+    const canInit = Boolean(m && (m.input_modes || []).includes('init'));
+    if (canInit && draft.sourceImage && draft.sourceImage.path && draft.sourceImage.url) {
+      try {
+        const dims = await readImageDimensions(draft.sourceImage.url);
+        uploadedImagePath = draft.sourceImage.path;
+        uploadedImageServerUrl = draft.sourceImage.url;
+        uploadedImageName = draft.sourceImage.name || draft.sourceImage.path.split('/').pop();
+        sourceImageSize = dims;
+        sourcePreviewUrl = draft.sourceImage.url;
+        $('#source-image-path').value = uploadedImagePath;
+        $('#preview-img').src = sourcePreviewUrl;
+        $('#preview-name').textContent = `${uploadedImageName} (${dims.width} × ${dims.height})`;
+        $('#upload-placeholder').classList.add('hidden');
+        $('#upload-preview').classList.remove('hidden');
+      } catch (e) {}
+    }
+    if (currentRatio === 'original' && !sourceImageSize) {
+      currentRatio = RATIOS[ratioBeforeOriginal] ? ratioBeforeOriginal : '1:1';
+    }
+    buildRatios();
+    buildRatiosApply();
+
+    if (Array.isArray(draft.lastGeneratedImages) && draft.lastGeneratedImages.length) {
+      currentBatchStamp = draft.currentBatchStamp || Date.now();
+      activeGenSourceUrl = draft.activeGenSourceUrl || null;
+      showResults(draft.lastGeneratedImages);
+    }
+  } finally {
+    isRestoringGenDraft = false;
+  }
+}
 
 function loadCustomGenPreprompts() {
   try {
@@ -80,6 +199,7 @@ $('#gen-preprompt-select')?.addEventListener('change', e => {
   }
   if (!opt || !opt.dataset.prompt) return;
   $('#prompt').value = opt.dataset.prompt;
+  saveGenDraft();
 });
 
 $('#save-gen-preprompt-btn')?.addEventListener('click', () => {
@@ -183,6 +303,7 @@ async function loadModels() {
   }
   buildRatiosApply();
   onModelChange();
+  await restoreGenDraft();
 
   // reuse depuis l'historique
   const reuse = sessionStorage.getItem('reuse');
@@ -197,6 +318,7 @@ async function loadModels() {
     $('#cfg').value = p.cfg || '';
     $('#seed').value = p.seed || '';
   }
+  saveGenDraft();
 }
 
 function getOriginalOutputSize() {
@@ -407,7 +529,14 @@ function applyPreset(preset) {
 $('#batch').addEventListener('input', e => {
   const v = parseInt(e.target.value);
   $('#batch-val').textContent = v + ' image' + (v > 1 ? 's' : '');
+  saveGenDraft();
 });
+['#prompt', '#negative', '#steps', '#cfg', '#seed', '#lora-dir', '#lora-prompt', '#strength', '#quant', '#preset', '#model'].forEach(sel => {
+  $(sel)?.addEventListener('input', saveGenDraft);
+  $(sel)?.addEventListener('change', saveGenDraft);
+});
+window.addEventListener('beforeunload', saveGenDraft);
+window.addEventListener('pagehide', saveGenDraft);
 
 // ---------- Gestion de l'upload d'image source (img2img) ----------
 let uploadedImagePath = null;
@@ -454,10 +583,12 @@ async function handleFileSelect(file) {
       return;
     }
     uploadedImagePath = j.filename;
+    uploadedImageServerUrl = j.url;
+    uploadedImageName = file.name;
     sourceImageSize = dimensions;
     $('#source-image-path').value = j.filename;
 
-    if (sourcePreviewUrl) URL.revokeObjectURL(sourcePreviewUrl);
+    if (sourcePreviewUrl && sourcePreviewUrl.startsWith('blob:')) URL.revokeObjectURL(sourcePreviewUrl);
     sourcePreviewUrl = previewUrl;
     $('#preview-img').src = sourcePreviewUrl;
     $('#preview-name').textContent = `${file.name} (${dimensions.width} × ${dimensions.height})`;
@@ -468,6 +599,7 @@ async function handleFileSelect(file) {
     if (currentRatio !== 'original') ratioBeforeOriginal = currentRatio;
     currentRatio = 'original';
     buildRatios();
+    saveGenDraft();
     uploaded = true;
   } catch (e) {
     alert('Erreur: ' + e.message);
@@ -516,8 +648,10 @@ if (uploadArea) {
 function clearSourceImage(unlink = true) {
   const gone = uploadedImagePath;
   uploadedImagePath = null;
+  uploadedImageServerUrl = null;
+  uploadedImageName = '';
   sourceImageSize = null;
-  if (sourcePreviewUrl) URL.revokeObjectURL(sourcePreviewUrl);
+  if (sourcePreviewUrl && sourcePreviewUrl.startsWith('blob:')) URL.revokeObjectURL(sourcePreviewUrl);
   sourcePreviewUrl = null;
   $('#source-image-path').value = '';
   $('#source-image-input').value = '';
@@ -528,6 +662,7 @@ function clearSourceImage(unlink = true) {
     currentRatio = RATIOS[ratioBeforeOriginal] ? ratioBeforeOriginal : '1:1';
   }
   buildRatios();
+  saveGenDraft();
   if (gone && unlink) {
     fetch('/api/delete-source-image', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -609,8 +744,11 @@ $('#generate-btn').addEventListener('click', async () => {
   $('#progress-fill').style.width = '0%';
   $('#log').textContent = '';
   $('#log').hidden = false;
-  activeGenSourceUrl = (canInit && uploadedImagePath && sourcePreviewUrl) ? sourcePreviewUrl : null;
+  activeGenSourceUrl = (canInit && uploadedImagePath)
+    ? (uploadedImageServerUrl || sourcePreviewUrl)
+    : null;
   currentBatchStamp = Date.now();
+  saveGenDraft();
   pollStatus();
 });
 
@@ -704,6 +842,7 @@ function showStats(stats) {
 function showResults(images) {
   const box = $('#results');
   box.innerHTML = '';
+  lastGeneratedImages = images;
   const lbItems = [];
   if (activeGenSourceUrl) {
     lbItems.push({
@@ -741,8 +880,36 @@ function showResults(images) {
     d.querySelector('img').addEventListener('click', () => {
       openLightbox(lbItems, hasSource ? idx + 1 : idx);
     });
+    const sendToEdit = document.createElement('button');
+    sendToEdit.type = 'button';
+    sendToEdit.className = 'btn small result-use-source';
+    sendToEdit.textContent = '✂️ Utiliser comme source (Édition)';
+    sendToEdit.addEventListener('click', async () => {
+      sendToEdit.disabled = true;
+      sendToEdit.textContent = 'Envoi…';
+      try {
+        const r = await fetch('/api/use-output-as-source', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: img.id, filename: img.filename }),
+        });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || "Impossible d'envoyer l'image.");
+        sessionStorage.setItem('edit_incoming_source', JSON.stringify({
+          mode: 'canvas',
+          file: { filename: j.filename, url: j.url, name: j.name },
+        }));
+        window.location.href = '/edit';
+      } catch (e) {
+        alert(e.message || 'Erreur');
+        sendToEdit.disabled = false;
+        sendToEdit.textContent = '✂️ Utiliser comme source (Édition)';
+      }
+    });
+    d.appendChild(sendToEdit);
     box.appendChild(d);
   });
+  saveGenDraft();
 }
 
 
@@ -774,6 +941,7 @@ async function doEnhance(mode) {
     }
     promptEl.value = j.prompt;
     status.textContent = 'prompt enrichi - modifiable';
+    saveGenDraft();
   } catch (e) {
     status.textContent = '';
     alert('Erreur: ' + e.message);
@@ -815,6 +983,7 @@ async function doTranslate() {
     if (!j.ok) { status.textContent = ''; alert(j.error || 'Erreur'); return; }
     promptEl.value = j.prompt;
     status.textContent = 'traduit en anglais';
+    saveGenDraft();
   } catch (e) { status.textContent = ''; alert(e.message); }
   finally { btn.disabled = false; btn.textContent = '🌐 Traduire EN'; }
 }

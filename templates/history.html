@@ -49,6 +49,18 @@
                   data-sources='{{ sources | tojson }}'>{{ 'Rééditer' if editable and sources else 'Réutiliser' }}</button>
           <button class="link danger del" data-id="{{ im.id }}">Supprimer</button>
         </div>
+        <div class="card-edit-actions">
+          <button type="button" class="btn small use-in-edit" data-mode="canvas"
+                  data-id="{{ im.id }}" data-filename="{{ im.filename }}"
+                  title="Utiliser cette image générée comme image à modifier (Canvas) dans le Studio d'édition">
+            ✂️ Utiliser comme source (Édition)
+          </button>
+          <button type="button" class="btn small ghost use-in-edit" data-mode="ref"
+                  data-id="{{ im.id }}" data-filename="{{ im.filename }}"
+                  title="Ajouter cette image comme référence supplémentaire dans le Studio d'édition">
+            ＋ Réf.
+          </button>
+        </div>
       </div>
     </div>
     {% endfor %}
@@ -113,6 +125,37 @@ document.querySelectorAll('.card').forEach(card=>{
   card.querySelectorAll('.card-sources img').forEach((imgEl, sIdx) => {
     imgEl.style.cursor = 'zoom-in';
     imgEl.addEventListener('click', () => openCardLightbox(sIdx));
+  });
+});
+document.querySelectorAll('.use-in-edit').forEach(b=>{
+  b.addEventListener('click', async ()=>{
+    const mode = b.dataset.mode || 'canvas';
+    const orig = b.textContent;
+    b.disabled = true;
+    b.textContent = '…';
+    try {
+      const r = await fetch('/api/use-output-as-source', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: b.dataset.id, filename: b.dataset.filename }),
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        alert(j.error || "Impossible d'envoyer l'image vers le Studio d'édition.");
+        b.disabled = false;
+        b.textContent = orig;
+        return;
+      }
+      sessionStorage.setItem('edit_incoming_source', JSON.stringify({
+        mode,
+        file: { filename: j.filename, url: j.url, name: j.name },
+      }));
+      window.location.href = "{{ url_for('edit') }}";
+    } catch (e) {
+      alert('Erreur: ' + e.message);
+      b.disabled = false;
+      b.textContent = orig;
+    }
   });
 });
 document.querySelectorAll('.reuse').forEach(b=>{

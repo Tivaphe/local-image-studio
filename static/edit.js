@@ -16,6 +16,7 @@ const $$ = window.$$;
 
 const RATIOS = window.RATIOS || { "1:1": [1024, 1024] };
 const STORE_KEY = "lis_edit_prefs";
+const EDIT_DRAFT_KEY = "lis_edit_draft_v1";
 const CUSTOM_PREPROMPTS_KEY = "lis_edit_custom_preprompts";
 
 let MODELS = {};
@@ -34,6 +35,216 @@ let currentBatchStamp = Date.now();
 let lastRunWasOutpaint = false;
 let tempOutpaintItem = null;
 let outpaintDragState = null;
+let isRestoringEditDraft = false;
+
+// --------------------------------------------------- sauvegarde inter-pages --
+function saveEditDraft() {
+  if (isRestoringEditDraft) return;
+  try {
+    const serializeImg = item => item ? {
+      path: item.path,
+      url: item.url,
+      name: item.name,
+      width: item.width || 0,
+      height: item.height || 0,
+      fresh: Boolean(item.fresh),
+    } : null;
+
+    const draft = {
+      model: $('#model')?.value || null,
+      quant: $('#quant')?.value || null,
+      preset: $('#preset')?.value || 'default',
+      prompt: $('#prompt')?.value || '',
+      negative: $('#negative')?.value || '',
+      steps: $('#steps')?.value || '',
+      cfg: $('#cfg')?.value || '',
+      seed: $('#seed')?.value || '',
+      batch: $('#batch')?.value || '1',
+      refBudget: $('#ref-budget')?.value || 'auto',
+      currentRatio,
+      ratioBeforeOriginal,
+      canvas: serializeImg(canvas),
+      refs: refs.map(serializeImg).filter(Boolean),
+      outpaint: {
+        enabled: Boolean($('#outpaint-enabled')?.checked),
+        top: $('#outpaint-top')?.value || '25',
+        bottom: $('#outpaint-bottom')?.value || '25',
+        left: $('#outpaint-left')?.value || '25',
+        right: $('#outpaint-right')?.value || '25',
+        fill: $('#outpaint-fill')?.value || 'blur',
+        autoPrompt: Boolean($('#outpaint-auto-prompt')?.checked),
+      },
+      lastGeneratedResults: (lastGeneratedResults || []).map(r => ({
+        url: r.url,
+        filename: r.filename,
+        seed: r.seed,
+        id: r.id,
+        displayUrl: r.displayUrl,
+      })),
+      comparisonSource: (comparisonSource && !String(comparisonSource).startsWith('data:'))
+        ? comparisonSource
+        : null,
+      lastRunWasOutpaint: Boolean(lastRunWasOutpaint),
+      currentBatchStamp,
+    };
+    const json = JSON.stringify(draft);
+    sessionStorage.setItem(EDIT_DRAFT_KEY, json);
+    localStorage.setItem(EDIT_DRAFT_KEY, json);
+  } catch (e) {}
+}
+
+async function restoreEditDraft() {
+  let draft = null;
+  try {
+    const raw = sessionStorage.getItem(EDIT_DRAFT_KEY) || localStorage.getItem(EDIT_DRAFT_KEY);
+    draft = raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    draft = null;
+  }
+  if (!draft) return;
+
+  isRestoringEditDraft = true;
+  try {
+    if (draft.model && editModels[draft.model]) {
+      $('#model').value = draft.model;
+      onModelChange();
+    }
+    const m = currentModel();
+    if (draft.quant && m && m.quants.includes(draft.quant)) {
+      $('#quant').value = draft.quant;
+    }
+    if (draft.preset && $('#preset')) {
+      const opt = $('#preset').querySelector(`option[value="${draft.preset}"]`);
+      if (opt) $('#preset').value = draft.preset;
+    }
+    if (typeof draft.prompt === 'string') $('#prompt').value = draft.prompt;
+    if (typeof draft.negative === 'string' && draft.negative) $('#negative').value = draft.negative;
+    if (draft.steps && !(m && m.fixed_steps != null)) $('#steps').value = draft.steps;
+    if (draft.cfg && !(m && m.fixed_cfg != null)) $('#cfg').value = draft.cfg;
+    if (draft.seed !== undefined && draft.seed !== null) $('#seed').value = draft.seed;
+    if (draft.batch && $('#batch')) {
+      $('#batch').value = draft.batch;
+      const v = parseInt(draft.batch, 10) || 1;
+      if ($('#batch-val')) $('#batch-val').textContent = v + ' image' + (v > 1 ? 's' : '');
+    }
+    if (draft.refBudget && $('#ref-budget')) {
+      $('#ref-budget').value = draft.refBudget;
+    }
+    if (draft.ratioBeforeOriginal && RATIOS[draft.ratioBeforeOriginal]) {
+      ratioBeforeOriginal = draft.ratioBeforeOriginal;
+    }
+    if (draft.currentRatio && (draft.currentRatio === 'original' || RATIOS[draft.currentRatio])) {
+      currentRatio = draft.currentRatio;
+    }
+    if (draft.outpaint) {
+      if ($('#outpaint-enabled')) $('#outpaint-enabled').checked = Boolean(draft.outpaint.enabled);
+      setOutpaintMargins(
+        draft.outpaint.top ?? 25,
+        draft.outpaint.bottom ?? 25,
+        draft.outpaint.left ?? 25,
+        draft.outpaint.right ?? 25
+      );
+      if (draft.outpaint.fill && $('#outpaint-fill')) $('#outpaint-fill').value = draft.outpaint.fill;
+      if (draft.outpaint.autoPrompt !== undefined && $('#outpaint-auto-prompt')) {
+        $('#outpaint-auto-prompt').checked = Boolean(draft.outpaint.autoPrompt);
+      }
+    }
+
+    // Restauration du canvas et des références si les fichiers sont toujours accessibles
+    const hydrateImg = async saved => {
+      if (!saved || !saved.url || !saved.path) return null;
+      try {
+        const dims = await readImageDimensions(saved.url);
+        return {
+          path: saved.path,
+          url: saved.url,
+          name: saved.name || saved.path.split('/').pop(),
+          width: dims.width || saved.width || 0,
+          height: dims.height || saved.height || 0,
+          imgEl: dims.imgEl,
+          objectUrl: null,
+          fresh: Boolean(saved.fresh),
+        };
+      } catch (e) {
+        return null;
+      }
+    };
+
+    if (draft.canvas) {
+      canvas = await hydrateImg(draft.canvas);
+    }
+    if (Array.isArray(draft.refs) && draft.refs.length) {
+      const loadedRefs = [];
+      for (const r of draft.refs) {
+        const item = await hydrateImg(r);
+        if (item) loadedRefs.push(item);
+      }
+      refs = loadedRefs.slice(0, refsLimit());
+    }
+    if (currentRatio === 'original' && !canvas) {
+      currentRatio = RATIOS[ratioBeforeOriginal] ? ratioBeforeOriginal : '1:1';
+    }
+
+    refreshAll();
+
+    if (Array.isArray(draft.lastGeneratedResults) && draft.lastGeneratedResults.length) {
+      currentBatchStamp = draft.currentBatchStamp || Date.now();
+      lastRunWasOutpaint = Boolean(draft.lastRunWasOutpaint);
+      if (lastRunWasOutpaint && canvas && canvas.imgEl) {
+        const geom = computeOutpaintGeometry();
+        comparisonSource = geom ? drawAlignedBeforeSurface(geom, canvas.imgEl) : canvas.url;
+      } else {
+        comparisonSource = draft.comparisonSource || (canvas && canvas.url) || null;
+      }
+      if (comparisonSource) $('#compare-before').src = comparisonSource;
+      showResults(draft.lastGeneratedResults);
+    }
+  } finally {
+    isRestoringEditDraft = false;
+  }
+}
+
+// Applique une image envoyée depuis l'Historique ou la page Générer (« Utiliser en Édition »)
+// sans effacer le prompt ni les réglages en cours !
+async function applyIncomingSource() {
+  let incoming = null;
+  try { incoming = JSON.parse(sessionStorage.getItem('edit_incoming_source') || 'null'); } catch (e) {}
+  if (!incoming || !incoming.file || !incoming.file.url) return;
+  sessionStorage.removeItem('edit_incoming_source');
+
+  try {
+    const dims = await readImageDimensions(incoming.file.url);
+    const newItem = {
+      path: incoming.file.filename,
+      url: incoming.file.url,
+      name: incoming.file.name || incoming.file.filename.split('/').pop(),
+      width: dims.width,
+      height: dims.height,
+      imgEl: dims.imgEl,
+      objectUrl: null,
+      fresh: true,
+    };
+
+    if (incoming.mode === 'ref' && canvas) {
+      const limit = refsLimit();
+      if (refs.length < limit) {
+        refs.push(newItem);
+      } else {
+        showGenError(`Nombre maximum de références atteint (${maxImages()} images max).`);
+      }
+    } else {
+      if (canvas) await removeUploaded(canvas);
+      canvas = newItem;
+      if (currentRatio !== 'original') ratioBeforeOriginal = currentRatio;
+      currentRatio = 'original';
+    }
+    showGenError('');
+    refreshAll();
+    saveEditDraft();
+  } catch (e) {
+    showGenError(e.message || "Impossible de charger l'image sélectionnée depuis l'historique.");
+  }
+}
 
 // ---------------------------------------------------------------- prefs ----
 function loadPrefs() {
@@ -177,6 +388,7 @@ $('#edit-preprompt-select')?.addEventListener('change', e => {
     updateOutpaintUI();
   }
   updateTagWarning();
+  saveEditDraft();
 });
 
 $('#save-edit-preprompt-btn')?.addEventListener('click', () => {
@@ -492,6 +704,7 @@ function updateOutpaintUI() {
   const ctx = pvCanvas.getContext('2d');
   drawOutpaintSurface(ctx, pvCanvas.width, pvCanvas.height, geom, canvas.imgEl, $('#outpaint-fill')?.value || 'blur', true);
   updateOriginalRatioInfo();
+  saveEditDraft();
 }
 
 function applyOutpaintAnchor(anchor) {
@@ -717,7 +930,10 @@ async function loadModels() {
   if (prefs.ratio && RATIOS[prefs.ratio]) { currentRatio = prefs.ratio; ratioBeforeOriginal = prefs.ratio; }
   buildRatios();
   onModelChange();
+  await restoreEditDraft();
+  await applyIncomingSource();
   await applyReusePayload();
+  saveEditDraft();
 }
 
 function onModelChange() {
@@ -1078,6 +1294,7 @@ function refreshAll() {
   if (m) $('#refs-order-hint').textContent = m.ref_tag_syntax
     ? "L'ordre définit <image1>, <image2>… — la image 1 est toujours le canvas (celle qui est modifiée)."
     : "L'ordre compte : « image 1 » désigne le canvas, « image 2 » la première référence.";
+  saveEditDraft();
 }
 
 function renderCanvas() {
@@ -1380,11 +1597,19 @@ $('#generate-btn').addEventListener('click', async () => {
 
 $('#cancel-btn').addEventListener('click', async () => { await fetch('/api/cancel', { method: 'POST' }); });
 $('#log-toggle').addEventListener('click', () => { $('#log').hidden = !$('#log').hidden; });
-$('#prompt').addEventListener('input', updateTagWarning);
+$('#prompt').addEventListener('input', () => { updateTagWarning(); saveEditDraft(); });
+$('#negative')?.addEventListener('input', saveEditDraft);
+['#steps', '#cfg', '#seed', '#ref-budget', '#outpaint-auto-prompt'].forEach(sel => {
+  $(sel)?.addEventListener('input', saveEditDraft);
+  $(sel)?.addEventListener('change', saveEditDraft);
+});
 $('#batch').addEventListener('input', e => {
   const v = parseInt(e.target.value);
   $('#batch-val').textContent = v + ' image' + (v > 1 ? 's' : '');
+  saveEditDraft();
 });
+window.addEventListener('beforeunload', saveEditDraft);
+window.addEventListener('pagehide', saveEditDraft);
 
 // ---------------------------------------------------------------- suivi -----
 function fmtTime(s) {
@@ -1515,6 +1740,7 @@ function showResults(images) {
     $('#compare').hidden = false;
     $('#compare-after').src = lastGeneratedResults[0].displayUrl;
   }
+  saveEditDraft();
 }
 
 // ---------------------------------------------------------------- enrichir --
@@ -1534,6 +1760,7 @@ async function doLlm(mode) {
     if (!j.ok) { status.textContent = ''; alert(j.error || 'Erreur'); return; }
     el.value = j.prompt;
     status.textContent = mode === 'translate' ? 'traduit en anglais' : 'instruction enrichie — modifiable';
+    saveEditDraft();
   } catch (e) { status.textContent = ''; alert('Erreur: ' + e.message); }
   finally { btn.disabled = false; btn.textContent = original; }
 }

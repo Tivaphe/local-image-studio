@@ -143,6 +143,28 @@ class ImagePersistenceTests(unittest.TestCase):
             self.assertEqual(called_params['width'], 1280)
             self.assertEqual(called_params['height'], 864)
 
+    def test_use_output_as_source_creates_independent_copy(self):
+        generated = self.output / 'gen_001.png'
+        generated.write_bytes(b'png-bytes-123')
+        image_id = self.add_image(generated.name)
+
+        resp = self.client.post('/api/use-output-as-source', json={'id': image_id})
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json['ok'])
+        rel_src = resp.json['filename']
+        copied_file = self.root / rel_src
+        self.assertTrue(copied_file.exists())
+        self.assertEqual(copied_file.read_bytes(), b'png-bytes-123')
+
+        # Supprimer l'image de l'historique ne supprime pas la copie dans source_images/
+        self.client.post('/api/delete-image', json={'id': image_id})
+        self.assertFalse(generated.exists())
+        self.assertTrue(copied_file.exists())
+
+        # Tentative de traversée de chemin -> 400
+        bad_resp = self.client.post('/api/use-output-as-source', json={'filename': '../app.py'})
+        self.assertEqual(bad_resp.status_code, 400)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -525,6 +525,52 @@ def api_delete_source_image():
     return jsonify({"ok": True, "deleted": existed})
 
 
+@app.route("/api/use-output-as-source", methods=["POST"])
+def api_use_output_as_source():
+    """
+    Copie une image générée (depuis output/) vers source_images/ pour pouvoir
+    l'utiliser comme image source (canvas ou référence) dans le Studio d'édition
+    ou en img2img, sans dépendre de la durée de vie de l'entrée d'historique.
+    """
+    import shutil
+    data = request.get_json(silent=True) or {}
+    rel_out = str(data.get("filename") or "").strip()
+    if not rel_out and data.get("id") is not None:
+        try:
+            row = db.get_image(int(data["id"]))
+        except (TypeError, ValueError):
+            row = None
+        if row:
+            rel_out = row.get("filename") or ""
+    if not rel_out:
+        return jsonify({"ok": False, "error": "Aucune image indiquée."}), 400
+
+    candidate = config.OUTPUT_DIR / rel_out
+    try:
+        resolved = candidate.resolve()
+        resolved.relative_to(config.OUTPUT_DIR.resolve())
+    except Exception:
+        return jsonify({"ok": False, "error": "Chemin d'image refusé."}), 400
+
+    if not resolved.exists() or not resolved.is_file():
+        return jsonify({"ok": False, "error": "Fichier image introuvable dans output/."}), 404
+
+    ext = resolved.suffix.lower()
+    if ext not in IMAGE_EXTS:
+        ext = ".png"
+    unique_name = f"{uuid.uuid4().hex[:12]}{ext}"
+    config.SOURCE_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    dest = config.SOURCE_IMAGES_DIR / unique_name
+    shutil.copy2(str(resolved), str(dest))
+    rel = _source_rel_path(dest)
+    return jsonify({
+        "ok": True,
+        "filename": rel,
+        "url": _source_url(rel),
+        "name": resolved.name,
+    })
+
+
 @app.route("/api/image/<int:img_id>")
 def api_image(img_id):
     """Parametres complets d'une image de l'historique (pour rejouer une edition)."""

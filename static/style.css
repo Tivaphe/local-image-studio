@@ -131,7 +131,10 @@ small{color:var(--muted)}
 .card-prompt{font-size:13px;color:#c9cdd6;margin:6px 0;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .card-meta{font-size:11px;color:var(--muted)}
-.card-actions{display:flex;gap:12px;margin-top:8px;font-size:13px}
+.card-actions{display:flex;gap:12px;margin-top:8px;font-size:13px;flex-wrap:wrap}
+.card-edit-actions{display:flex;gap:6px;margin-top:8px}
+.card-edit-actions .use-in-edit[data-mode="canvas"]{flex:1;padding:6px 8px;font-size:12px}
+.card-edit-actions .use-in-edit[data-mode="ref"]{padding:6px 8px;font-size:12px}
 .tag{font-size:11px;background:#ffffff14;padding:2px 8px;border-radius:20px;color:var(--muted)}
 .tag-ok{background:#36c98a22;color:var(--ok)}
 .tag-warn{background:#f0a93b22;color:var(--warn)}
