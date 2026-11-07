@@ -24,7 +24,8 @@ from engine import (tasks, load_settings, save_settings, hf_token, engine_ready,
                     model_status)
 import browser_launch
 from registry import (MODELS, DEPS, RATIOS, DEFAULT_NEGATIVE, input_modes,
-                      max_ref_images, check_images_input, clamp_ref_max_pixels)
+                      max_ref_images, check_images_input, clamp_ref_max_pixels,
+                      supports_outpaint, outpaint_mode, round16)
 import gpu_info
 import uuid
 try:
@@ -61,8 +62,13 @@ def generate():
 
 @app.route("/edit")
 def edit():
-    """Studio d'edition : canvas + references multiples (modeles d'edition semantique)."""
-    return render_template("edit.html", models=MODELS, ratios=RATIOS)
+    """Studio d'edition : canvas + references multiples + outpainting."""
+    raw_from = (request.args.get("from") or "").strip()
+    valid = _existing_sources([raw_from]) if raw_from else []
+    preload_source = valid[0] if valid else None
+    return render_template("edit.html", models=MODELS, ratios=RATIOS,
+                           default_neg=DEFAULT_NEGATIVE,
+                           preload_source=preload_source)
 
 
 @app.route("/history")
@@ -76,9 +82,11 @@ def history():
 @app.route("/models")
 def models_page():
     statuses = {mid: model_status(mid) for mid in MODELS}
+    outpaint_ids = {mid for mid in MODELS if supports_outpaint(mid)}
     vram_mb, gpu_name = gpu_info.get_gpu_info()
     return render_template("models.html", models=MODELS, deps=DEPS,
-                           statuses=statuses, engine_ready=engine_ready(),
+                           statuses=statuses, outpaint_ids=outpaint_ids,
+                           engine_ready=engine_ready(),
                            token_set=bool(hf_token()),
                            vram_gb=round(vram_mb/1024, 1) if vram_mb else 0,
                            gpu_name=gpu_name)
@@ -201,6 +209,12 @@ def api_models():
             "ref_needs_vlm": m.get("ref_needs_vlm", False),
             "ref_hint": m.get("ref_hint", ""),
             "ref_examples": m.get("ref_examples", []),
+            # --- Outpainting / Inpainting ---
+            "supports_outpaint": supports_outpaint(mid),
+            "outpaint_mode": outpaint_mode(mid),
+            "inpaint_only": m.get("inpaint_only", False),
+            "distilled_guidance": m.get("distilled_guidance"),
+            "outpaint_hint": m.get("outpaint_hint", ""),
             "status": st,
         }
     return jsonify(out)
@@ -246,9 +260,10 @@ def api_generate():
     ratio = data.get("ratio", "1:1")
     w, h = RATIOS.get(ratio, RATIOS["1:1"])
     if data.get("width") and data.get("height"):
-        w, h = int(data["width"]), int(data["height"])
+        w = max(64, min(2048, round16(int(data["width"]))))
+        h = max(64, min(2048, round16(int(data["height"]))))
 
-    # --- Images fournies : refs (edition) ou image de depart (img2img) ---
+    # --- Images fournies : refs (edition), img2img, ou outpainting ---
     raw_images = data.get("ref_images")
     if not raw_images:
         legacy = data.get("source_image")
@@ -261,9 +276,44 @@ def api_generate():
         return jsonify({"ok": False,
                         "error": f"{missing} image(s) source(s) introuvable(s) sur le disque. "
                                  "Ré-uploadez-les."}), 400
-    images, input_mode, err = check_images_input(mid, images, data.get("input_mode"))
+
+    raw_mask = (data.get("mask_image") or "").strip()
+    mask_image = None
+    if raw_mask:
+        valid_masks = _existing_sources([raw_mask])
+        if not valid_masks:
+            return jsonify({"ok": False,
+                            "error": "Masque d'outpainting introuvable sur le disque. Relancez l'opération."}), 400
+        mask_image = valid_masks[0]
+
+    images, input_mode, err = check_images_input(
+        mid, images, data.get("input_mode"), mask_image=mask_image
+    )
     if err:
         return jsonify({"ok": False, "error": err}), 400
+
+    raw_hist = data.get("history_sources")
+    history_sources = _existing_sources(raw_hist) if isinstance(raw_hist, list) else None
+    raw_temp = data.get("temp_sources")
+    temp_sources = _existing_sources(raw_temp) if isinstance(raw_temp, list) else []
+
+    guidance = data.get("guidance")
+    if guidance not in (None, ""):
+        try:
+            guidance = float(guidance)
+        except (TypeError, ValueError):
+            guidance = None
+    else:
+        guidance = None
+
+    use_init_source = input_mode in ("init", "outpaint") and bool(images)
+    raw_strength = data.get("strength")
+    strength = None
+    if input_mode in ("init", "outpaint") and raw_strength not in (None, ""):
+        try:
+            strength = float(raw_strength)
+        except (TypeError, ValueError):
+            strength = None
 
     params = {
         "model_id": mid,
@@ -278,8 +328,12 @@ def api_generate():
         "ref_images": images,
         "input_mode": input_mode,
         "ref_max_pixels": clamp_ref_max_pixels(data.get("ref_max_pixels")),
-        "source_image": images[0] if (images and input_mode == "init") else None,
-        "strength": data.get("strength") if input_mode == "init" else None,
+        "source_image": images[0] if use_init_source else None,
+        "mask_image": mask_image,
+        "guidance": guidance,
+        "strength": strength,
+        "history_sources": history_sources,
+        "temp_sources": temp_sources,
         "lora_dir": data.get("lora_dir"),
     }
     if not params["prompt"]:

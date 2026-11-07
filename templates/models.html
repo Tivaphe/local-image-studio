@@ -46,7 +46,7 @@
     {% set st = statuses[mid] %}
     <div class="model-card" data-id="{{ mid }}">
       <div class="mc-head">
-        <h3>{{ m.name }}{% if m.supports_ref_images %}<span class="edit-badge" title="Édition par références multiples (jusqu'à {{ m.max_ref_images }} images)">✂️ ×{{ m.max_ref_images }}</span>{% endif %}</h3>
+        <h3>{{ m.name }}{% if m.supports_ref_images %}<span class="edit-badge" title="Édition par références multiples (jusqu'à {{ m.max_ref_images }} images)">✂️ ×{{ m.max_ref_images }}</span>{% endif %}{% if mid in outpaint_ids %}<span class="edit-badge outpaint-badge" title="{{ 'Modèle dédié Outpainting / Inpainting' if m.inpaint_only else 'Compatible Outpainting (extension de cadre)' }}">{{ '🖼️ Dédié Outpaint' if m.inpaint_only else '🖼️ Outpaint' }}</span>{% endif %}</h3>
         {% if m.needs_token %}<span class="tag tag-warn">token requis</span>{% endif %}
         {% if st.ready %}<span class="tag tag-ok">prêt</span>{% else %}<span class="tag">à télécharger</span>{% endif %}
       </div>

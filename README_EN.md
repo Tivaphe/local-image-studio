@@ -101,7 +101,17 @@ The **✂️ Edit** tab — available on the models that really do editing:
    - **FLUX.2 / FLUX.3 Klein** → **no tag**: its text encoder never sees the images, so refer to
      them by position in plain words:
      `Put the product from image 2 on the table in image 1, keep image 1's lighting`
-5. **Run**: the result is shown **before / after**.
+5. **Run**: the result is shown **before / after**. Click any image to open the zero-reload viewer and switch instantaneously with **keyboard arrows (◀ / ▶)**, the **mouse wheel**, or **Space** (*Before ↔ After*).
+
+### 5️⃣ Outpainting (extend an image's frame)
+
+Inside the **✂️ Edit** tab, switch to **🖼️ Outpainting (extend)**:
+
+1. **Pick an outpainting-capable model**:
+   - **FLUX.1 Fill [dev]** (*recommended, dedicated BFL model*): natively preserves your central image and fills the expanded frame seamlessly (`guidance 30`, shares FLUX.1 VAE & text encoders).
+   - **Qwen-Image 2.1 / Turbo**, **FLUX.2 / FLUX.3 Klein**, **Fibo 2.0**, or **SD 3.5**: also supported via masked outpainting.
+2. **Drop the image to extend** and choose a preset (**Left + Right**, **Top + Bottom**, **Zoom out ×1.5 / ×2**, **16:9**, **9:16**), adjust per-side sliders, or drag the image directly inside the live preview frame.
+3. **Describe the full expanded scene** and run. Before/After comparison keeps the original image pixel-aligned inside the expanded frame.
 
 💡 Every reference adds tokens: short on VRAM? Lower the **reference pixel budget**
 (0.5 MP / 0.25 MP) before lowering the number of images.
@@ -110,11 +120,12 @@ The **✂️ Edit** tab — available on the models that really do editing:
 
 ---
 
-## 🧠 Available models (20)
+## 🧠 Available models (21)
 
 | Model | Speed | License | Best for |
 |---|---|---|---|
 | **FLUX.1 schnell** | ⚡ 4 steps | Apache 2.0 ✅ | Quick tests |
+| **FLUX.1 Fill [dev]** (GGUF) | 28 steps, guidance 30 | Non-commercial ⚠️ | Seamless outpainting / frame expansion |
 | **FLUX.2 Klein 4B** | ⚡ 4 steps | Apache 2.0 ✅ | Fast + editing (up to 10 images) |
 | **FLUX.2 Klein 9B** | ⚡ 4 steps | Non-commercial | Quality + editing |
 | **FLUX.3 Image Klein** | ⚡ 16 steps | Non-commercial | Quality + editing (up to 10 images), readable text, bounding boxes |

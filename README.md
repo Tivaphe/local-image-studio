@@ -100,6 +100,18 @@ Onglet **✂️ Édition** — réservé aux modèles qui savent vraiment édite
      encodeur de texte : désignez-les par la position en langage naturel :
      `Put the product from image 2 on the table in image 1, keep image 1's lighting`
 5. **Lancez** : le résultat s'affiche en **avant / après**.
+   Cliquez sur l'image pour l'ouvrir en grand et comparer **sans aucun rechargement** avec les **flèches clavier (◀ / ▶)**, la **molette de la souris** ou la touche **Espace** (*Avant ↔ Après*).
+
+### 5️⃣ Étendre le cadre d'une image (Outpainting)
+
+Dans l'onglet **✂️ Édition**, basculez sur **🖼️ Outpainting (étendre)** :
+
+1. **Choisissez un modèle compatible** :
+   - **FLUX.1 Fill [dev]** (*recommandé, dédié BFL*) : conserve nativement l'image centrale et génère les zones étendues sans couture (`guidance 30`, réutilise le VAE et les encodeurs de FLUX.1).
+   - **Qwen-Image 2.1 / Turbo**, **FLUX.2 / FLUX.3 Klein**, **Fibo 2.0** ou **SD 3.5** : également compatibles avec masque d'extension.
+2. **Déposez l'image à étendre** et réglez l'extension (préréglages **Gauche + Droite**, **Haut + Bas**, **Dézoom ×1,5 / ×2**, **16:9**, **9:16**, curseurs par côté ou glisser-déposer direct dans l'aperçu).
+3. **Décrivez la scène complète** une fois élargie puis cliquez **🖼️ Étendre l'image**.
+   L'aperçu **Avant / Après** aligne l'image d'origine au pixel près dans le nouveau cadre pour comparer instantanément l'extension avec **Espace** ou la **molette**.
 
 💡 Chaque référence ajoute des tokens : si vous manquez de VRAM, baissez le
 **budget pixels des références** (0,5 MP / 0,25 MP) plutôt que le nombre d'images.
@@ -108,11 +120,12 @@ gardez l'onglet **Générer** → *Image de départ* (SD 3.5).
 
 ---
 
-## 🧠 Modèles disponibles (20)
+## 🧠 Modèles disponibles (21)
 
 | Modèle | Vitesse | Licence | Idéal pour |
 |---|---|---|---|
 | **FLUX.1 schnell** | ⚡ 4 étapes | Apache 2.0 ✅ | Tests rapides |
+| **FLUX.1 Fill [dev]** (GGUF) | 28 étapes, guidance 30 | Non-commercial ⚠️ | Outpainting / extension de cadre sans couture |
 | **FLUX.2 Klein 4B** | ⚡ 4 étapes | Apache 2.0 ✅ | Rapide + édition ×10 images |
 | **FLUX.2 Klein 9B** | ⚡ 4 étapes | Non-commercial | Qualité + édition ×10 images |
 | **FLUX.3 Image Klein** | ⚡ 16 étapes | Non-commercial | Qualité + édition ×10 images, texte lisible, boîtes englobantes |

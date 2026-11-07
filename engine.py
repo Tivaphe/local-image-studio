@@ -19,10 +19,10 @@ import uuid
 from pathlib import Path
 from urllib.request import urlopen, Request
 
-from config import (ROOT, BIN_DIR, DIFFUSION_DIR, OUTPUT_DIR, find_sd_cli)
+from config import (ROOT, BIN_DIR, DIFFUSION_DIR, OUTPUT_DIR, SOURCE_IMAGES_DIR, find_sd_cli)
 from registry import (MODELS, DEPS, DEP_QUANT_PRIORITY, resolve_dep_gguf,
                       load_manifest, save_manifest, build_command, _dep_path,
-                      check_images_input)
+                      check_images_input, outpaint_mode)
 
 
 # =========================================================================== #
@@ -376,12 +376,18 @@ class TaskManager:
             if missing:
                 raise RuntimeError("Dépendances manquantes: " + ", ".join(missing))
 
-            # --- Images fournies (refs multiples ou image de depart) ---
+            # --- Images fournies (refs multiples, img2img, ou outpainting) ---
             input_images = [str(x) for x in (p.get("ref_images") or []) if x]
             if not input_images and p.get("source_image"):
                 input_images = [str(p["source_image"])]
             input_mode = p.get("input_mode")
-            input_images, input_mode, err = check_images_input(model_id, input_images, input_mode)
+            mask_image = str(p["mask_image"]).strip() if p.get("mask_image") else None
+            if mask_image:
+                input_images, input_mode, err = check_images_input(
+                    model_id, input_images, input_mode, mask_image=mask_image)
+            else:
+                input_images, input_mode, err = check_images_input(
+                    model_id, input_images, input_mode)
             if err:
                 raise RuntimeError(err)
             missing_files = [x for x in input_images if not (ROOT / x).exists()]
@@ -390,7 +396,13 @@ class TaskManager:
                     f"{len(missing_files)} image(s) source(s) introuvable(s) sur le disque : "
                     + ", ".join(Path(x).name for x in missing_files[:3])
                 )
-            has_refs = input_mode == "ref" and bool(input_images)
+            if mask_image and not (ROOT / mask_image).exists():
+                raise RuntimeError("Le masque d'outpainting est introuvable sur le disque.")
+
+            omode = outpaint_mode(model_id) if input_mode == "outpaint" else None
+            has_refs = bool(input_images) and (
+                input_mode == "ref" or (input_mode == "outpaint" and omode == "ref_mask")
+            )
 
             # Certains modeles Qwen-VL exigent le mmproj pour traiter des references.
             mmproj_dep = m.get("mmproj_dep")
@@ -419,16 +431,23 @@ class TaskManager:
             output_prefix = f"{model_name}_{prompt_part}_{batch_id}"
             out_tmpl = str(OUTPUT_DIR / f"{output_prefix}_%03d.png")
 
+            extra_build_kw = {}
+            if mask_image:
+                extra_build_kw["mask_image"] = mask_image
+            if p.get("guidance") is not None:
+                extra_build_kw["guidance"] = p.get("guidance")
+
             cmd = build_command(
                 model_id, quant, p["prompt"], p.get("negative", ""),
                 int(p["width"]), int(p["height"]), int(p["steps"]), float(p["cfg"]),
                 seed, batch, out_tmpl, str(sd), manifest,
-                source_image=(input_images[0] if (input_mode == "init" and input_images) else None),
+                source_image=(input_images[0] if (input_mode in ("init", "outpaint") and input_images) else None),
                 lora_dir=p.get("lora_dir"),
                 strength=p.get("strength"),
                 ref_images=input_images if has_refs else None,
                 input_mode=input_mode,
-                ref_max_pixels=p.get("ref_max_pixels"))
+                ref_max_pixels=p.get("ref_max_pixels"),
+                **extra_build_kw)
 
             # Vérifier qu'aucun argument n'est None
             for idx_arg, arg_val in enumerate(cmd):
@@ -436,7 +455,9 @@ class TaskManager:
                     raise RuntimeError(f"Erreur interne : l'argument de commande #{idx_arg} est None.")
 
             input_label = ""
-            if has_refs:
+            if input_mode == "outpaint":
+                input_label = " · outpainting"
+            elif has_refs:
                 input_label = (f" · {len(input_images)} références" if len(input_images) > 1
                              else " · 1 référence")
             elif input_images:
@@ -524,6 +545,9 @@ class TaskManager:
                 err_summary = _extract_err_summary()
                 raise RuntimeError(f"Aucune image n'a été produite par le moteur sd-cli :\n{err_summary}")
 
+            persisted_sources = (p["history_sources"]
+                                 if p.get("history_sources") is not None
+                                 else input_images)
             images = []
             for i, fp in enumerate(produced):
                 rel = fp.relative_to(OUTPUT_DIR).as_posix()
@@ -534,7 +558,7 @@ class TaskManager:
                     steps=int(p["steps"]), cfg=float(p["cfg"]),
                     sampler=m["defaults"]["sampler"], filename=rel, batch_size=batch,
                     gen_time=round(total_seconds / max(1, len(produced)), 1),
-                    source_images=input_images)
+                    source_images=persisted_sources)
                 images.append({"url": f"/output/{rel}", "filename": rel,
                                "seed": seed + i, "id": image_id})
 
@@ -555,6 +579,18 @@ class TaskManager:
         except Exception as e:
             self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
                       result={"type": "generate", "images": [], "error": str(e), "cancelled": False})
+        finally:
+            try:
+                import config as _cfg
+                import db as _db
+                for tmp_rel in (p.get("temp_sources") or []):
+                    tmp_path = (ROOT / str(tmp_rel)).resolve()
+                    tmp_path.relative_to(_cfg.SOURCE_IMAGES_DIR.resolve())
+                    rel_norm = tmp_path.relative_to(ROOT.resolve()).as_posix()
+                    if tmp_path.exists() and not _db.source_is_referenced(rel_norm):
+                        tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 # instance globale
