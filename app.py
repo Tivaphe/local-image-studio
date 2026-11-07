@@ -24,7 +24,8 @@ from engine import (tasks, load_settings, save_settings, hf_token, engine_ready,
                     model_status)
 import browser_launch
 from registry import (MODELS, DEPS, RATIOS, DEFAULT_NEGATIVE, input_modes,
-                      max_ref_images, check_images_input, clamp_ref_max_pixels)
+                      max_ref_images, check_images_input, clamp_ref_max_pixels,
+                      supports_outpainting, build_outpaint_prompt)
 import gpu_info
 import uuid
 try:
@@ -195,6 +196,7 @@ def api_models():
             "presets": m.get("presets", {}),
             # --- Capacites d'entree image (edition / img2img) ---
             "supports_ref_images": m.get("supports_ref_images", False),
+            "supports_outpainting": supports_outpainting(mid),
             "input_modes": input_modes(mid),
             "max_ref_images": max_ref_images(mid),
             "ref_tag_syntax": m.get("ref_tag_syntax"),
@@ -265,10 +267,34 @@ def api_generate():
     if err:
         return jsonify({"ok": False, "error": err}), 400
 
+    # --- Outpainting (extension de cadre pour les modeles compatibles) ---
+    outpaint_cfg = data.get("outpaint")
+    prompt_str = (data.get("prompt") or "").strip()
+    if outpaint_cfg:
+        if not supports_outpainting(mid):
+            return jsonify({
+                "ok": False,
+                "error": f"{m['name']} ne supporte pas l'outpainting. "
+                         "Choisissez Qwen-Image 2.1, FLUX.2 / FLUX.3 Klein ou Fibo 2.0."
+            }), 400
+        if not images:
+            return jsonify({
+                "ok": False,
+                "error": "L'outpainting nécessite une image de départ (canvas)."
+            }), 400
+        directions = None
+        auto_prompt = True
+        if isinstance(outpaint_cfg, dict):
+            directions = outpaint_cfg.get("directions")
+            if "auto_prompt" in outpaint_cfg:
+                auto_prompt = bool(outpaint_cfg.get("auto_prompt"))
+        if auto_prompt or not prompt_str:
+            prompt_str = build_outpaint_prompt(mid, prompt_str, directions)
+
     params = {
         "model_id": mid,
         "quant": quant,
-        "prompt": (data.get("prompt") or "").strip(),
+        "prompt": prompt_str,
         "negative": (data.get("negative") or "").strip(),
         "width": w, "height": h,
         "steps": int(m.get("fixed_steps", data.get("steps") or m["defaults"]["steps"])),
@@ -281,6 +307,7 @@ def api_generate():
         "source_image": images[0] if (images and input_mode == "init") else None,
         "strength": data.get("strength") if input_mode == "init" else None,
         "lora_dir": data.get("lora_dir"),
+        "outpaint": bool(outpaint_cfg),
     }
     if not params["prompt"]:
         return jsonify({"ok": False, "error": "Le prompt est vide."}), 400

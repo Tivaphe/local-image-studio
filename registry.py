@@ -340,6 +340,7 @@ MODELS = {
         "supports_img2img": True,
         # --- Edition multi-images (cf. docs/ADD_MODEL_FR.md) ---
         "supports_ref_images": True,
+        "supports_outpainting": True,
         "input_modes": ["ref"],
         "max_ref_images": 10,
         "ref_tag_syntax": "<image{n}>",
@@ -400,6 +401,7 @@ MODELS = {
         "zero_cond_t_on_edit": True,
         # --- Edition multi-images ---
         "supports_ref_images": True,
+        "supports_outpainting": True,
         "input_modes": ["ref"],
         "max_ref_images": 10,
         "ref_tag_syntax": "<image{n}>",
@@ -570,6 +572,7 @@ MODELS = {
         "supports_img2img": True,
         # --- Edition multi-images ---
         "supports_ref_images": True,
+        "supports_outpainting": True,
         "input_modes": ["ref"],
         "max_ref_images": 10,
         "ref_tag_syntax": None,
@@ -615,6 +618,7 @@ MODELS = {
         "supports_img2img": True,
         # --- Edition multi-images ---
         "supports_ref_images": True,
+        "supports_outpainting": True,
         "input_modes": ["ref"],
         "max_ref_images": 10,
         "ref_tag_syntax": None,
@@ -674,6 +678,7 @@ MODELS = {
         "supports_img2img": True,
         # --- Edition multi-images (comme FLUX.2 Klein : jusqu'a 10 references) ---
         "supports_ref_images": True,
+        "supports_outpainting": True,
         "input_modes": ["ref"],
         "max_ref_images": 10,
         "ref_tag_syntax": None,
@@ -731,6 +736,7 @@ MODELS = {
         "needs_token": False,
         # --- Texte-image + édition (références) ---
         "supports_ref_images": True,
+        "supports_outpainting": True,
         "input_modes": ["ref"],
         "max_ref_images": 4,
         "ref_tag_syntax": "<image_{n}>",
@@ -774,6 +780,7 @@ MODELS = {
         "needs_token": False,
         # --- Édition par références uniquement (distillé pour l'édition en 4 étapes) ---
         "supports_ref_images": True,
+        "supports_outpainting": True,
         "input_modes": ["ref"],
         "max_ref_images": 4,
         "ref_tag_syntax": "<image_{n}>",
@@ -1084,6 +1091,46 @@ def max_ref_images(model_id: str, input_mode: str | None = None) -> int:
     if mode == "init":
         return 1
     return int(m.get("max_ref_images", 1))
+
+
+def supports_outpainting(model_id: str) -> bool:
+    """Indique si le modele supporte l'outpainting (extension du cadre du canvas)."""
+    m = MODELS.get(model_id, {})
+    return bool(m.get("supports_outpainting", False))
+
+
+def build_outpaint_prompt(model_id: str, user_prompt: str = "",
+                          directions: list[str] | None = None) -> str:
+    """
+    Construit ou enrichit l'instruction d'edition pour un outpainting (extension hors-cadre)
+    en respectant la syntaxe d'adressage du modele (<image1>, <image_1> ou langage naturel).
+    """
+    m = MODELS.get(model_id, {})
+    syntax = m.get("ref_tag_syntax")
+    ref_label = syntax.replace("{n}", "1") if syntax else "image 1"
+    dir_names = {
+        "top": "top",
+        "bottom": "bottom",
+        "left": "left",
+        "right": "right",
+    }
+    valid_dirs = [dir_names[d] for d in (directions or []) if d in dir_names]
+    if valid_dirs and len(valid_dirs) < 4:
+        where = "on the " + ", ".join(valid_dirs) + " border" + ("s" if len(valid_dirs) > 1 else "")
+    else:
+        where = "around the borders"
+
+    base = (
+        f"Outpaint and seamlessly extend {ref_label} {where} to fill the entire frame, "
+        f"keep the original central content of {ref_label} intact and unchanged, "
+        "match the exact lighting, colors, perspective, texture and style."
+    )
+    clean = (user_prompt or "").strip()
+    if not clean:
+        return base
+    if "outpaint" in clean.lower():
+        return clean
+    return f"{base} {clean}"
 
 
 def clamp_ref_max_pixels(value) -> int | None:

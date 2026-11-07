@@ -22,7 +22,10 @@
     {% for p in im.source_images_list %}
       {% set _ = sources.append({'filename': p, 'url': '/source-images/' ~ p.split('/')|last}) %}
     {% endfor %}
-    <div class="card" data-id="{{ im.id }}">
+    <div class="card" data-id="{{ im.id }}"
+         data-output-url="{{ url_for('serve_output', filename=im.filename) }}"
+         data-label="{{ im.model_name }} · seed {{ im.seed }}"
+         data-sources='{{ sources | tojson }}'>
       <div class="thumb" style="background-image:url('{{ url_for('serve_output', filename=im.filename) }}')"></div>
       {% if sources %}
       <div class="card-sources" title="{{ sources|length }} image(s) fournie(s) au modèle">
@@ -64,6 +67,52 @@ document.querySelectorAll('.del').forEach(b=>{
     if(!confirm('Supprimer cette image ?')) return;
     await fetch('/api/delete-image',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:b.dataset.id})});
     b.closest('.card').remove();
+  });
+});
+document.querySelectorAll('.card').forEach(card=>{
+  const thumb = card.querySelector('.thumb');
+  const openCardLightbox = (startOnSourceIdx = null) => {
+    let sources = [];
+    try { sources = JSON.parse(card.dataset.sources || '[]'); } catch (e) {}
+    if (sources.length) {
+      const items = [
+        ...sources.map((s, idx) => ({
+          src: s.url,
+          downloadUrl: s.url,
+          label: idx === 0 ? 'Image source (Avant)' : `Référence ${idx + 1}`,
+          role: idx === 0 ? 'source' : 'ref',
+          badge: idx === 0 ? 'AVANT (SOURCE)' : `RÉF #${idx + 1}`,
+        })),
+        {
+          src: card.dataset.outputUrl,
+          downloadUrl: card.dataset.outputUrl,
+          label: card.dataset.label || '',
+          role: 'result',
+          badge: 'APRÈS (MODIFIÉE)',
+        },
+      ];
+      const startIdx = startOnSourceIdx !== null ? startOnSourceIdx : items.length - 1;
+      openLightbox(items, startIdx, { lastResultIndex: items.length - 1 });
+      return;
+    }
+    const allCards = [...document.querySelectorAll('.card')];
+    const items = allCards.map((c, idx) => ({
+      src: c.dataset.outputUrl,
+      downloadUrl: c.dataset.outputUrl,
+      label: c.dataset.label || `Image ${idx + 1}`,
+      role: 'result',
+      badge: `HISTORIQUE ${idx + 1}/${allCards.length}`,
+    }));
+    const idx = Math.max(0, allCards.indexOf(card));
+    openLightbox(items, idx);
+  };
+  if (thumb) {
+    thumb.style.cursor = 'zoom-in';
+    thumb.addEventListener('click', () => openCardLightbox(null));
+  }
+  card.querySelectorAll('.card-sources img').forEach((imgEl, sIdx) => {
+    imgEl.style.cursor = 'zoom-in';
+    imgEl.addEventListener('click', () => openCardLightbox(sIdx));
   });
 });
 document.querySelectorAll('.reuse').forEach(b=>{

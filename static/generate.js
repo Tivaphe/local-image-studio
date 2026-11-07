@@ -18,6 +18,8 @@ let currentRatio = "1:1";
 let ratioBeforeOriginal = "1:1";
 let sourceImageSize = null;
 let sourcePreviewUrl = null;
+let activeGenSourceUrl = null;
+let currentBatchStamp = Date.now();
 let pollTimer = null;
 
 // ---------- memoire de la selection (FIX 4) ----------
@@ -522,6 +524,8 @@ $('#generate-btn').addEventListener('click', async () => {
   $('#progress-fill').style.width = '0%';
   $('#log').textContent = '';
   $('#log').hidden = false;
+  activeGenSourceUrl = (canInit && uploadedImagePath && sourcePreviewUrl) ? sourcePreviewUrl : null;
+  currentBatchStamp = Date.now();
   pollStatus();
 });
 
@@ -615,16 +619,43 @@ function showStats(stats) {
 function showResults(images) {
   const box = $('#results');
   box.innerHTML = '';
-  images.forEach(img => {
+  const lbItems = [];
+  if (activeGenSourceUrl) {
+    lbItems.push({
+      src: activeGenSourceUrl,
+      downloadUrl: activeGenSourceUrl,
+      label: 'Image source (img2img)',
+      role: 'source',
+      badge: 'AVANT (SOURCE)',
+    });
+  }
+  const hasSource = lbItems.length > 0;
+  images.forEach((img, idx) => {
+    const displayUrl = `${img.url}?t=${currentBatchStamp}`;
+    lbItems.push({
+      src: displayUrl,
+      downloadUrl: img.url,
+      label: `Image ${idx + 1}/${images.length} · seed ${img.seed}`,
+      role: 'result',
+      badge: hasSource
+        ? (images.length > 1 ? `APRÈS #${idx + 1}` : 'APRÈS (MODIFIÉE)')
+        : (images.length > 1 ? `IMAGE ${idx + 1}/${images.length}` : 'IMAGE GÉNÉRÉE'),
+    });
+  });
+
+  images.forEach((img, idx) => {
+    const displayUrl = `${img.url}?t=${currentBatchStamp}`;
     const d = document.createElement('div');
     d.className = 'result';
     d.innerHTML = `
-      <img src="${img.url}?t=${Date.now()}" alt="">
+      <img src="${displayUrl}" alt="">
       <div class="rbar">
         <span>seed ${img.seed}</span>
         <a class="link" href="${img.url}" download>telecharger</a>
       </div>`;
-    d.querySelector('img').addEventListener('click', e => openLightbox(e.target.src));
+    d.querySelector('img').addEventListener('click', () => {
+      openLightbox(lbItems, hasSource ? idx + 1 : idx);
+    });
     box.appendChild(d);
   });
 }

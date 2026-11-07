@@ -111,6 +111,38 @@ class ImagePersistenceTests(unittest.TestCase):
                          {first[0]['filename'], second[0]['filename']})
         self.assertEqual(db.get_image(first[0]['id'])['filename'], first[0]['filename'])
 
+    def test_outpaint_api_validation_and_auto_prompt(self):
+        canvas = self.sources / 'expanded_canvas.png'
+        canvas.write_bytes(b'image')
+        rel = 'source_images/expanded_canvas.png'
+
+        # Modèle ne supportant pas l'outpainting -> 400
+        resp_bad = self.client.post('/api/generate', json={
+            'model_id': 'flux-schnell',
+            'prompt': 'extend',
+            'outpaint': {'enabled': True, 'directions': ['left', 'right']},
+        })
+        self.assertEqual(resp_bad.status_code, 400)
+
+        # Modèle compatible avec prompt vide et auto_prompt actif -> 200 + prompt auto-adapté
+        with patch.object(engine.tasks, 'start_generate') as start_mock:
+            resp_ok = self.client.post('/api/generate', json={
+                'model_id': 'qwen-image-2.1',
+                'prompt': '',
+                'width': 1280,
+                'height': 864,
+                'input_mode': 'ref',
+                'ref_images': [rel],
+                'outpaint': {'enabled': True, 'directions': ['left', 'right'], 'auto_prompt': True},
+            })
+            self.assertEqual(resp_ok.status_code, 200)
+            self.assertTrue(resp_ok.json['ok'])
+            called_params = start_mock.call_args[0][0]
+            self.assertTrue(called_params['outpaint'])
+            self.assertIn('<image1>', called_params['prompt'])
+            self.assertEqual(called_params['width'], 1280)
+            self.assertEqual(called_params['height'], 864)
+
 
 if __name__ == '__main__':
     unittest.main()

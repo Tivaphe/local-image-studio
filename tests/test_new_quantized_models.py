@@ -5,9 +5,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 import registry
-from registry import MODELS, DEPS, build_command, resolve_dep_gguf, _is_valid_dep
+from registry import (MODELS, DEPS, build_command, resolve_dep_gguf,
+                      _is_valid_dep, supports_outpainting, build_outpaint_prompt)
 
 NEW_MODELS = ["fibo2-dev", "fibo2-edit-turbo", "moss-image-sft", "moss-image-base", "krea2-turbo"]
+OUTPAINT_MODELS = [
+    "qwen-image-2.1", "qwen-image-2.1-turbo",
+    "flux2-klein-4b", "flux2-klein-9b", "flux3-image-klein",
+    "fibo2-dev", "fibo2-edit-turbo",
+]
 
 # Listings réels des dépôts Hugging Face (noms de fichiers uniquement).
 REPO_FILES = {
@@ -57,6 +63,26 @@ class RegistryEntriesTests(unittest.TestCase):
     def test_qwen3vl_4b_still_resolves_to_the_llm_not_the_mmproj(self):
         picked = resolve_dep_gguf("qwen3vl_4b", REPO_FILES["Qwen/Qwen3-VL-4B-Instruct-GGUF"])
         self.assertEqual(picked, "Qwen3VL-4B-Instruct-Q4_K_M.gguf")
+
+    def test_outpainting_support_and_prompt_builder(self):
+        for mid in OUTPAINT_MODELS:
+            self.assertTrue(supports_outpainting(mid), f"{mid} devrait supporter l'outpainting")
+        self.assertFalse(supports_outpainting("flux-schnell"))
+        self.assertFalse(supports_outpainting("z-image"))
+        self.assertFalse(supports_outpainting("krea2-turbo"))
+
+        qwen_prompt = build_outpaint_prompt("qwen-image-2.1", "a sunny beach", ["left", "right"])
+        self.assertIn("<image1>", qwen_prompt)
+        self.assertIn("left, right borders", qwen_prompt)
+        self.assertTrue(qwen_prompt.endswith("a sunny beach"))
+
+        fibo_prompt = build_outpaint_prompt("fibo2-dev", "", ["top"])
+        self.assertIn("<image_1>", fibo_prompt)
+        self.assertIn("top border", fibo_prompt)
+
+        klein_prompt = build_outpaint_prompt("flux3-image-klein", "mountain horizon")
+        self.assertIn("image 1", klein_prompt)
+        self.assertNotIn("<image", klein_prompt)
 
 
 class BuildCommandTests(unittest.TestCase):

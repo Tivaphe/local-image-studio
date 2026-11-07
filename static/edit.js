@@ -1,11 +1,10 @@
 /* ===== Page « Studio d'édition » =====
    Edition par references multiples : 1 canvas (image 1) + jusqu'a N-1 references.
-
-   Contraintes heritees du moteur (sd-cli, cf. docs/ADD_MODEL_*.md) :
-     - l'edition se fait avec `-r` (repetable), une fois par image ;
-     - l'ORDRE des images definit <image1>, <image2>, … -> le canvas est toujours 1 ;
-     - Qwen-Image 2.1 : le moteur annote les images pour le VLM, le prompt doit utiliser
-       ces balises ; FLUX.2 / FLUX.3 Klein : pas de balise, designation par la position.
+   Inclut :
+     - Mode Outpainting (extension du cadre Haut/Bas/Gauche/Droite, préréglages de ratio/dézoom,
+       aperçu temps réel sur canvas HTML5 et adaptation automatique du prompt selon le modèle).
+     - Comparaison instantanée sans rechargement dans la Lightbox (flèches clavier, molette souris,
+       touche Espace / clic maintenu pour basculer entre Image Source et Image Modifiée).
 */
 if (typeof window.$ === 'undefined') {
   window.$ = (s, el = document) => el.querySelector(s);
@@ -19,7 +18,7 @@ const STORE_KEY = "lis_edit_prefs";
 
 let MODELS = {};
 let editModels = {};
-let canvas = null;          // {path, url, name, width, height, objectUrl}
+let canvas = null;          // {path, url, name, width, height, objectUrl, imgEl}
 let refs = [];              // idem, dans l'ordre
 let currentRatio = "1:1";
 let ratioBeforeOriginal = "1:1";
@@ -27,6 +26,11 @@ let pollTimer = null;
 let vramGb = 0;
 let comparisonSource = null;
 let generationSourceCount = 0;
+let lastGeneratedResults = [];
+let activeCompareResultIdx = 0;
+let currentBatchStamp = Date.now();
+let lastRunWasOutpaint = false;
+let tempOutpaintItem = null;
 
 // ---------------------------------------------------------------- prefs ----
 function loadPrefs() {
@@ -53,11 +57,318 @@ function esc(s) {
 function readImageDimensions(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight, imgEl: img });
     img.onerror = () => reject(new Error("Impossible de lire les dimensions de l'image."));
     img.src = src;
   });
 }
+
+// ------------------------------------------------------------ outpainting --
+function modelSupportsOutpaint() {
+  const m = currentModel();
+  return Boolean(m && m.supports_outpainting);
+}
+
+function getOutpaintMargins() {
+  return {
+    top: parseInt($('#outpaint-top')?.value || '0', 10) || 0,
+    bottom: parseInt($('#outpaint-bottom')?.value || '0', 10) || 0,
+    left: parseInt($('#outpaint-left')?.value || '0', 10) || 0,
+    right: parseInt($('#outpaint-right')?.value || '0', 10) || 0,
+  };
+}
+
+function isOutpaintActive() {
+  if (!modelSupportsOutpaint()) return false;
+  const enabled = Boolean($('#outpaint-enabled')?.checked);
+  if (!enabled) return false;
+  const { top, bottom, left, right } = getOutpaintMargins();
+  return (top + bottom + left + right) > 0;
+}
+
+function getOutpaintActiveDirections() {
+  const m = getOutpaintMargins();
+  return ['top', 'bottom', 'left', 'right'].filter(k => m[k] > 0);
+}
+
+function computeOutpaintGeometry() {
+  if (!canvas || !canvas.width || !canvas.height) return null;
+  const { top, bottom, left, right } = getOutpaintMargins();
+  const padTop = Math.round(canvas.height * (top / 100));
+  const padBottom = Math.round(canvas.height * (bottom / 100));
+  const padLeft = Math.round(canvas.width * (left / 100));
+  const padRight = Math.round(canvas.width * (right / 100));
+  const expW = canvas.width + padLeft + padRight;
+  const expH = canvas.height + padTop + padBottom;
+
+  // Alignement sur 32 px (compatible Qwen-Image 2.1 en 32 px et FLUX/Fibo en 16 px)
+  const scaleToArea = Math.sqrt((1024 * 1024) / (expW * expH));
+  const scaleToMaxSide = 1344 / Math.max(expW, expH);
+  const scale = Math.min(scaleToArea, scaleToMaxSide);
+  const round32 = v => Math.max(64, Math.round(v / 32) * 32);
+  const outW = round32(expW * scale);
+  const outH = round32(expH * scale);
+
+  const ix = Math.round((padLeft / expW) * outW);
+  const iy = Math.round((padTop / expH) * outH);
+  const iw = Math.max(1, Math.round((canvas.width / expW) * outW));
+  const ih = Math.max(1, Math.round((canvas.height / expH) * outH));
+
+  return {
+    top, bottom, left, right,
+    padTop, padBottom, padLeft, padRight,
+    expW, expH, outW, outH,
+    ix, iy, iw, ih,
+  };
+}
+
+function drawOutpaintSurface(ctx, targetW, targetH, geom, imgEl, fillMode, showGuides = false) {
+  const sx = targetW / geom.outW;
+  const sy = targetH / geom.outH;
+  const ix = Math.round(geom.ix * sx);
+  const iy = Math.round(geom.iy * sy);
+  const iw = Math.max(1, Math.round(geom.iw * sx));
+  const ih = Math.max(1, Math.round(geom.ih * sy));
+
+  ctx.save();
+  ctx.clearRect(0, 0, targetW, targetH);
+
+  if (fillMode === 'white') {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, targetW, targetH);
+  } else if (fillMode === 'black') {
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, targetW, targetH);
+  } else if (fillMode === 'neutral') {
+    ctx.fillStyle = '#808080';
+    ctx.fillRect(0, 0, targetW, targetH);
+  } else if (fillMode === 'mirror' && imgEl) {
+    // Remplissage de base flouté puis répétition miroir sur les 4 côtés
+    ctx.fillStyle = '#404040';
+    ctx.fillRect(0, 0, targetW, targetH);
+    ctx.save();
+    ctx.filter = `blur(${Math.max(4, Math.round(Math.min(targetW, targetH) * 0.015))}px)`;
+    ctx.drawImage(imgEl, -targetW * 0.05, -targetH * 0.05, targetW * 1.1, targetH * 1.1);
+    // Bandes miroirs gauche / droite / haut / bas
+    if (ix > 0) {
+      ctx.save();
+      ctx.translate(ix, iy);
+      ctx.scale(-1, 1);
+      ctx.drawImage(imgEl, 0, 0, ix, ih);
+      ctx.restore();
+    }
+    if (ix + iw < targetW) {
+      const rw = targetW - (ix + iw);
+      ctx.save();
+      ctx.translate(targetW, iy);
+      ctx.scale(-1, 1);
+      ctx.drawImage(imgEl, 0, 0, rw, ih);
+      ctx.restore();
+    }
+    if (iy > 0) {
+      ctx.save();
+      ctx.translate(ix, iy);
+      ctx.scale(1, -1);
+      ctx.drawImage(imgEl, 0, 0, iw, iy);
+      ctx.restore();
+    }
+    if (iy + ih < targetH) {
+      const bh = targetH - (iy + ih);
+      ctx.save();
+      ctx.translate(ix, targetH);
+      ctx.scale(1, -1);
+      ctx.drawImage(imgEl, 0, 0, iw, bh);
+      ctx.restore();
+    }
+    ctx.restore();
+  } else if (imgEl) {
+    // Mode 'blur' par défaut : étirement flouté des bords pour guider les couleurs et la lumière
+    ctx.fillStyle = '#2a2d36';
+    ctx.fillRect(0, 0, targetW, targetH);
+    ctx.save();
+    const blurPx = Math.max(6, Math.round(Math.min(targetW, targetH) * 0.035));
+    ctx.filter = `blur(${blurPx}px)`;
+    ctx.drawImage(imgEl, -targetW * 0.08, -targetH * 0.08, targetW * 1.16, targetH * 1.16);
+    ctx.restore();
+  }
+
+  // Dessin de l'image originale nette au centre / selon les marges
+  if (imgEl) {
+    ctx.drawImage(imgEl, ix, iy, iw, ih);
+  }
+
+  if (showGuides) {
+    // Voile léger sur la zone étendue + contour pointillé autour de l'image source
+    ctx.fillStyle = 'rgba(124, 92, 255, 0.14)';
+    if (iy > 0) ctx.fillRect(0, 0, targetW, iy);
+    if (iy + ih < targetH) ctx.fillRect(0, iy + ih, targetW, targetH - (iy + ih));
+    if (ix > 0) ctx.fillRect(0, iy, ix, ih);
+    if (ix + iw < targetW) ctx.fillRect(ix + iw, iy, targetW - (ix + iw), ih);
+
+    ctx.strokeStyle = '#9d83ff';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(ix + 1, iy + 1, Math.max(2, iw - 2), Math.max(2, ih - 2));
+  }
+
+  ctx.restore();
+}
+
+function drawAlignedBeforeSurface(geom, imgEl) {
+  const off = document.createElement('canvas');
+  off.width = geom.outW;
+  off.height = geom.outH;
+  const ctx = off.getContext('2d');
+  // Damier sombre discret sur la zone hors-cadre pour visualiser immédiatement l'extension
+  ctx.fillStyle = '#12141b';
+  ctx.fillRect(0, 0, geom.outW, geom.outH);
+  const step = 24;
+  ctx.fillStyle = '#1b1f2a';
+  for (let y = 0; y < geom.outH; y += step) {
+    for (let x = 0; x < geom.outW; x += step) {
+      if (((x / step) + (y / step)) % 2 === 0) {
+        ctx.fillRect(x, y, step, step);
+      }
+    }
+  }
+  if (imgEl) {
+    ctx.drawImage(imgEl, geom.ix, geom.iy, geom.iw, geom.ih);
+  }
+  ctx.strokeStyle = 'rgba(157, 131, 255, 0.65)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8, 6]);
+  ctx.strokeRect(geom.ix, geom.iy, geom.iw, geom.ih);
+  return off.toDataURL('image/png');
+}
+
+async function createOutpaintFileAndBeforePreview() {
+  const geom = computeOutpaintGeometry();
+  if (!geom || !canvas) return null;
+  let imgEl = canvas.imgEl;
+  if (!imgEl) {
+    const loaded = await readImageDimensions(canvas.url);
+    imgEl = loaded.imgEl;
+    canvas.imgEl = imgEl;
+  }
+  const fillMode = $('#outpaint-fill')?.value || 'blur';
+  const off = document.createElement('canvas');
+  off.width = geom.outW;
+  off.height = geom.outH;
+  const ctx = off.getContext('2d');
+  drawOutpaintSurface(ctx, geom.outW, geom.outH, geom, imgEl, fillMode, false);
+
+  const blob = await new Promise((resolve, reject) => {
+    off.toBlob(b => (b ? resolve(b) : reject(new Error("Échec de génération du canevas étendu."))), 'image/png');
+  });
+  const file = new File([blob], `outpaint_${canvas.name || 'canvas'}.png`, { type: 'image/png' });
+  const beforeDataUrl = drawAlignedBeforeSurface(geom, imgEl);
+  return { file, geom, beforeDataUrl };
+}
+
+function updateOutpaintUI() {
+  const box = $('#outpaint-box');
+  const controls = $('#outpaint-controls');
+  const previewWrap = $('#outpaint-preview-wrap');
+  if (!box || !controls) return;
+
+  const supported = modelSupportsOutpaint();
+  box.hidden = !supported;
+  if (!supported) {
+    controls.hidden = true;
+    return;
+  }
+
+  const enabled = Boolean($('#outpaint-enabled')?.checked);
+  controls.hidden = !enabled;
+
+  const { top, bottom, left, right } = getOutpaintMargins();
+  $('#op-top-val').textContent = `${top}%`;
+  $('#op-bottom-val').textContent = `${bottom}%`;
+  $('#op-left-val').textContent = `${left}%`;
+  $('#op-right-val').textContent = `${right}%`;
+
+  if (!enabled || !canvas || !canvas.width || !canvas.height) {
+    if (previewWrap) previewWrap.hidden = true;
+    updateOriginalRatioInfo();
+    return;
+  }
+
+  const geom = computeOutpaintGeometry();
+  if (!geom) {
+    if (previewWrap) previewWrap.hidden = true;
+    return;
+  }
+
+  previewWrap.hidden = false;
+  $('#outpaint-dims-info').textContent =
+    `Source ${canvas.width}×${canvas.height} → Cadre étendu ${geom.expW}×${geom.expH} (sortie ${geom.outW}×${geom.outH})`;
+
+  const pvCanvas = $('#outpaint-preview-canvas');
+  const maxPreviewSide = 280;
+  const scale = maxPreviewSide / Math.max(geom.outW, geom.outH);
+  pvCanvas.width = Math.max(60, Math.round(geom.outW * scale));
+  pvCanvas.height = Math.max(60, Math.round(geom.outH * scale));
+  const ctx = pvCanvas.getContext('2d');
+  drawOutpaintSurface(ctx, pvCanvas.width, pvCanvas.height, geom, canvas.imgEl, $('#outpaint-fill')?.value || 'blur', true);
+  updateOriginalRatioInfo();
+}
+
+function applyOutpaintPreset(preset) {
+  const setDirs = (t, b, l, r) => {
+    $('#outpaint-top').value = t;
+    $('#outpaint-bottom').value = b;
+    $('#outpaint-left').value = l;
+    $('#outpaint-right').value = r;
+  };
+  const round5 = v => Math.max(0, Math.min(100, Math.round(v / 5) * 5));
+
+  if (preset === 'zoom125') setDirs(15, 15, 15, 15);
+  else if (preset === 'zoom150') setDirs(25, 25, 25, 25);
+  else if (preset === 'zoom200') setDirs(50, 50, 50, 50);
+  else if (preset === 'horiz50') setDirs(0, 0, 25, 25);
+  else if (preset === 'vert50') setDirs(25, 25, 0, 0);
+  else if (preset === 'reset') setDirs(0, 0, 0, 0);
+  else if (preset === 'ratio16_9' || preset === 'ratio9_16' || preset === 'ratio1_1') {
+    const w = (canvas && canvas.width) || 1024;
+    const h = (canvas && canvas.height) || 1024;
+    const targetRatio = preset === 'ratio16_9' ? (16 / 9) : (preset === 'ratio9_16' ? (9 / 16) : 1);
+    const curRatio = w / h;
+    if (curRatio < targetRatio) {
+      // Besoin d'élargir gauche + droite
+      const targetW = h * targetRatio;
+      const sidePct = round5(((targetW - w) / 2 / w) * 100);
+      setDirs(0, 0, Math.max(5, sidePct), Math.max(5, sidePct));
+    } else if (curRatio > targetRatio) {
+      // Besoin d'étendre haut + bas
+      const targetH = w / targetRatio;
+      const vertPct = round5(((targetH - h) / 2 / h) * 100);
+      setDirs(Math.max(5, vertPct), Math.max(5, vertPct), 0, 0);
+    } else {
+      setDirs(20, 20, 20, 20);
+    }
+  }
+  updateOutpaintUI();
+  updateTagWarning();
+}
+
+$('#outpaint-enabled')?.addEventListener('change', () => {
+  if ($('#outpaint-enabled').checked && canvas) {
+    currentRatio = 'original';
+    buildRatios();
+  }
+  updateOutpaintUI();
+  updateTagWarning();
+});
+['#outpaint-top', '#outpaint-bottom', '#outpaint-left', '#outpaint-right', '#outpaint-fill'].forEach(sel => {
+  $(sel)?.addEventListener('input', () => {
+    updateOutpaintUI();
+    updateTagWarning();
+  });
+});
+$$('[data-op-preset]').forEach(btn => {
+  btn.addEventListener('click', () => applyOutpaintPreset(btn.dataset.opPreset));
+});
 
 // ------------------------------------------------------------ modeles ------
 async function loadModels() {
@@ -137,7 +448,6 @@ function onModelChange() {
   if (m.supports_neg && !$('#negative').value && window.DEFAULT_NEG) $('#negative').value = window.DEFAULT_NEG;
 
   $('#max-label').textContent = maxImages();
-  // Exemple de reformulation dans l'index vide : le placeholder guide le debutant.
   const example = (m.ref_examples && m.ref_examples[0]) || '';
   $('#prompt').placeholder = example
     ? example
@@ -148,6 +458,7 @@ function onModelChange() {
   renderRefs();
   checkMmproj();
   updateVramAdvice();
+  updateOutpaintUI();
   updateTagWarning();
   updateWarn();
 }
@@ -216,8 +527,6 @@ function renderTagChips() {
   const images = orderedImages();
   if (!syntax || images.length < 2) { box.hidden = true; box.innerHTML = ''; return; }
   box.hidden = false;
-  // La balise contient des < > : passage par innerHTML obligatoire avec echappement,
-  // sinon le navigateur avalerait "<image2>" comme une balise inconnue.
   box.innerHTML = `<span class="chips-label">Citer une image :</span>` + images.map((item, i) => {
     const tag = syntax.replace('{n}', i + 1);
     const label = `${esc(tag)}${i === 0 ? ' (canvas)' : ''}`;
@@ -237,16 +546,15 @@ function insertAtCursor(text) {
 }
 
 // ----------------------------------------------- rappel des balises <imageN> --
-// Pour les modeles Qwen, la syntaxe <imageN> est exigee des qu'il y a 2 images :
-// sans elle le modele ne sait pas laquelle est le canvas. Rappel non bloquant.
 function updateTagWarning() {
   const box = $('#tag-warning');
   const m = currentModel();
   const syntax = m && m.ref_tag_syntax;
   const images = orderedImages();
   const prompt = $('#prompt').value;
+  const autoOutpaint = isOutpaintActive() && Boolean($('#outpaint-auto-prompt')?.checked);
   const needs = Boolean(syntax) && images.length >= 2 && prompt.trim().length > 0
-                && !/<image_?\d+>/i.test(prompt);
+                && !autoOutpaint && !/<image_?\d+>/i.test(prompt);
   if (!needs) { box.hidden = true; box.innerHTML = ''; return; }
   const tag = n => syntax.replace('{n}', n);
   box.hidden = false;
@@ -295,6 +603,10 @@ function updateVramAdvice() {
 // ---------------------------------------------------------------- ratios ----
 function getOriginalOutputSize() {
   if (!canvas) return null;
+  if (isOutpaintActive()) {
+    const geom = computeOutpaintGeometry();
+    if (geom) return { width: geom.outW, height: geom.outH };
+  }
   const { width, height } = canvas;
   const scaleToArea = Math.sqrt((1024 * 1024) / (width * height));
   const scaleToMaxSide = 1344 / Math.max(width, height);
@@ -305,6 +617,15 @@ function getOriginalOutputSize() {
 
 function updateOriginalRatioInfo() {
   const info = $('#original-ratio-info');
+  if (!info) return;
+  if (isOutpaintActive() && canvas) {
+    const geom = computeOutpaintGeometry();
+    if (geom) {
+      info.textContent = `Outpainting actif : cadre étendu ${geom.expW} × ${geom.expH} — sortie ${geom.outW} × ${geom.outH}`;
+      info.hidden = false;
+      return;
+    }
+  }
   if (currentRatio !== 'original' || !canvas) { info.hidden = true; info.textContent = ''; return; }
   const out = getOriginalOutputSize();
   info.textContent = `Proportions du canvas ${canvas.width} × ${canvas.height} — sortie ${out.width} × ${out.height}`;
@@ -360,16 +681,15 @@ async function uploadFiles(files) {
 
   const out = [];
   for (const item of j.files) {
-    let dims = { width: 0, height: 0 };
+    let dims = { width: 0, height: 0, imgEl: null };
     try { dims = await readImageDimensions(item.url); } catch (e) {}
     out.push({ path: item.filename, url: item.url, name: item.name,
-               width: dims.width, height: dims.height, objectUrl: null, fresh: true });
+               width: dims.width, height: dims.height, imgEl: dims.imgEl,
+               objectUrl: null, fresh: true });
   }
   return out;
 }
 
-// Ne supprime du disque que ce qui a ete uploade dans cette session :
-// une image restauree depuis l'historique doit rester disponible pour les autres generations.
 async function removeUploaded(item) {
   if (!item || !item.path || !item.fresh) return;
   try { await fetch('/api/delete-source-image', { method: 'POST',
@@ -386,7 +706,6 @@ async function setCanvas(files) {
   if (canvas && canvas.objectUrl) URL.revokeObjectURL(canvas.objectUrl);
   canvas = items[0];
   showGenError('');
-  // Les fichiers surnumeritaires d'un drop sur le canvas deviennent des references.
   if (items.length > 1) refs = [...items.slice(1), ...refs].slice(0, refsLimit());
   if (currentRatio !== 'original') ratioBeforeOriginal = currentRatio;
   currentRatio = 'original';
@@ -429,6 +748,7 @@ function refreshAll() {
   buildRatios();
   renderTagChips();
   updateVramAdvice();
+  updateOutpaintUI();
   updateTagWarning();
   const m = currentModel();
   if (m) $('#refs-order-hint').textContent = m.ref_tag_syntax
@@ -443,6 +763,49 @@ function renderCanvas() {
   pv.classList.remove('hidden');
   $('#canvas-img').src = canvas.url;
   $('#canvas-name').textContent = `${canvas.name} (${canvas.width} × ${canvas.height})`;
+}
+
+// Construit la liste pour la Lightbox des images d'entrée (canvas + références)
+function buildInputLightboxItems() {
+  const all = orderedImages();
+  return all.map((item, idx) => ({
+    src: item.url,
+    downloadUrl: item.url,
+    label: `${idx === 0 ? 'Canvas (image 1)' : 'Référence ' + (idx + 1)} · ${item.name || ''}`,
+    role: idx === 0 ? 'source' : 'ref',
+    badge: idx === 0 ? 'IMAGE 1 (CANVAS)' : `IMAGE ${idx + 1} (RÉF)`,
+  }));
+}
+
+// Construit la liste pour la Lightbox de comparaison (Source Avant + Résultats générés)
+function buildEditLightboxItems() {
+  const list = [];
+  const srcUrl = comparisonSource || (canvas && canvas.url);
+  if (srcUrl) {
+    list.push({
+      src: srcUrl,
+      downloadUrl: (canvas && canvas.url) || srcUrl,
+      label: lastRunWasOutpaint
+        ? 'Image source (positionnée dans le cadre étendu)'
+        : 'Image source (Avant modification)',
+      role: 'source',
+      badge: 'AVANT (SOURCE)',
+    });
+  }
+  const hasSource = list.length > 0;
+  lastGeneratedResults.forEach((img, idx) => {
+    const displayUrl = img.displayUrl || `${img.url}?t=${currentBatchStamp}`;
+    list.push({
+      src: displayUrl,
+      downloadUrl: img.url,
+      label: `Résultat ${idx + 1}/${lastGeneratedResults.length} · seed ${img.seed}`,
+      role: 'result',
+      badge: hasSource
+        ? (lastGeneratedResults.length > 1 ? `APRÈS #${idx + 1}` : 'APRÈS (MODIFIÉE)')
+        : `RÉSULTAT #${idx + 1}`,
+    });
+  });
+  return list;
 }
 
 function renderRefs() {
@@ -465,7 +828,10 @@ function renderRefs() {
         <button class="link" data-act="right" ${i === refs.length - 1 ? 'disabled' : ''}>▶</button>
         <button class="link danger" data-act="del">✕</button>
       </div>`;
-    d.querySelector('img').addEventListener('click', e => openLightbox(e.target.src));
+    d.querySelector('img').addEventListener('click', () => {
+      const inputItems = buildInputLightboxItems();
+      openLightbox(inputItems, canvas ? i + 1 : i);
+    });
     d.querySelector('[data-act=left]').addEventListener('click', () => moveRef(i, -1));
     d.querySelector('[data-act=right]').addEventListener('click', () => moveRef(i, +1));
     d.querySelector('[data-act=del]').addEventListener('click', () => removeRef(i));
@@ -486,9 +852,24 @@ function showGenError(msg) {
 }
 
 // ------- branchements upload (canvas) -------
-$('#canvas-img').addEventListener('click', e => openLightbox(e.target.src));
-$('#compare-before').addEventListener('click', e => openLightbox(e.target.src));
-$('#compare-after').addEventListener('click', e => openLightbox(e.target.src));
+$('#canvas-img').addEventListener('click', () => {
+  if (lastGeneratedResults.length > 0) {
+    const items = buildEditLightboxItems();
+    openLightbox(items, 0, { lastResultIndex: Math.min(items.length - 1, activeCompareResultIdx + 1) });
+  } else {
+    const inputItems = buildInputLightboxItems();
+    openLightbox(inputItems, 0);
+  }
+});
+$('#compare-before').addEventListener('click', () => {
+  const items = buildEditLightboxItems();
+  openLightbox(items, 0, { lastResultIndex: Math.min(items.length - 1, activeCompareResultIdx + 1) });
+});
+$('#compare-after').addEventListener('click', () => {
+  const items = buildEditLightboxItems();
+  const hasSource = Boolean(comparisonSource || (canvas && canvas.url));
+  openLightbox(items, hasSource ? activeCompareResultIdx + 1 : activeCompareResultIdx);
+});
 
 $('#canvas-input').addEventListener('change', e => {
   if (e.target.files.length) setCanvas(e.target.files).finally(() => { e.target.value = ''; });
@@ -528,7 +909,6 @@ function wireDropzone(el, handler) {
 }
 wireDropzone($('#canvas-drop'), setCanvas);
 wireDropzone($('#refs-drop'), addRefs);
-// Un drop n'importe où sur le panneau va dans les references si le canvas est deja plein.
 wireDropzone($('.edit-panel'), files => (canvas ? addRefs(files) : setCanvas(files)));
 
 // ---------------------------------------------------------------- mmproj ----
@@ -576,30 +956,75 @@ $('#generate-btn').addEventListener('click', async () => {
   if (!m) return;
   if (!canvas) { showGenError('Ajoutez d\u2019abord l\u2019image \u00e0 modifier (\u00e9tape 2).'); return; }
   if (!m.status.ready) { showGenError(`Le modèle « ${m.name} » n'est pas prêt. Téléchargez-le dans l'onglet Modèles.`); return; }
+
+  const outpaintOn = isOutpaintActive();
+  const autoOutpaintPrompt = outpaintOn && Boolean($('#outpaint-auto-prompt')?.checked);
   const prompt = $('#prompt').value.trim();
-  if (!prompt) { showGenError("Décrivez ce qui doit changer (étape 4) — l'instruction est obligatoire."); return; }
+  if (!prompt && !autoOutpaintPrompt) {
+    showGenError("Décrivez ce qui doit changer (étape 4) — ou activez l'adaptation automatique du prompt Outpainting.");
+    return;
+  }
 
   const images = orderedImages();
   const limit = maxImages();
   if (images.length > limit) { showGenError(`${limit} images maximum avec ce modèle.`); return; }
+
+  let refPaths = images.map(x => x.path);
+  let customWidth = null;
+  let customHeight = null;
+  let nextComparisonSource = images[0].url;
+
+  if (outpaintOn) {
+    try {
+      $('#generate-btn').disabled = true;
+      const prepared = await createOutpaintFileAndBeforePreview();
+      if (!prepared) throw new Error("Impossible de préparer le canevas d'outpainting.");
+      if (tempOutpaintItem) {
+        await removeUploaded(tempOutpaintItem);
+        tempOutpaintItem = null;
+      }
+      const uploaded = await uploadFiles([prepared.file]);
+      if (!uploaded.length) throw new Error("Échec de l'envoi du canevas étendu.");
+      tempOutpaintItem = uploaded[0];
+      refPaths = [tempOutpaintItem.path, ...refs.map(x => x.path)];
+      customWidth = prepared.geom.outW;
+      customHeight = prepared.geom.outH;
+      nextComparisonSource = prepared.beforeDataUrl;
+    } catch (e) {
+      $('#generate-btn').disabled = false;
+      showGenError(e.message || "Erreur lors de la préparation de l'outpainting.");
+      return;
+    }
+  } else if (currentRatio === 'original' && canvas) {
+    const out = getOriginalOutputSize();
+    customWidth = out.width;
+    customHeight = out.height;
+  }
 
   const body = {
     model_id: m.id,
     quant: $('#quant').value,
     prompt,
     negative: $('#negative').value,
-    ratio: currentRatio === 'original' ? '1:1' : currentRatio,
+    ratio: (currentRatio === 'original' || outpaintOn) ? '1:1' : currentRatio,
     steps: $('#steps').value,
     cfg: $('#cfg').value,
     seed: $('#seed').value || null,
     batch: $('#batch').value,
     input_mode: 'ref',
-    ref_images: images.map(x => x.path),
+    ref_images: refPaths,
     ref_max_pixels: $('#ref-budget').value === 'auto' ? null : parseInt($('#ref-budget').value, 10),
   };
-  if (currentRatio === 'original' && canvas) {
-    const out = getOriginalOutputSize();
-    body.width = out.width; body.height = out.height;
+  if (customWidth && customHeight) {
+    body.width = customWidth;
+    body.height = customHeight;
+  }
+  if (outpaintOn) {
+    body.outpaint = {
+      enabled: true,
+      directions: getOutpaintActiveDirections(),
+      auto_prompt: autoOutpaintPrompt,
+    };
   }
 
   const r = await fetch('/api/generate', {
@@ -607,9 +1032,17 @@ $('#generate-btn').addEventListener('click', async () => {
     body: JSON.stringify(body)
   });
   const j = await r.json();
-  if (!j.ok) { showGenError(j.error || 'Erreur'); return; }
-  comparisonSource = images[0].url;
-  generationSourceCount = images.length;
+  if (!j.ok) {
+    $('#generate-btn').disabled = false;
+    showGenError(j.error || 'Erreur');
+    return;
+  }
+  comparisonSource = nextComparisonSource;
+  lastRunWasOutpaint = outpaintOn;
+  generationSourceCount = refPaths.length;
+  lastGeneratedResults = [];
+  activeCompareResultIdx = 0;
+  currentBatchStamp = Date.now();
   $('#compare-before').src = comparisonSource;
   $('#compare').hidden = true;
   $('#generate-btn').disabled = true;
@@ -693,19 +1126,37 @@ function showStats(stats) {
 function showResults(images) {
   const box = $('#results');
   box.innerHTML = '';
-  images.forEach(img => {
+  lastGeneratedResults = images.map(img => ({
+    ...img,
+    displayUrl: `${img.url}?t=${currentBatchStamp}`,
+  }));
+  activeCompareResultIdx = 0;
+
+  lastGeneratedResults.forEach((img, idx) => {
     const d = document.createElement('div');
     d.className = 'result';
     d.innerHTML = `
-      <img src="${img.url}?t=${Date.now()}" alt="">
+      <img src="${img.displayUrl}" alt="">
       <div class="rbar"><span>seed ${img.seed}</span>
         <a class="link" href="${img.url}" download>télécharger</a></div>`;
-    d.querySelector('img').addEventListener('click', e => openLightbox(e.target.src));
+    d.querySelector('img').addEventListener('click', () => {
+      activeCompareResultIdx = idx;
+      $('#compare-after').src = img.displayUrl;
+      const items = buildEditLightboxItems();
+      const hasSource = Boolean(comparisonSource || (canvas && canvas.url));
+      openLightbox(items, hasSource ? idx + 1 : idx);
+    });
     const select = document.createElement('button');
     select.type = 'button';
     select.className = 'link';
     select.textContent = 'Comparer';
-    select.addEventListener('click', () => { $('#compare-after').src = img.url; });
+    select.addEventListener('click', () => {
+      activeCompareResultIdx = idx;
+      $('#compare-after').src = img.displayUrl;
+      const items = buildEditLightboxItems();
+      const hasSource = Boolean(comparisonSource || (canvas && canvas.url));
+      openLightbox(items, hasSource ? idx + 1 : idx);
+    });
     d.querySelector('.rbar').appendChild(select);
     const useAsSource = document.createElement('button');
     useAsSource.type = 'button';
@@ -715,8 +1166,6 @@ function showResults(images) {
       useAsSource.disabled = true;
       useAsSource.textContent = 'Chargement…';
       try {
-        // Réutiliser le parcours d'upload : une copie indépendante est créée dans
-        // source_images/, sans toucher au résultat ni à son entrée d'historique.
         const response = await fetch(img.url);
         if (!response.ok) throw new Error("Image générée introuvable.");
         const blob = await response.blob();
@@ -740,9 +1189,9 @@ function showResults(images) {
     d.appendChild(useAsSource);
     box.appendChild(d);
   });
-  if (comparisonSource && images.length) {
+  if (comparisonSource && lastGeneratedResults.length) {
     $('#compare').hidden = false;
-    $('#compare-after').src = images[0].url;
+    $('#compare-after').src = lastGeneratedResults[0].displayUrl;
   }
 }
 
@@ -797,10 +1246,10 @@ async function applyReusePayload() {
   if (payload.seed) $('#seed').value = payload.seed;
   const sources = payload.source_images || [];
   for (const [i, src] of sources.entries()) {
-    let dims = { width: 0, height: 0 };
+    let dims = { width: 0, height: 0, imgEl: null };
     try { dims = await readImageDimensions(src.url); } catch (e) {}
     const item = { path: src.filename, url: src.url, name: src.name || `image ${i + 1}`,
-                   width: dims.width, height: dims.height, objectUrl: null };
+                   width: dims.width, height: dims.height, imgEl: dims.imgEl, objectUrl: null };
     if (i === 0) canvas = item; else refs.push(item);
   }
   if (sources.length) {
