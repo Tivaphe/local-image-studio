@@ -84,20 +84,48 @@
         <div class="outpaint-dirs">
           <label class="field">
             <span>⬆ Haut (<strong id="op-top-val">25%</strong>)</span>
-            <input type="range" id="outpaint-top" min="0" max="100" step="5" value="25">
+            <input type="range" id="outpaint-top" min="0" max="150" step="1" value="25">
           </label>
           <label class="field">
             <span>⬇ Bas (<strong id="op-bottom-val">25%</strong>)</span>
-            <input type="range" id="outpaint-bottom" min="0" max="100" step="5" value="25">
+            <input type="range" id="outpaint-bottom" min="0" max="150" step="1" value="25">
           </label>
           <label class="field">
             <span>⬅ Gauche (<strong id="op-left-val">25%</strong>)</span>
-            <input type="range" id="outpaint-left" min="0" max="100" step="5" value="25">
+            <input type="range" id="outpaint-left" min="0" max="150" step="1" value="25">
           </label>
           <label class="field">
             <span>➡ Droite (<strong id="op-right-val">25%</strong>)</span>
-            <input type="range" id="outpaint-right" min="0" max="100" step="5" value="25">
+            <input type="range" id="outpaint-right" min="0" max="150" step="1" value="25">
           </label>
+        </div>
+
+        <div class="outpaint-preview-wrap" id="outpaint-preview-wrap" hidden>
+          <div class="outpaint-preview-head">
+            <span>✋ Positionnez l'image dans le cadre <em>(glisser-déposer ou grille)</em></span>
+            <small id="outpaint-dims-info" class="muted"></small>
+          </div>
+          <div class="outpaint-stage-row">
+            <div class="outpaint-canvas-holder">
+              <canvas id="outpaint-preview-canvas" class="outpaint-preview-canvas"
+                      title="Glissez l'image avec la souris pour la déplacer où vous voulez · Molette : ajuster le dézoom"></canvas>
+              <small class="muted outpaint-drag-hint">Glissez l'image à la souris · Molette : ajuster les marges</small>
+            </div>
+            <div class="outpaint-anchor-box">
+              <span class="chips-label">Ancrage rapide</span>
+              <div class="outpaint-anchor-grid" title="Placer l'image dans un coin, sur un bord ou au centre">
+                <button type="button" class="anchor-btn" data-op-anchor="tl" title="En haut à gauche">↖</button>
+                <button type="button" class="anchor-btn" data-op-anchor="tc" title="En haut au centre">⬆</button>
+                <button type="button" class="anchor-btn" data-op-anchor="tr" title="En haut à droite">↗</button>
+                <button type="button" class="anchor-btn" data-op-anchor="ml" title="À gauche">⬅</button>
+                <button type="button" class="anchor-btn active" data-op-anchor="mc" title="Centrer l'image">⏺</button>
+                <button type="button" class="anchor-btn" data-op-anchor="mr" title="À droite">➡</button>
+                <button type="button" class="anchor-btn" data-op-anchor="bl" title="En bas à gauche">↙</button>
+                <button type="button" class="anchor-btn" data-op-anchor="bc" title="En bas au centre">⬇</button>
+                <button type="button" class="anchor-btn" data-op-anchor="br" title="En bas à droite">↘</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <label class="field">
@@ -111,19 +139,16 @@
           </select>
         </label>
 
+        <div class="outpaint-preprompts" id="outpaint-preprompts">
+          <span class="chips-label">Pré-prompts Outpainting (adaptés au modèle) :</span>
+          <div class="outpaint-prompt-chips" id="outpaint-prompt-chips"></div>
+        </div>
+
         <label class="field checkbox-field">
           <input type="checkbox" id="outpaint-auto-prompt" checked>
           <span>Adapter automatiquement l'instruction pour l'outpainting</span>
-          <small>Ajoute la consigne d'extension hors-cadre adaptée au modèle. Vous pouvez décrire le décor souhaité à l'étape 4 (ou laisser vide).</small>
+          <small>Ajoute la consigne d'extension hors-cadre adaptée au modèle. Vous pouvez choisir un pré-prompt ci-dessus, écrire votre propre décor à l'étape 4, ou laisser vide.</small>
         </label>
-
-        <div class="outpaint-preview-wrap" id="outpaint-preview-wrap" hidden>
-          <div class="outpaint-preview-head">
-            <span>Aperçu du cadre étendu</span>
-            <small id="outpaint-dims-info" class="muted"></small>
-          </div>
-          <canvas id="outpaint-preview-canvas" class="outpaint-preview-canvas"></canvas>
-        </div>
       </div>
     </div>
 
@@ -152,6 +177,16 @@
     <!-- ④ Instruction -->
     <div class="edit-step">
       <span class="step-num">4</span><span class="step-title">Instruction d'édition</span>
+    </div>
+    <div class="field preprompts-field">
+      <span>📋 Pré-prompts adaptés au modèle</span>
+      <div class="preprompts-bar">
+        <select id="edit-preprompt-select">
+          <option value="">→ Choisir un pré-prompt adapté au modèle ←</option>
+        </select>
+        <button type="button" id="save-edit-preprompt-btn" class="btn ghost small" title="Enregistrer le prompt actuel dans vos pré-prompts">💾 Sauver</button>
+        <button type="button" id="del-edit-preprompt-btn" class="btn danger small" hidden title="Supprimer ce pré-prompt personnalisé">🗑</button>
+      </div>
     </div>
     <label class="field">
       <span>Ce que vous voulez changer</span>

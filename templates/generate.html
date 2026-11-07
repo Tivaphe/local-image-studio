@@ -8,6 +8,17 @@
   <section class="panel form-panel">
     <h2>Nouvelle image</h2>
 
+    <div class="field preprompts-field">
+      <span>📋 Pré-prompts adaptés au modèle</span>
+      <div class="preprompts-bar">
+        <select id="gen-preprompt-select">
+          <option value="">→ Choisir un pré-prompt adapté au modèle ←</option>
+        </select>
+        <button type="button" id="save-gen-preprompt-btn" class="btn ghost small" title="Enregistrer le prompt actuel dans vos pré-prompts">💾 Sauver</button>
+        <button type="button" id="del-gen-preprompt-btn" class="btn danger small" hidden title="Supprimer ce pré-prompt personnalisé">🗑</button>
+      </div>
+    </div>
+
     <label class="field">
       <span>Description (prompt)</span>
       <textarea id="prompt" rows="4" placeholder="ex: a cyberpunk fox in a neon-lit alley, cinematic, highly detailed"></textarea>

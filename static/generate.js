@@ -24,6 +24,90 @@ let pollTimer = null;
 
 // ---------- memoire de la selection (FIX 4) ----------
 const STORE_KEY = "lis_generate_prefs";
+const GEN_CUSTOM_PREPROMPTS_KEY = "lis_gen_custom_preprompts";
+
+function loadCustomGenPreprompts() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(GEN_CUSTOM_PREPROMPTS_KEY) || "[]");
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveCustomGenPreprompts(list) {
+  try {
+    localStorage.setItem(GEN_CUSTOM_PREPROMPTS_KEY, JSON.stringify(list));
+  } catch (e) {}
+}
+
+function renderGenPreprompts() {
+  const modelId = $('#model')?.value;
+  const m = MODELS[modelId];
+  const sel = $('#gen-preprompt-select');
+  const delBtn = $('#del-gen-preprompt-btn');
+  if (!sel || !m) return;
+
+  sel.innerHTML = `<option value="">→ Choisir un pré-prompt adapté à ${m.name} ←</option>`;
+  const builtIn = m.gen_presets || [];
+  const custom = loadCustomGenPreprompts();
+
+  const addGroup = (label, items, prefix) => {
+    if (!items.length) return;
+    const grp = document.createElement('optgroup');
+    grp.label = label;
+    items.forEach(item => {
+      const opt = document.createElement('option');
+      opt.value = `${prefix}:${item.id}`;
+      opt.textContent = item.label;
+      opt.dataset.prompt = item.prompt;
+      grp.appendChild(opt);
+    });
+    sel.appendChild(grp);
+  };
+
+  addGroup(`✨ Pré-prompts recommandés (${m.name})`, builtIn, 'builtin');
+  addGroup('⭐ Mes pré-prompts enregistrés', custom, 'custom');
+  if (delBtn) delBtn.hidden = true;
+}
+
+$('#gen-preprompt-select')?.addEventListener('change', e => {
+  const sel = e.target;
+  const opt = sel.selectedOptions[0];
+  const delBtn = $('#del-gen-preprompt-btn');
+  if (delBtn) {
+    delBtn.hidden = !(sel.value && sel.value.startsWith('custom:'));
+  }
+  if (!opt || !opt.dataset.prompt) return;
+  $('#prompt').value = opt.dataset.prompt;
+});
+
+$('#save-gen-preprompt-btn')?.addEventListener('click', () => {
+  const txt = $('#prompt').value.trim();
+  if (!txt) {
+    alert("Écrivez d'abord un prompt avant de l'enregistrer.");
+    return;
+  }
+  const defaultName = txt.slice(0, 36) + (txt.length > 36 ? '…' : '');
+  const label = prompt("Nom de ce pré-prompt :", defaultName);
+  if (!label || !label.trim()) return;
+  const custom = loadCustomGenPreprompts();
+  const id = 'cust_' + Date.now();
+  custom.push({ id, label: label.trim(), prompt: txt });
+  saveCustomGenPreprompts(custom);
+  renderGenPreprompts();
+  $('#gen-preprompt-select').value = `custom:${id}`;
+  if ($('#del-gen-preprompt-btn')) $('#del-gen-preprompt-btn').hidden = false;
+});
+
+$('#del-gen-preprompt-btn')?.addEventListener('click', () => {
+  const sel = $('#gen-preprompt-select');
+  if (!sel || !sel.value.startsWith('custom:')) return;
+  const id = sel.value.slice('custom:'.length);
+  const custom = loadCustomGenPreprompts().filter(x => x.id !== id);
+  saveCustomGenPreprompts(custom);
+  renderGenPreprompts();
+});
 
 function loadPrefs() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY) || "{}"); }
@@ -300,6 +384,7 @@ function onModelChange() {
     strengthField.style.display = canInit ? '' : 'none';
   }
 
+  renderGenPreprompts();
   checkMmproj();
 }
 

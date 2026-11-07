@@ -1,8 +1,9 @@
 /* ===== Page « Studio d'édition » =====
    Edition par references multiples : 1 canvas (image 1) + jusqu'a N-1 references.
    Inclut :
-     - Mode Outpainting (extension du cadre Haut/Bas/Gauche/Droite, préréglages de ratio/dézoom,
-       aperçu temps réel sur canvas HTML5 et adaptation automatique du prompt selon le modèle).
+     - Mode Outpainting avec déplacement interactif de l'image à la souris sur l'aperçu,
+       grille d'ancrage 9 points, préréglages de ratio/dézoom et pré-prompts dédiés.
+     - Bibliothèque de pré-prompts adaptés à chaque modèle + sauvegarde de pré-prompts perso.
      - Comparaison instantanée sans rechargement dans la Lightbox (flèches clavier, molette souris,
        touche Espace / clic maintenu pour basculer entre Image Source et Image Modifiée).
 */
@@ -15,6 +16,7 @@ const $$ = window.$$;
 
 const RATIOS = window.RATIOS || { "1:1": [1024, 1024] };
 const STORE_KEY = "lis_edit_prefs";
+const CUSTOM_PREPROMPTS_KEY = "lis_edit_custom_preprompts";
 
 let MODELS = {};
 let editModels = {};
@@ -31,6 +33,7 @@ let activeCompareResultIdx = 0;
 let currentBatchStamp = Date.now();
 let lastRunWasOutpaint = false;
 let tempOutpaintItem = null;
+let outpaintDragState = null;
 
 // ---------------------------------------------------------------- prefs ----
 function loadPrefs() {
@@ -64,6 +67,150 @@ function readImageDimensions(src) {
   });
 }
 
+// ------------------------------------------- adaptation syntaxe & pré-prompts
+function refTokenForModel(m, n) {
+  if (!m) return `image ${n}`;
+  if (m.ref_tag_syntax) return m.ref_tag_syntax.replace('{n}', String(n));
+  return `image ${n}`;
+}
+
+function normalizePromptToPlaceholders(text) {
+  return String(text || '')
+    .replace(/<image_?(\d+)>/gi, '{img$1}')
+    .replace(/\bimage\s+(\d+)\b/gi, '{img$1}');
+}
+
+function adaptPromptToModel(text, m) {
+  if (!text || !m) return text || '';
+  const normalized = normalizePromptToPlaceholders(text);
+  return normalized.replace(/\{img(\d+)\}/g, (_, num) => refTokenForModel(m, num));
+}
+
+function loadCustomEditPreprompts() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(CUSTOM_PREPROMPTS_KEY) || "[]");
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveCustomEditPreprompts(list) {
+  try {
+    localStorage.setItem(CUSTOM_PREPROMPTS_KEY, JSON.stringify(list));
+  } catch (e) {}
+}
+
+function renderEditPreprompts() {
+  const m = currentModel();
+  const sel = $('#edit-preprompt-select');
+  const delBtn = $('#del-edit-preprompt-btn');
+  const outpaintChips = $('#outpaint-prompt-chips');
+  if (!sel || !m) return;
+
+  const builtIn = m.edit_presets || [];
+  const outpaintPresets = m.outpaint_presets || [];
+  const custom = loadCustomEditPreprompts();
+
+  sel.innerHTML = `<option value="">→ Choisir un pré-prompt adapté à ${esc(m.name)} ←</option>`;
+
+  const addGroup = (label, items, prefix) => {
+    if (!items.length) return;
+    const grp = document.createElement('optgroup');
+    grp.label = label;
+    items.forEach(item => {
+      const opt = document.createElement('option');
+      opt.value = `${prefix}:${item.id}`;
+      opt.textContent = item.label;
+      opt.dataset.prompt = adaptPromptToModel(item.prompt, m);
+      grp.appendChild(opt);
+    });
+    sel.appendChild(grp);
+  };
+
+  addGroup(`✂️ Édition sur 1 image (${m.name})`, builtIn.filter(x => x.category === 'canvas'), 'builtin');
+  addGroup(`📚 Multi-images Canvas + Référence (${m.name})`, builtIn.filter(x => x.category === 'multi'), 'builtin');
+  addGroup(`📐 Outpainting — Étendre le cadre (${m.name})`, builtIn.filter(x => x.category === 'outpaint'), 'builtin');
+  addGroup(`⭐ Mes pré-prompts enregistrés (adaptés à ${m.name})`, custom, 'custom');
+
+  if (delBtn) delBtn.hidden = true;
+
+  // Chips de pré-prompts rapides dans le panneau Outpainting
+  if (outpaintChips) {
+    outpaintChips.innerHTML = '';
+    const allOutpaint = [
+      ...outpaintPresets,
+      ...custom.filter(c => c.isOutpaint).map(c => ({
+        id: c.id,
+        label: `⭐ ${c.label}`,
+        prompt: adaptPromptToModel(c.prompt, m),
+      })),
+    ];
+    allOutpaint.forEach(item => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chip-tag outpaint-prompt-chip';
+      btn.textContent = item.label;
+      btn.title = item.prompt;
+      btn.addEventListener('click', () => {
+        $('#prompt').value = item.prompt;
+        $$('.outpaint-prompt-chip', outpaintChips).forEach(b => b.classList.toggle('active', b === btn));
+        updateTagWarning();
+      });
+      outpaintChips.appendChild(btn);
+    });
+  }
+}
+
+$('#edit-preprompt-select')?.addEventListener('change', e => {
+  const sel = e.target;
+  const opt = sel.selectedOptions[0];
+  const delBtn = $('#del-edit-preprompt-btn');
+  if (delBtn) {
+    delBtn.hidden = !(sel.value && sel.value.startsWith('custom:'));
+  }
+  if (!opt || !opt.dataset.prompt) return;
+  $('#prompt').value = opt.dataset.prompt;
+  // Si l'utilisateur choisit un pré-prompt d'outpainting et que le modèle le supporte, activer le mode outpainting
+  if (sel.value.includes('outpaint_') && modelSupportsOutpaint() && $('#outpaint-enabled') && !$('#outpaint-enabled').checked) {
+    $('#outpaint-enabled').checked = true;
+    updateOutpaintUI();
+  }
+  updateTagWarning();
+});
+
+$('#save-edit-preprompt-btn')?.addEventListener('click', () => {
+  const txt = $('#prompt').value.trim();
+  if (!txt) {
+    alert("Écrivez d'abord une instruction dans le champ prompt avant de l'enregistrer.");
+    return;
+  }
+  const defaultName = txt.slice(0, 36) + (txt.length > 36 ? '…' : '');
+  const label = prompt("Nom de ce pré-prompt (il s'adaptera automatiquement à la syntaxe de chaque modèle) :", defaultName);
+  if (!label || !label.trim()) return;
+  const custom = loadCustomEditPreprompts();
+  const id = 'cust_' + Date.now();
+  custom.push({
+    id,
+    label: label.trim(),
+    prompt: normalizePromptToPlaceholders(txt),
+    isOutpaint: isOutpaintActive(),
+  });
+  saveCustomEditPreprompts(custom);
+  renderEditPreprompts();
+  $('#edit-preprompt-select').value = `custom:${id}`;
+  if ($('#del-edit-preprompt-btn')) $('#del-edit-preprompt-btn').hidden = false;
+});
+
+$('#del-edit-preprompt-btn')?.addEventListener('click', () => {
+  const sel = $('#edit-preprompt-select');
+  if (!sel || !sel.value.startsWith('custom:')) return;
+  const id = sel.value.slice('custom:'.length);
+  const custom = loadCustomEditPreprompts().filter(x => x.id !== id);
+  saveCustomEditPreprompts(custom);
+  renderEditPreprompts();
+});
+
 // ------------------------------------------------------------ outpainting --
 function modelSupportsOutpaint() {
   const m = currentModel();
@@ -77,6 +224,14 @@ function getOutpaintMargins() {
     left: parseInt($('#outpaint-left')?.value || '0', 10) || 0,
     right: parseInt($('#outpaint-right')?.value || '0', 10) || 0,
   };
+}
+
+function setOutpaintMargins(top, bottom, left, right) {
+  const clamp = v => Math.max(0, Math.min(150, Math.round(v)));
+  if ($('#outpaint-top')) $('#outpaint-top').value = clamp(top);
+  if ($('#outpaint-bottom')) $('#outpaint-bottom').value = clamp(bottom);
+  if ($('#outpaint-left')) $('#outpaint-left').value = clamp(left);
+  if ($('#outpaint-right')) $('#outpaint-right').value = clamp(right);
 }
 
 function isOutpaintActive() {
@@ -144,13 +299,11 @@ function drawOutpaintSurface(ctx, targetW, targetH, geom, imgEl, fillMode, showG
     ctx.fillStyle = '#808080';
     ctx.fillRect(0, 0, targetW, targetH);
   } else if (fillMode === 'mirror' && imgEl) {
-    // Remplissage de base flouté puis répétition miroir sur les 4 côtés
     ctx.fillStyle = '#404040';
     ctx.fillRect(0, 0, targetW, targetH);
     ctx.save();
     ctx.filter = `blur(${Math.max(4, Math.round(Math.min(targetW, targetH) * 0.015))}px)`;
     ctx.drawImage(imgEl, -targetW * 0.05, -targetH * 0.05, targetW * 1.1, targetH * 1.1);
-    // Bandes miroirs gauche / droite / haut / bas
     if (ix > 0) {
       ctx.save();
       ctx.translate(ix, iy);
@@ -183,7 +336,6 @@ function drawOutpaintSurface(ctx, targetW, targetH, geom, imgEl, fillMode, showG
     }
     ctx.restore();
   } else if (imgEl) {
-    // Mode 'blur' par défaut : étirement flouté des bords pour guider les couleurs et la lumière
     ctx.fillStyle = '#2a2d36';
     ctx.fillRect(0, 0, targetW, targetH);
     ctx.save();
@@ -193,14 +345,13 @@ function drawOutpaintSurface(ctx, targetW, targetH, geom, imgEl, fillMode, showG
     ctx.restore();
   }
 
-  // Dessin de l'image originale nette au centre / selon les marges
+  // Image source positionnée à (ix, iy)
   if (imgEl) {
     ctx.drawImage(imgEl, ix, iy, iw, ih);
   }
 
   if (showGuides) {
-    // Voile léger sur la zone étendue + contour pointillé autour de l'image source
-    ctx.fillStyle = 'rgba(124, 92, 255, 0.14)';
+    ctx.fillStyle = 'rgba(124, 92, 255, 0.16)';
     if (iy > 0) ctx.fillRect(0, 0, targetW, iy);
     if (iy + ih < targetH) ctx.fillRect(0, iy + ih, targetW, targetH - (iy + ih));
     if (ix > 0) ctx.fillRect(0, iy, ix, ih);
@@ -210,6 +361,23 @@ function drawOutpaintSurface(ctx, targetW, targetH, geom, imgEl, fillMode, showG
     ctx.lineWidth = 2;
     ctx.setLineDash([6, 4]);
     ctx.strokeRect(ix + 1, iy + 1, Math.max(2, iw - 2), Math.max(2, ih - 2));
+    ctx.setLineDash([]);
+
+    // Poignée visuelle centrale indiquant qu'on peut déplacer l'image
+    const cx = ix + iw / 2;
+    const cy = iy + ih / 2;
+    ctx.fillStyle = 'rgba(14, 15, 19, 0.72)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#9d83ff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('✥', cx, cy);
   }
 
   ctx.restore();
@@ -220,7 +388,6 @@ function drawAlignedBeforeSurface(geom, imgEl) {
   off.width = geom.outW;
   off.height = geom.outH;
   const ctx = off.getContext('2d');
-  // Damier sombre discret sur la zone hors-cadre pour visualiser immédiatement l'extension
   ctx.fillStyle = '#12141b';
   ctx.fillRect(0, 0, geom.outW, geom.outH);
   const step = 24;
@@ -266,6 +433,18 @@ async function createOutpaintFileAndBeforePreview() {
   return { file, geom, beforeDataUrl };
 }
 
+function updateAnchorHighlight() {
+  const { top, bottom, left, right } = getOutpaintMargins();
+  const totalH = left + right;
+  const totalV = top + bottom;
+  const hPos = totalH === 0 ? 'c' : (left <= 2 ? 'l' : (right <= 2 ? 'r' : (Math.abs(left - right) <= 4 ? 'c' : '')));
+  const vPos = totalV === 0 ? 'm' : (top <= 2 ? 't' : (bottom <= 2 ? 'b' : (Math.abs(top - bottom) <= 4 ? 'm' : '')));
+  const code = (vPos && hPos) ? (vPos + hPos) : '';
+  $$('.anchor-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.opAnchor === code);
+  });
+}
+
 function updateOutpaintUI() {
   const box = $('#outpaint-box');
   const controls = $('#outpaint-controls');
@@ -287,6 +466,7 @@ function updateOutpaintUI() {
   $('#op-bottom-val').textContent = `${bottom}%`;
   $('#op-left-val').textContent = `${left}%`;
   $('#op-right-val').textContent = `${right}%`;
+  updateAnchorHighlight();
 
   if (!enabled || !canvas || !canvas.width || !canvas.height) {
     if (previewWrap) previewWrap.hidden = true;
@@ -302,55 +482,189 @@ function updateOutpaintUI() {
 
   previewWrap.hidden = false;
   $('#outpaint-dims-info').textContent =
-    `Source ${canvas.width}×${canvas.height} → Cadre étendu ${geom.expW}×${geom.expH} (sortie ${geom.outW}×${geom.outH})`;
+    `Source ${canvas.width}×${canvas.height} → Cadre ${geom.expW}×${geom.expH} (sortie ${geom.outW}×${geom.outH})`;
 
   const pvCanvas = $('#outpaint-preview-canvas');
-  const maxPreviewSide = 280;
+  const maxPreviewSide = 260;
   const scale = maxPreviewSide / Math.max(geom.outW, geom.outH);
-  pvCanvas.width = Math.max(60, Math.round(geom.outW * scale));
-  pvCanvas.height = Math.max(60, Math.round(geom.outH * scale));
+  pvCanvas.width = Math.max(70, Math.round(geom.outW * scale));
+  pvCanvas.height = Math.max(70, Math.round(geom.outH * scale));
   const ctx = pvCanvas.getContext('2d');
   drawOutpaintSurface(ctx, pvCanvas.width, pvCanvas.height, geom, canvas.imgEl, $('#outpaint-fill')?.value || 'blur', true);
   updateOriginalRatioInfo();
 }
 
-function applyOutpaintPreset(preset) {
-  const setDirs = (t, b, l, r) => {
-    $('#outpaint-top').value = t;
-    $('#outpaint-bottom').value = b;
-    $('#outpaint-left').value = l;
-    $('#outpaint-right').value = r;
-  };
-  const round5 = v => Math.max(0, Math.min(100, Math.round(v / 5) * 5));
+function applyOutpaintAnchor(anchor) {
+  let { top, bottom, left, right } = getOutpaintMargins();
+  let totalH = left + right;
+  let totalV = top + bottom;
+  if (totalH === 0 && totalV === 0) {
+    totalH = 50;
+    totalV = 50;
+  }
+  const vChar = anchor[0]; // 't' | 'm' | 'b'
+  const hChar = anchor[1]; // 'l' | 'c' | 'r'
 
-  if (preset === 'zoom125') setDirs(15, 15, 15, 15);
-  else if (preset === 'zoom150') setDirs(25, 25, 25, 25);
-  else if (preset === 'zoom200') setDirs(50, 50, 50, 50);
-  else if (preset === 'horiz50') setDirs(0, 0, 25, 25);
-  else if (preset === 'vert50') setDirs(25, 25, 0, 0);
-  else if (preset === 'reset') setDirs(0, 0, 0, 0);
+  if (vChar === 't') {
+    if (totalV === 0) totalV = 40;
+    top = 0; bottom = totalV;
+  } else if (vChar === 'b') {
+    if (totalV === 0) totalV = 40;
+    top = totalV; bottom = 0;
+  } else {
+    top = Math.round(totalV / 2);
+    bottom = totalV - top;
+  }
+
+  if (hChar === 'l') {
+    if (totalH === 0) totalH = 40;
+    left = 0; right = totalH;
+  } else if (hChar === 'r') {
+    if (totalH === 0) totalH = 40;
+    left = totalH; right = 0;
+  } else {
+    left = Math.round(totalH / 2);
+    right = totalH - left;
+  }
+
+  setOutpaintMargins(top, bottom, left, right);
+  updateOutpaintUI();
+  updateTagWarning();
+}
+
+function applyOutpaintPreset(preset) {
+  if (preset === 'zoom125') setOutpaintMargins(15, 15, 15, 15);
+  else if (preset === 'zoom150') setOutpaintMargins(25, 25, 25, 25);
+  else if (preset === 'zoom200') setOutpaintMargins(50, 50, 50, 50);
+  else if (preset === 'horiz50') setOutpaintMargins(0, 0, 25, 25);
+  else if (preset === 'vert50') setOutpaintMargins(25, 25, 0, 0);
+  else if (preset === 'reset') setOutpaintMargins(0, 0, 0, 0);
   else if (preset === 'ratio16_9' || preset === 'ratio9_16' || preset === 'ratio1_1') {
     const w = (canvas && canvas.width) || 1024;
     const h = (canvas && canvas.height) || 1024;
     const targetRatio = preset === 'ratio16_9' ? (16 / 9) : (preset === 'ratio9_16' ? (9 / 16) : 1);
     const curRatio = w / h;
     if (curRatio < targetRatio) {
-      // Besoin d'élargir gauche + droite
       const targetW = h * targetRatio;
-      const sidePct = round5(((targetW - w) / 2 / w) * 100);
-      setDirs(0, 0, Math.max(5, sidePct), Math.max(5, sidePct));
+      const sidePct = Math.round(((targetW - w) / 2 / w) * 100);
+      setOutpaintMargins(0, 0, Math.max(5, sidePct), Math.max(5, sidePct));
     } else if (curRatio > targetRatio) {
-      // Besoin d'étendre haut + bas
       const targetH = w / targetRatio;
-      const vertPct = round5(((targetH - h) / 2 / h) * 100);
-      setDirs(Math.max(5, vertPct), Math.max(5, vertPct), 0, 0);
+      const vertPct = Math.round(((targetH - h) / 2 / h) * 100);
+      setOutpaintMargins(Math.max(5, vertPct), Math.max(5, vertPct), 0, 0);
     } else {
-      setDirs(20, 20, 20, 20);
+      setOutpaintMargins(20, 20, 20, 20);
     }
   }
   updateOutpaintUI();
   updateTagWarning();
 }
+
+// Déplacement interactif de l'image à la souris / au doigt sur le canvas d'aperçu Outpainting
+function wireOutpaintCanvasDrag() {
+  const pvCanvas = $('#outpaint-preview-canvas');
+  if (!pvCanvas) return;
+
+  pvCanvas.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || !canvas) return;
+    e.preventDefault();
+    let { top, bottom, left, right } = getOutpaintMargins();
+    if (top + bottom + left + right === 0) {
+      top = 25; bottom = 25; left = 25; right = 25;
+      setOutpaintMargins(top, bottom, left, right);
+      updateOutpaintUI();
+    }
+    const geom = computeOutpaintGeometry();
+    const rect = pvCanvas.getBoundingClientRect();
+    const imgScreenW = Math.max(24, (geom.iw / geom.outW) * rect.width);
+    const imgScreenH = Math.max(24, (geom.ih / geom.outH) * rect.height);
+
+    outpaintDragState = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startTop: top,
+      startBottom: bottom,
+      startLeft: left,
+      startRight: right,
+      totalH: left + right,
+      totalV: top + bottom,
+      imgScreenW,
+      imgScreenH,
+    };
+    pvCanvas.classList.add('dragging');
+    if (typeof pvCanvas.setPointerCapture === 'function') {
+      try { pvCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+    }
+  });
+
+  pvCanvas.addEventListener('pointermove', e => {
+    if (!outpaintDragState || e.pointerId !== outpaintDragState.pointerId) return;
+    e.preventDefault();
+    const dx = e.clientX - outpaintDragState.startX;
+    const dy = e.clientY - outpaintDragState.startY;
+    const deltaPctX = Math.round((dx / outpaintDragState.imgScreenW) * 100);
+    const deltaPctY = Math.round((dy / outpaintDragState.imgScreenH) * 100);
+
+    let newLeft = outpaintDragState.startLeft;
+    let newRight = outpaintDragState.startRight;
+    if (outpaintDragState.totalH > 0) {
+      newLeft = Math.max(0, Math.min(outpaintDragState.totalH, outpaintDragState.startLeft + deltaPctX));
+      newRight = outpaintDragState.totalH - newLeft;
+    } else if (Math.abs(deltaPctX) > 2) {
+      if (deltaPctX > 0) { newLeft = Math.min(150, deltaPctX); newRight = 0; }
+      else { newLeft = 0; newRight = Math.min(150, -deltaPctX); }
+    }
+
+    let newTop = outpaintDragState.startTop;
+    let newBottom = outpaintDragState.startBottom;
+    if (outpaintDragState.totalV > 0) {
+      newTop = Math.max(0, Math.min(outpaintDragState.totalV, outpaintDragState.startTop + deltaPctY));
+      newBottom = outpaintDragState.totalV - newTop;
+    } else if (Math.abs(deltaPctY) > 2) {
+      if (deltaPctY > 0) { newTop = Math.min(150, deltaPctY); newBottom = 0; }
+      else { newTop = 0; newBottom = Math.min(150, -deltaPctY); }
+    }
+
+    setOutpaintMargins(newTop, newBottom, newLeft, newRight);
+    updateOutpaintUI();
+    updateTagWarning();
+  });
+
+  const stopDrag = e => {
+    if (!outpaintDragState) return;
+    if (typeof pvCanvas.releasePointerCapture === 'function' && e.pointerId !== undefined) {
+      try { pvCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+    }
+    outpaintDragState = null;
+    pvCanvas.classList.remove('dragging');
+  };
+  pvCanvas.addEventListener('pointerup', stopDrag);
+  pvCanvas.addEventListener('pointercancel', stopDrag);
+
+  // Molette sur l'aperçu : ajuste proportionnellement les marges autour de l'image
+  pvCanvas.addEventListener('wheel', e => {
+    if (!canvas) return;
+    e.preventDefault();
+    const step = e.deltaY > 0 ? 5 : -5;
+    const { top, bottom, left, right } = getOutpaintMargins();
+    const totalH = left + right;
+    const totalV = top + bottom;
+    const ratioL = totalH > 0 ? (left / totalH) : 0.5;
+    const ratioT = totalV > 0 ? (top / totalV) : 0.5;
+    const nextH = Math.max(0, Math.min(300, totalH + step * 2));
+    const nextV = Math.max(0, Math.min(300, totalV + step * 2));
+    setOutpaintMargins(
+      Math.round(nextV * ratioT),
+      Math.round(nextV * (1 - ratioT)),
+      Math.round(nextH * ratioL),
+      Math.round(nextH * (1 - ratioL))
+    );
+    updateOutpaintUI();
+    updateTagWarning();
+  }, { passive: false });
+}
+wireOutpaintCanvasDrag();
 
 $('#outpaint-enabled')?.addEventListener('change', () => {
   if ($('#outpaint-enabled').checked && canvas) {
@@ -368,6 +682,9 @@ $('#outpaint-enabled')?.addEventListener('change', () => {
 });
 $$('[data-op-preset]').forEach(btn => {
   btn.addEventListener('click', () => applyOutpaintPreset(btn.dataset.opPreset));
+});
+$$('[data-op-anchor]').forEach(btn => {
+  btn.addEventListener('click', () => applyOutpaintAnchor(btn.dataset.opAnchor));
 });
 
 // ------------------------------------------------------------ modeles ------
@@ -453,6 +770,13 @@ function onModelChange() {
     ? example
     : "décrivez ce qui doit changer, en français ou en anglais";
 
+  // Si un prompt est déjà saisi avec des balises d'un autre modèle, l'adapter automatiquement
+  const currentPrompt = $('#prompt').value;
+  if (currentPrompt && (/<image_?\d+>/i.test(currentPrompt) || /\bimage\s+\d+\b/i.test(currentPrompt))) {
+    $('#prompt').value = adaptPromptToModel(currentPrompt, m);
+  }
+
+  renderEditPreprompts();
   renderRefHint();
   renderTagChips();
   renderRefs();
@@ -765,7 +1089,6 @@ function renderCanvas() {
   $('#canvas-name').textContent = `${canvas.name} (${canvas.width} × ${canvas.height})`;
 }
 
-// Construit la liste pour la Lightbox des images d'entrée (canvas + références)
 function buildInputLightboxItems() {
   const all = orderedImages();
   return all.map((item, idx) => ({
@@ -777,7 +1100,6 @@ function buildInputLightboxItems() {
   }));
 }
 
-// Construit la liste pour la Lightbox de comparaison (Source Avant + Résultats générés)
 function buildEditLightboxItems() {
   const list = [];
   const srcUrl = comparisonSource || (canvas && canvas.url);

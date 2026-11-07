@@ -25,7 +25,8 @@ from engine import (tasks, load_settings, save_settings, hf_token, engine_ready,
 import browser_launch
 from registry import (MODELS, DEPS, RATIOS, DEFAULT_NEGATIVE, input_modes,
                       max_ref_images, check_images_input, clamp_ref_max_pixels,
-                      supports_outpainting, build_outpaint_prompt)
+                      supports_outpainting, build_outpaint_prompt,
+                      outpaint_prompt_presets, edit_prompt_presets, gen_prompt_presets)
 import gpu_info
 import uuid
 try:
@@ -203,6 +204,9 @@ def api_models():
             "ref_needs_vlm": m.get("ref_needs_vlm", False),
             "ref_hint": m.get("ref_hint", ""),
             "ref_examples": m.get("ref_examples", []),
+            "outpaint_presets": outpaint_prompt_presets(mid),
+            "edit_presets": edit_prompt_presets(mid),
+            "gen_presets": gen_prompt_presets(mid),
             "status": st,
         }
     return jsonify(out)

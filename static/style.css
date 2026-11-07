@@ -368,7 +368,27 @@ small{color:var(--muted)}
 .outpaint-dirs{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
 .outpaint-dirs .field{margin-bottom:0}
 .outpaint-dirs .field strong{color:var(--accent2)}
-.outpaint-preview-wrap{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center}
+.outpaint-preview-wrap{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px}
 .outpaint-preview-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;
   font-size:12px;font-weight:600;color:var(--muted);margin-bottom:8px}
-.outpaint-preview-canvas{max-width:100%;height:auto;border-radius:8px;border:1px solid var(--border);background:#0d0f14;display:inline-block}
+.outpaint-stage-row{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap}
+.outpaint-canvas-holder{display:flex;flex-direction:column;align-items:center;gap:4px}
+.outpaint-preview-canvas{max-width:100%;height:auto;border-radius:8px;border:1px solid var(--border);
+  background:#0d0f14;display:inline-block;cursor:grab;touch-action:none}
+.outpaint-preview-canvas.dragging{cursor:grabbing;border-color:var(--accent)}
+.outpaint-drag-hint{font-size:11px}
+.outpaint-anchor-box{display:flex;flex-direction:column;align-items:center;gap:6px}
+.outpaint-anchor-grid{display:grid;grid-template-columns:repeat(3,30px);grid-template-rows:repeat(3,30px);gap:4px}
+.anchor-btn{border:1px solid var(--border);background:var(--bg2);color:var(--muted);border-radius:7px;
+  cursor:pointer;font-size:13px;display:grid;place-items:center;padding:0}
+.anchor-btn:hover{border-color:var(--accent);color:var(--txt)}
+.anchor-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.outpaint-preprompts{display:flex;flex-direction:column;gap:6px}
+.outpaint-prompt-chips{display:flex;gap:6px;flex-wrap:wrap}
+.outpaint-prompt-chip.active{border-color:var(--accent);background:#7c5cff33;color:#fff}
+
+/* ===== Barre de pré-prompts (Générer & Studio d'édition) ===== */
+.preprompts-field{margin-bottom:10px}
+.preprompts-bar{display:flex;gap:8px;align-items:center}
+.preprompts-bar select{flex:1;min-width:0}
+.preprompts-bar .btn{white-space:nowrap}

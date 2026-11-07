@@ -6,7 +6,8 @@ from unittest.mock import patch
 
 import registry
 from registry import (MODELS, DEPS, build_command, resolve_dep_gguf,
-                      _is_valid_dep, supports_outpainting, build_outpaint_prompt)
+                      _is_valid_dep, supports_outpainting, build_outpaint_prompt,
+                      outpaint_prompt_presets, edit_prompt_presets, gen_prompt_presets)
 
 NEW_MODELS = ["fibo2-dev", "fibo2-edit-turbo", "moss-image-sft", "moss-image-base", "krea2-turbo"]
 OUTPAINT_MODELS = [
@@ -83,6 +84,25 @@ class RegistryEntriesTests(unittest.TestCase):
         klein_prompt = build_outpaint_prompt("flux3-image-klein", "mountain horizon")
         self.assertIn("image 1", klein_prompt)
         self.assertNotIn("<image", klein_prompt)
+
+    def test_model_adapted_preprompts(self):
+        # Les pré-prompts d'édition et d'outpainting respectent la syntaxe propre à chaque modèle
+        qwen_edit = edit_prompt_presets("qwen-image-2.1")
+        self.assertTrue(len(qwen_edit) >= 8)
+        self.assertTrue(all("<image1>" in p["prompt"] for p in qwen_edit))
+
+        fibo_edit = edit_prompt_presets("fibo2-dev")
+        self.assertTrue(len(fibo_edit) >= 8)
+        self.assertTrue(all("<image_1>" in p["prompt"] for p in fibo_edit))
+
+        klein_edit = edit_prompt_presets("flux3-image-klein")
+        self.assertTrue(len(klein_edit) >= 8)
+        self.assertTrue(all("image 1" in p["prompt"] and "<image" not in p["prompt"] for p in klein_edit))
+
+        # Tous les modèles du registre disposent de pré-prompts de génération
+        for mid in MODELS:
+            gen_presets = gen_prompt_presets(mid)
+            self.assertTrue(len(gen_presets) >= 5, f"{mid} devrait avoir des pré-prompts de génération")
 
 
 class BuildCommandTests(unittest.TestCase):
