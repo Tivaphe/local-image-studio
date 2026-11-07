@@ -6,11 +6,17 @@
 
   <!-- ==================================================== Colonne assistant -->
   <section class="panel form-panel edit-panel">
-    <h2>✂️ Studio d'édition</h2>
+    <div class="panel-title-row">
+      <h2>✂️ Studio d'édition</h2>
+      <button type="button" id="reset-edit-draft-btn" class="btn ghost small"
+              title="Réinitialiser tout le Studio d'édition et vider le brouillon sauvegardé">
+        🧹 Nouveau / Vider le brouillon
+      </button>
+    </div>
     <p class="muted small">
       Une image à modifier (le <strong>canvas</strong>) + jusqu'à
       <strong><span id="max-label">10</span> images</strong> selon le modèle.
-      Rien ne quitte votre ordinateur.
+      Astuce : collez directement une image avec <kbd>Ctrl+V</kbd>. Rien ne quitte votre ordinateur.
     </p>
 
     <!-- ① Modèle -->
@@ -43,7 +49,7 @@
       <input type="file" id="canvas-input" accept="image/png,image/jpeg,image/webp" hidden>
       <div class="upload-placeholder" id="canvas-placeholder">
         <i class="icon">🖼️</i>
-        <span>Cliquez ou glissez <strong>l'image à éditer</strong></span>
+        <span>Cliquez, glissez ou collez (<kbd>Ctrl+V</kbd>) <strong>l'image à éditer</strong></span>
         <small class="muted">PNG, JPG, WEBP — elle sera « image 1 »</small>
       </div>
       <div class="upload-preview hidden" id="canvas-preview">
@@ -56,6 +62,181 @@
           </span>
         </div>
         <span class="idx-badge idx-canvas">1</span>
+      </div>
+    </div>
+
+    <!-- Barre de Recadrage & Rotation rapide (Crop / Flip) du Canvas -->
+    <div id="canvas-transform-bar" class="canvas-transform-bar" hidden>
+      <div class="transform-btns">
+        <span class="chips-label">Transformer :</span>
+        <button type="button" class="btn ghost small" id="tf-rot-left" title="Pivoter de 90° vers la gauche">↺ -90°</button>
+        <button type="button" class="btn ghost small" id="tf-rot-right" title="Pivoter de 90° vers la droite">↻ +90°</button>
+        <button type="button" class="btn ghost small" id="tf-flip-h" title="Retournement miroir horizontal">⇆ Miroir H</button>
+        <button type="button" class="btn ghost small" id="tf-flip-v" title="Retournement miroir vertical">⇅ Miroir V</button>
+        <button type="button" class="btn ghost small" id="tf-crop-toggle" title="Recadrer l'image source à la souris">✂️ Recadrer</button>
+        <button type="button" class="btn ghost small" id="tf-restore-orig" hidden title="Revenir à l'image source d'origine avant recadrage/rotation">⟲ Origine</button>
+      </div>
+
+      <!-- Éditeur de recadrage interactif -->
+      <div id="canvas-crop-panel" class="canvas-crop-panel" hidden>
+        <div class="crop-toolbar">
+          <span class="chips-label">Ratio de recadrage :</span>
+          <button type="button" class="chip-tag active" data-crop-ratio="free">Libre</button>
+          <button type="button" class="chip-tag" data-crop-ratio="1:1">1:1</button>
+          <button type="button" class="chip-tag" data-crop-ratio="16:9">16:9</button>
+          <button type="button" class="chip-tag" data-crop-ratio="9:16">9:16</button>
+          <button type="button" class="chip-tag" data-crop-ratio="4:3">4:3</button>
+          <button type="button" class="chip-tag" data-crop-ratio="3:4">3:4</button>
+          <span class="muted small" id="crop-dims-label"></span>
+        </div>
+        <div class="crop-stage-wrap">
+          <canvas id="canvas-crop-canvas" class="canvas-crop-canvas"
+                  title="Glissez l'intérieur ou les coins du cadre pour recadrer l'image"></canvas>
+        </div>
+        <div class="crop-actions">
+          <button type="button" class="btn small primary" id="crop-apply-btn">✓ Appliquer le recadrage</button>
+          <button type="button" class="btn small ghost" id="crop-cancel-btn">✕ Annuler</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mode Inpainting au pinceau (Masque dessiné à la souris) -->
+    <div id="inpaint-box" class="outpaint-box inpaint-box" hidden>
+      <label class="field checkbox-field outpaint-toggle">
+        <input type="checkbox" id="inpaint-enabled">
+        <span>🖌️ Mode Inpainting au pinceau <em>(retoucher uniquement une zone peinte)</em></span>
+        <small>Peignez à la souris la zone précise à modifier ou supprimer. Le reste de l'image est préservé à l'identique.</small>
+      </label>
+
+      <div id="inpaint-controls" class="outpaint-controls inpaint-controls" hidden>
+        <div class="inpaint-toolbar">
+          <div class="inpaint-tools-row">
+            <button type="button" class="btn small primary" id="inpaint-tool-brush" title="Peindre la zone à modifier">🖌️ Pinceau</button>
+            <button type="button" class="btn small ghost" id="inpaint-tool-eraser" title="Gommer le masque">🧽 Gomme</button>
+            <button type="button" class="btn small ghost" id="inpaint-undo-btn" title="Annuler le dernier coup de pinceau">↩️ Annuler</button>
+            <button type="button" class="btn small ghost" id="inpaint-invert-btn" title="Inverser la zone masquée et la zone protégée">🔄 Inverser</button>
+            <button type="button" class="btn small danger" id="inpaint-clear-btn" title="Effacer tout le masque">🗑️ Effacer</button>
+          </div>
+          <label class="field inpaint-size-field">
+            <span>Taille du pinceau : <strong id="inpaint-size-val">36 px</strong></span>
+            <input type="range" id="inpaint-size" min="6" max="140" step="2" value="36">
+          </label>
+        </div>
+
+        <div class="inpaint-stage-wrap">
+          <canvas id="inpaint-canvas" class="inpaint-canvas"
+                  title="Peignez en rose la zone à modifier · Molette : changer la taille du pinceau"></canvas>
+          <small class="muted" id="inpaint-bbox-info">Peignez sur l'image la zone que vous souhaitez modifier.</small>
+        </div>
+
+        <label class="field checkbox-field">
+          <input type="checkbox" id="inpaint-auto-prompt" checked>
+          <span>Cibler automatiquement la zone peinte dans l'instruction</span>
+          <small>Indique au modèle les coordonnées exactes de la zone masquée et l'oblige à ne rien modifier en dehors.</small>
+        </label>
+        <label class="field checkbox-field">
+          <input type="checkbox" id="inpaint-neutralize-zone">
+          <span>Pré-adoucir la zone peinte sur le canvas <em>(recommandé pour supprimer / remplacer un objet)</em></span>
+          <small>Estompe l'objet existant sous le coup de pinceau avant l'envoi au modèle pour éviter qu'il n'en garde les contours.</small>
+        </label>
+        <label class="field checkbox-field">
+          <input type="checkbox" id="inpaint-blend-result" checked>
+          <span>Fusionner uniquement la zone masquée avec l'image d'origine (Seamless Blend)</span>
+          <small>Garantit à 100 % que les pixels situés hors de votre coup de pinceau restent strictement intacts, avec un fondu progressif sur les bords.</small>
+        </label>
+      </div>
+    </div>
+
+    <!-- Outpainting (extension du cadre, modèles compatibles) -->
+    <div id="outpaint-box" class="outpaint-box" hidden>
+      <label class="field checkbox-field outpaint-toggle">
+        <input type="checkbox" id="outpaint-enabled">
+        <span>📐 Mode Outpainting <em>(étendre l'image au-delà de ses bords)</em></span>
+        <small>Agrandit le canevas autour de l'image source et laisse le modèle compléter le décor de façon homogène.</small>
+      </label>
+
+      <div id="outpaint-controls" class="outpaint-controls" hidden>
+        <div class="outpaint-presets">
+          <span class="chips-label">Préréglages :</span>
+          <button type="button" class="chip-tag" data-op-preset="zoom125">Dézoom ×1,25 (+25%)</button>
+          <button type="button" class="chip-tag" data-op-preset="zoom150">Dézoom ×1,5 (+50%)</button>
+          <button type="button" class="chip-tag" data-op-preset="zoom200">Dézoom ×2 (+100%)</button>
+          <button type="button" class="chip-tag" data-op-preset="horiz50">↔ Gauche/Droite (+50%)</button>
+          <button type="button" class="chip-tag" data-op-preset="vert50">↕ Haut/Bas (+50%)</button>
+          <button type="button" class="chip-tag" data-op-preset="ratio16_9">▭ Étendre en 16:9</button>
+          <button type="button" class="chip-tag" data-op-preset="ratio9_16">▯ Étendre en 9:16</button>
+          <button type="button" class="chip-tag" data-op-preset="ratio1_1">□ Étendre en 1:1</button>
+          <button type="button" class="chip-tag" data-op-preset="reset">↺ 0%</button>
+        </div>
+
+        <div class="outpaint-dirs">
+          <label class="field">
+            <span>⬆ Haut (<strong id="op-top-val">25%</strong>)</span>
+            <input type="range" id="outpaint-top" min="0" max="150" step="1" value="25">
+          </label>
+          <label class="field">
+            <span>⬇ Bas (<strong id="op-bottom-val">25%</strong>)</span>
+            <input type="range" id="outpaint-bottom" min="0" max="150" step="1" value="25">
+          </label>
+          <label class="field">
+            <span>⬅ Gauche (<strong id="op-left-val">25%</strong>)</span>
+            <input type="range" id="outpaint-left" min="0" max="150" step="1" value="25">
+          </label>
+          <label class="field">
+            <span>➡ Droite (<strong id="op-right-val">25%</strong>)</span>
+            <input type="range" id="outpaint-right" min="0" max="150" step="1" value="25">
+          </label>
+        </div>
+
+        <div class="outpaint-preview-wrap" id="outpaint-preview-wrap" hidden>
+          <div class="outpaint-preview-head">
+            <span>✋ Positionnez l'image dans le cadre <em>(glisser-déposer ou grille)</em></span>
+            <small id="outpaint-dims-info" class="muted"></small>
+          </div>
+          <div class="outpaint-stage-row">
+            <div class="outpaint-canvas-holder">
+              <canvas id="outpaint-preview-canvas" class="outpaint-preview-canvas"
+                      title="Glissez l'image avec la souris pour la déplacer où vous voulez · Molette : ajuster le dézoom"></canvas>
+              <small class="muted outpaint-drag-hint">Glissez l'image à la souris · Molette : ajuster les marges</small>
+            </div>
+            <div class="outpaint-anchor-box">
+              <span class="chips-label">Ancrage rapide</span>
+              <div class="outpaint-anchor-grid" title="Placer l'image dans un coin, sur un bord ou au centre">
+                <button type="button" class="anchor-btn" data-op-anchor="tl" title="En haut à gauche">↖</button>
+                <button type="button" class="anchor-btn" data-op-anchor="tc" title="En haut au centre">⬆</button>
+                <button type="button" class="anchor-btn" data-op-anchor="tr" title="En haut à droite">↗</button>
+                <button type="button" class="anchor-btn" data-op-anchor="ml" title="À gauche">⬅</button>
+                <button type="button" class="anchor-btn active" data-op-anchor="mc" title="Centrer l'image">⏺</button>
+                <button type="button" class="anchor-btn" data-op-anchor="mr" title="À droite">➡</button>
+                <button type="button" class="anchor-btn" data-op-anchor="bl" title="En bas à gauche">↙</button>
+                <button type="button" class="anchor-btn" data-op-anchor="bc" title="En bas au centre">⬇</button>
+                <button type="button" class="anchor-btn" data-op-anchor="br" title="En bas à droite">↘</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>Pré-remplissage de la zone étendue</span>
+          <select id="outpaint-fill">
+            <option value="blur">Flou étiré des bords (recommandé — transition douce)</option>
+            <option value="mirror">Miroir adouci (prolonge couleurs et textures)</option>
+            <option value="neutral">Gris neutre (#808080 — délimitation franche)</option>
+            <option value="white">Blanc (#FFFFFF — repère net pour VLM)</option>
+            <option value="black">Noir (#000000)</option>
+          </select>
+        </label>
+
+        <div class="outpaint-preprompts" id="outpaint-preprompts">
+          <span class="chips-label">Pré-prompts Outpainting (adaptés au modèle) :</span>
+          <div class="outpaint-prompt-chips" id="outpaint-prompt-chips"></div>
+        </div>
+
+        <label class="field checkbox-field">
+          <input type="checkbox" id="outpaint-auto-prompt" checked>
+          <span>Adapter automatiquement l'instruction pour l'outpainting</span>
+          <small>Ajoute la consigne d'extension hors-cadre adaptée au modèle. Vous pouvez choisir un pré-prompt ci-dessus, écrire votre propre décor à l'étape 4, ou laisser vide.</small>
+        </label>
       </div>
     </div>
 
@@ -84,6 +265,16 @@
     <!-- ④ Instruction -->
     <div class="edit-step">
       <span class="step-num">4</span><span class="step-title">Instruction d'édition</span>
+    </div>
+    <div class="field preprompts-field">
+      <span>📋 Pré-prompts adaptés au modèle</span>
+      <div class="preprompts-bar">
+        <select id="edit-preprompt-select">
+          <option value="">→ Choisir un pré-prompt adapté au modèle ←</option>
+        </select>
+        <button type="button" id="save-edit-preprompt-btn" class="btn ghost small" title="Enregistrer le prompt actuel dans vos pré-prompts">💾 Sauver</button>
+        <button type="button" id="del-edit-preprompt-btn" class="btn danger small" hidden title="Supprimer ce pré-prompt personnalisé">🗑</button>
+      </div>
     </div>
     <label class="field">
       <span>Ce que vous voulez changer</span>
@@ -156,6 +347,14 @@
     <div class="progress-wrap" id="progress-wrap" hidden>
       <div class="progress-bar"><div id="progress-fill"></div></div>
       <div class="progress-meta"><span id="progress-text">en cours…</span></div>
+    </div>
+
+    <div class="queue-box" id="queue-box" hidden>
+      <div class="queue-head">
+        <span>⏳ File d'attente (<span id="queue-count">0</span>)</span>
+        <button type="button" class="link danger" id="queue-clear-btn">Vider la file</button>
+      </div>
+      <div class="queue-list" id="queue-list"></div>
     </div>
 
     <div id="compare" class="compare" hidden>

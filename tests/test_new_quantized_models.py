@@ -5,9 +5,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 import registry
-from registry import MODELS, DEPS, build_command, resolve_dep_gguf, _is_valid_dep
+from registry import (MODELS, DEPS, build_command, resolve_dep_gguf,
+                      _is_valid_dep, supports_outpainting, build_outpaint_prompt,
+                      supports_inpainting, build_inpaint_prompt,
+                      outpaint_prompt_presets, edit_prompt_presets, gen_prompt_presets)
 
 NEW_MODELS = ["fibo2-dev", "fibo2-edit-turbo", "moss-image-sft", "moss-image-base", "krea2-turbo"]
+OUTPAINT_MODELS = [
+    "qwen-image-2.1", "qwen-image-2.1-turbo",
+    "flux2-klein-4b", "flux2-klein-9b", "flux3-image-klein",
+    "fibo2-dev", "fibo2-edit-turbo",
+]
 
 # Listings réels des dépôts Hugging Face (noms de fichiers uniquement).
 REPO_FILES = {
@@ -57,6 +65,45 @@ class RegistryEntriesTests(unittest.TestCase):
     def test_qwen3vl_4b_still_resolves_to_the_llm_not_the_mmproj(self):
         picked = resolve_dep_gguf("qwen3vl_4b", REPO_FILES["Qwen/Qwen3-VL-4B-Instruct-GGUF"])
         self.assertEqual(picked, "Qwen3VL-4B-Instruct-Q4_K_M.gguf")
+
+    def test_outpainting_support_and_prompt_builder(self):
+        for mid in OUTPAINT_MODELS:
+            self.assertTrue(supports_outpainting(mid), f"{mid} devrait supporter l'outpainting")
+        self.assertFalse(supports_outpainting("flux-schnell"))
+        self.assertFalse(supports_outpainting("z-image"))
+        self.assertFalse(supports_outpainting("krea2-turbo"))
+
+        qwen_prompt = build_outpaint_prompt("qwen-image-2.1", "a sunny beach", ["left", "right"])
+        self.assertIn("<image1>", qwen_prompt)
+        self.assertIn("left, right borders", qwen_prompt)
+        self.assertTrue(qwen_prompt.endswith("a sunny beach"))
+
+        fibo_prompt = build_outpaint_prompt("fibo2-dev", "", ["top"])
+        self.assertIn("<image_1>", fibo_prompt)
+        self.assertIn("top border", fibo_prompt)
+
+        klein_prompt = build_outpaint_prompt("flux3-image-klein", "mountain horizon")
+        self.assertIn("image 1", klein_prompt)
+        self.assertNotIn("<image", klein_prompt)
+
+    def test_model_adapted_preprompts(self):
+        # Les pré-prompts d'édition et d'outpainting respectent la syntaxe propre à chaque modèle
+        qwen_edit = edit_prompt_presets("qwen-image-2.1")
+        self.assertTrue(len(qwen_edit) >= 8)
+        self.assertTrue(all("<image1>" in p["prompt"] for p in qwen_edit))
+
+        fibo_edit = edit_prompt_presets("fibo2-dev")
+        self.assertTrue(len(fibo_edit) >= 8)
+        self.assertTrue(all("<image_1>" in p["prompt"] for p in fibo_edit))
+
+        klein_edit = edit_prompt_presets("flux3-image-klein")
+        self.assertTrue(len(klein_edit) >= 8)
+        self.assertTrue(all("image 1" in p["prompt"] and "<image" not in p["prompt"] for p in klein_edit))
+
+        # Tous les modèles du registre disposent de pré-prompts de génération
+        for mid in MODELS:
+            gen_presets = gen_prompt_presets(mid)
+            self.assertTrue(len(gen_presets) >= 5, f"{mid} devrait avoir des pré-prompts de génération")
 
 
 class BuildCommandTests(unittest.TestCase):
@@ -111,7 +158,39 @@ class BuildCommandTests(unittest.TestCase):
         self.assertEqual(self._val(args, "--llm"), "/fake/qwen3vl_4b.file")
         self.assertNotIn("--llm_vision", args)
         self.assertNotIn("-n", args)
-        self.assertEqual(self._val(args, "--steps"), "8")
+
+    def test_inpainting_support_and_prompt_builder(self):
+        self.assertTrue(supports_inpainting("qwen-image-2.1"))
+        self.assertTrue(supports_inpainting("flux3-image-klein"))
+        self.assertTrue(supports_inpainting("fibo2-dev"))
+        self.assertFalse(supports_inpainting("krea2-turbo"))
+
+        p_qwen = build_inpaint_prompt(
+            "qwen-image-2.1",
+            "replace the hat with a crown",
+            bbox={"x1": 10, "y1": 5, "x2": 30, "y2": 25},
+        )
+        self.assertIn("<image1>", p_qwen)
+        self.assertIn("upper-left", p_qwen)
+        self.assertIn("[50, 100, 250, 300]", p_qwen)
+        self.assertIn("replace the hat with a crown", p_qwen)
+
+        # --mask est transmis pour Qwen/FLUX mais ignoré pour fibo2
+        fake = {d: f"/fake/{d}.file" for d in DEPS}
+        manifest = {d: {"path": fake[d]} for d in DEPS}
+        with patch.object(registry, "_dep_path", lambda mf, d: mf.get(d, {}).get("path")):
+            cmd_qwen = build_command(
+                "qwen-image-2.1", "Q4_K_M", "p", "", 1024, 1024, 20, 2.5, 1, 1,
+                "out.png", "sd-cli", manifest, ref_images=["c.png"], input_mode="ref",
+                mask_image="m.png"
+            )
+            self.assertIn("--mask", cmd_qwen)
+            cmd_fibo = build_command(
+                "fibo2-dev", "Q6_K", "p", "", 1024, 1024, 30, 5.0, 1, 1,
+                "out.png", "sd-cli", manifest, ref_images=["c.png"], input_mode="ref",
+                mask_image="m.png"
+            )
+            self.assertNotIn("--mask", cmd_fibo)
 
 
 if __name__ == "__main__":

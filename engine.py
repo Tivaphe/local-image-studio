@@ -263,6 +263,7 @@ class TaskManager:
     def __init__(self):
         self._lock = threading.Lock()
         self._thread = None
+        self._queue = []
         self.state = {
             "busy": False,
             "kind": None,          # "download" | "generate" | "engine"
@@ -286,9 +287,53 @@ class TaskManager:
         with self._lock:
             return self.state["busy"]
 
+    def _serialize_queue_locked(self):
+        return [
+            {
+                "queue_id": item["queue_id"],
+                "position": idx + 1,
+                **item["summary"],
+            }
+            for idx, item in enumerate(self._queue)
+        ]
+
+    def list_queue(self):
+        with self._lock:
+            return self._serialize_queue_locked()
+
+    def remove_from_queue(self, queue_id):
+        with self._lock:
+            before = len(self._queue)
+            self._queue = [it for it in self._queue if it["queue_id"] != queue_id]
+            return len(self._queue) < before
+
+    def clear_queue(self):
+        with self._lock:
+            count = len(self._queue)
+            self._queue.clear()
+            return count
+
+    def queued_source_paths(self):
+        """Retourne l'ensemble des chemins d'images sources utilisés par la file d'attente."""
+        with self._lock:
+            paths = set()
+            for item in self._queue:
+                p = item.get("params") or {}
+                if p.get("source_image"):
+                    paths.add(str(p["source_image"]))
+                if p.get("mask_image"):
+                    paths.add(str(p["mask_image"]))
+                for r in (p.get("ref_images") or []):
+                    if r:
+                        paths.add(str(r))
+            return paths
+
     def snapshot(self):
         with self._lock:
-            return dict(self.state)
+            snap = dict(self.state)
+            snap["queue"] = self._serialize_queue_locked()
+            snap["queue_size"] = len(self._queue)
+            return snap
 
     def _set(self, **kw):
         with self._lock:
@@ -339,14 +384,87 @@ class TaskManager:
     _proc = None
     _cancel = False
 
+    def _build_queue_item(self, params):
+        from registry import MODELS as _MODELS
+        model_id = params.get("model_id", "")
+        m = _MODELS.get(model_id, {})
+        return {
+            "queue_id": uuid.uuid4().hex[:8],
+            "params": dict(params),
+            "summary": {
+                "model_id": model_id,
+                "model_name": m.get("name", model_id),
+                "quant": params.get("quant", ""),
+                "prompt": (params.get("prompt") or "")[:90],
+                "batch": int(params.get("batch") or 1),
+                "width": int(params.get("width") or 1024),
+                "height": int(params.get("height") or 1024),
+            },
+            "created_at": time.time(),
+        }
+
+    def enqueue_generate(self, params):
+        """
+        Si aucune tâche n'est en cours, démarre immédiatement la génération.
+        Sinon (si une génération est déjà en cours), l'ajoute à la file d'attente.
+        """
+        with self._lock:
+            if self.state["busy"] and self.state.get("kind") in ("download", "engine"):
+                raise RuntimeError("Un téléchargement est en cours. Patientez avant de lancer une génération.")
+            if self.state["busy"]:
+                item = self._build_queue_item(params)
+                self._queue.append(item)
+                return {
+                    "queued": True,
+                    "started": False,
+                    "queue_id": item["queue_id"],
+                    "position": len(self._queue),
+                    "queue_size": len(self._queue),
+                    "queue": self._serialize_queue_locked(),
+                }
+        self.start_generate(params)
+        return {
+            "queued": False,
+            "started": True,
+            "queue_id": None,
+            "position": 0,
+            "queue_size": len(self.list_queue()),
+            "queue": self.list_queue(),
+        }
+
     def start_generate(self, params):
         if self.is_busy():
             raise RuntimeError("Une tâche est déjà en cours.")
         self._reset("generate")
         self._cancel = False
-        t = threading.Thread(target=self._run_generate, args=(params,), daemon=True)
+        t = threading.Thread(target=self._run_generate_loop, args=(params,), daemon=True)
         self._thread = t
         t.start()
+
+    def _run_generate_loop(self, first_params):
+        current_params = first_params
+        while current_params is not None:
+            self._run_generate(current_params)
+            with self._lock:
+                if self._queue:
+                    next_item = self._queue.pop(0)
+                    current_params = next_item["params"]
+                    self.state = {
+                        "busy": True,
+                        "kind": "generate",
+                        "log": f"Démarrage de la tâche suivante en file ({len(self._queue)} restante(s))…",
+                        "progress": 0.0,
+                        "step": 0,
+                        "total_steps": 0,
+                        "error": None,
+                        "done": False,
+                        "result": self.state.get("result"),
+                        "elapsed": 0.0,
+                        "eta": 0.0,
+                    }
+                    self._cancel = False
+                else:
+                    current_params = None
 
     def cancel(self):
         self._cancel = True
@@ -428,7 +546,8 @@ class TaskManager:
                 strength=p.get("strength"),
                 ref_images=input_images if has_refs else None,
                 input_mode=input_mode,
-                ref_max_pixels=p.get("ref_max_pixels"))
+                ref_max_pixels=p.get("ref_max_pixels"),
+                mask_image=(str(ROOT / p["mask_image"]) if p.get("mask_image") else None))
 
             # Vérifier qu'aucun argument n'est None
             for idx_arg, arg_val in enumerate(cmd):

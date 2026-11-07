@@ -12,18 +12,44 @@
       {% endfor %}
     </div>
   </div>
-  <p class="muted">{{ count }} image(s) au total · enregistrées dans <code>output/</code> · 300 entrées les plus récentes affichées</p>
+
+  <div class="history-toolbar">
+    <div class="history-search-wrap">
+      <input type="search" id="history-search" class="history-search"
+             placeholder="🔎 Rechercher par mot-clé du prompt, modèle, quant ou seed…"
+             value="{{ search_query or '' }}">
+    </div>
+    <button type="button" class="btn small ghost history-fav-filter {% if fav_only %}active{% endif %}"
+            id="history-fav-filter" title="Afficher uniquement vos images favorites ⭐">
+      ⭐ Favoris uniquement
+    </button>
+    <span class="muted small" id="history-visible-count"></span>
+  </div>
+
+  <p class="muted">{{ count }} image(s) au total · enregistrées dans <code>output/</code> · 300 entrées les plus récentes affichées · les images ⭐ sont protégées contre la suppression</p>
 
   {% if images %}
-  <div class="gallery">
+  <div class="gallery" id="history-gallery">
     {% for im in images %}
     {% set editable = models.get(im.model, {}).get('supports_ref_images', False) %}
     {% set sources = [] %}
     {% for p in im.source_images_list %}
       {% set _ = sources.append({'filename': p, 'url': '/source-images/' ~ p.split('/')|last}) %}
     {% endfor %}
-    <div class="card" data-id="{{ im.id }}">
-      <div class="thumb" style="background-image:url('{{ url_for('serve_output', filename=im.filename) }}')"></div>
+    <div class="card {% if im.favorite %}is-favorite{% endif %}"
+         data-id="{{ im.id }}"
+         data-favorite="{{ '1' if im.favorite else '0' }}"
+         data-search="{{ (im.prompt ~ ' ' ~ im.model_name ~ ' ' ~ im.quant ~ ' ' ~ im.seed ~ ' ' ~ im.width ~ 'x' ~ im.height)|lower|e }}"
+         data-output-url="{{ url_for('serve_output', filename=im.filename) }}"
+         data-label="{{ im.model_name }} · seed {{ im.seed }}"
+         data-sources='{{ sources | tojson }}'>
+      <div class="thumb" style="background-image:url('{{ url_for('serve_output', filename=im.filename) }}')">
+        <button type="button" class="fav-btn {% if im.favorite %}active{% endif %}"
+                data-id="{{ im.id }}"
+                title="{{ 'Retirer des favoris (déverrouiller la suppression)' if im.favorite else 'Ajouter aux favoris ⭐ (protège contre la suppression)' }}">
+          {{ '⭐' if im.favorite else '☆' }}
+        </button>
+      </div>
       {% if sources %}
       <div class="card-sources" title="{{ sources|length }} image(s) fournie(s) au modèle">
         {% for s in sources %}<img src="{{ s.url }}" alt="source">{% endfor %}
@@ -44,7 +70,23 @@
                   data-w="{{ im.width }}" data-h="{{ im.height }}"
                   data-steps="{{ im.steps }}" data-cfg="{{ im.cfg }}" data-seed="{{ im.seed }}"
                   data-sources='{{ sources | tojson }}'>{{ 'Rééditer' if editable and sources else 'Réutiliser' }}</button>
-          <button class="link danger del" data-id="{{ im.id }}">Supprimer</button>
+          <button class="link danger del {% if im.favorite %}locked{% endif %}"
+                  data-id="{{ im.id }}"
+                  title="{{ 'Image protégée en Favori ⭐ — cliquez sur l’étoile pour déverrouiller' if im.favorite else 'Supprimer (double clic de sécurité)' }}">
+            {{ '🔒 Favori' if im.favorite else 'Supprimer' }}
+          </button>
+        </div>
+        <div class="card-edit-actions">
+          <button type="button" class="btn small use-in-edit" data-mode="canvas"
+                  data-id="{{ im.id }}" data-filename="{{ im.filename }}"
+                  title="Utiliser cette image générée comme image à modifier (Canvas) dans le Studio d'édition">
+            ✂️ Utiliser comme source (Édition)
+          </button>
+          <button type="button" class="btn small ghost use-in-edit" data-mode="ref"
+                  data-id="{{ im.id }}" data-filename="{{ im.filename }}"
+                  title="Ajouter cette image comme référence supplémentaire dans le Studio d'édition">
+            ＋ Réf.
+          </button>
         </div>
       </div>
     </div>
@@ -59,19 +101,210 @@
 </section>
 
 <script>
-document.querySelectorAll('.del').forEach(b=>{
-  b.addEventListener('click', async ()=>{
-    if(!confirm('Supprimer cette image ?')) return;
-    await fetch('/api/delete-image',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:b.dataset.id})});
-    b.closest('.card').remove();
+// --- Recherche instantanée & filtre Favoris ---
+let favOnlyFilter = {{ 'true' if fav_only else 'false' }};
+const searchInput = document.getElementById('history-search');
+const favFilterBtn = document.getElementById('history-fav-filter');
+const visibleCountEl = document.getElementById('history-visible-count');
+
+function applyHistoryFilter() {
+  const q = (searchInput ? searchInput.value : '').trim().toLowerCase();
+  const cards = [...document.querySelectorAll('.card')];
+  let visible = 0;
+  cards.forEach(card => {
+    const isFav = card.dataset.favorite === '1';
+    const haystack = card.dataset.search || '';
+    const matchFav = !favOnlyFilter || isFav;
+    const matchQ = !q || haystack.includes(q);
+    const show = matchFav && matchQ;
+    card.hidden = !show;
+    if (show) visible++;
+  });
+  if (visibleCountEl) {
+    visibleCountEl.textContent = (q || favOnlyFilter)
+      ? `${visible} / ${cards.length} affichée(s)`
+      : '';
+  }
+}
+
+searchInput?.addEventListener('input', applyHistoryFilter);
+favFilterBtn?.addEventListener('click', () => {
+  favOnlyFilter = !favOnlyFilter;
+  favFilterBtn.classList.toggle('active', favOnlyFilter);
+  applyHistoryFilter();
+});
+applyHistoryFilter();
+
+// --- Favoris ⭐ & Protection contre la suppression ---
+document.querySelectorAll('.fav-btn').forEach(btn => {
+  btn.addEventListener('click', async e => {
+    e.stopPropagation();
+    const card = btn.closest('.card');
+    const id = btn.dataset.id;
+    try {
+      const r = await fetch('/api/toggle-favorite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const j = await r.json();
+      if (!j.ok) return;
+      const fav = Boolean(j.favorite);
+      card.dataset.favorite = fav ? '1' : '0';
+      card.classList.toggle('is-favorite', fav);
+      btn.classList.toggle('active', fav);
+      btn.textContent = fav ? '⭐' : '☆';
+      btn.title = fav
+        ? 'Retirer des favoris (déverrouiller la suppression)'
+        : 'Ajouter aux favoris ⭐ (protège contre la suppression)';
+
+      const delBtn = card.querySelector('.del');
+      if (delBtn) {
+        delBtn.dataset.confirming = '';
+        delBtn.classList.toggle('locked', fav);
+        delBtn.textContent = fav ? '🔒 Favori' : 'Supprimer';
+        delBtn.title = fav
+          ? 'Image protégée en Favori ⭐ — cliquez sur l’étoile pour déverrouiller'
+          : 'Supprimer (double clic de sécurité)';
+      }
+      applyHistoryFilter();
+    } catch (_) {}
   });
 });
-document.querySelectorAll('.reuse').forEach(b=>{
-  b.addEventListener('click', async ()=>{
+
+// --- Corbeille sécurisée (protection Favori + confirmation en 2 clics) ---
+document.querySelectorAll('.del').forEach(b => {
+  let resetTimer = null;
+  b.addEventListener('click', async () => {
+    const card = b.closest('.card');
+    if (card && card.dataset.favorite === '1') {
+      if (window.showToast) {
+        window.showToast('⭐ Cette image est protégée dans vos Favoris. Cliquez sur l’étoile pour déverrouiller sa suppression.');
+      } else {
+        alert('Cette image est protégée dans vos Favoris ⭐. Retirez-la des favoris avant de la supprimer.');
+      }
+      return;
+    }
+
+    if (b.dataset.confirming !== '1') {
+      b.dataset.confirming = '1';
+      b.textContent = '⚠️ Confirmer ?';
+      if (resetTimer) clearTimeout(resetTimer);
+      resetTimer = setTimeout(() => {
+        b.dataset.confirming = '';
+        if (card?.dataset.favorite !== '1') b.textContent = 'Supprimer';
+      }, 3500);
+      return;
+    }
+
+    if (resetTimer) clearTimeout(resetTimer);
+    b.disabled = true;
+    b.textContent = '…';
+    const r = await fetch('/api/delete-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: b.dataset.id }),
+    });
+    const j = await r.json();
+    if (!j.ok) {
+      b.disabled = false;
+      b.dataset.confirming = '';
+      b.textContent = card?.dataset.favorite === '1' ? '🔒 Favori' : 'Supprimer';
+      alert(j.error || 'Suppression refusée.');
+      return;
+    }
+    card.remove();
+    applyHistoryFilter();
+  });
+});
+
+document.querySelectorAll('.card').forEach(card => {
+  const thumb = card.querySelector('.thumb');
+  const openCardLightbox = (startOnSourceIdx = null) => {
+    let sources = [];
+    try { sources = JSON.parse(card.dataset.sources || '[]'); } catch (e) {}
+    if (sources.length) {
+      const items = [
+        ...sources.map((s, idx) => ({
+          src: s.url,
+          downloadUrl: s.url,
+          label: idx === 0 ? 'Image source (Avant)' : `Référence ${idx + 1}`,
+          role: idx === 0 ? 'source' : 'ref',
+          badge: idx === 0 ? 'AVANT (SOURCE)' : `RÉF #${idx + 1}`,
+        })),
+        {
+          src: card.dataset.outputUrl,
+          downloadUrl: card.dataset.outputUrl,
+          label: card.dataset.label || '',
+          role: 'result',
+          badge: 'APRÈS (MODIFIÉE)',
+        },
+      ];
+      const startIdx = startOnSourceIdx !== null ? startOnSourceIdx : items.length - 1;
+      openLightbox(items, startIdx, { lastResultIndex: items.length - 1 });
+      return;
+    }
+    const visibleCards = [...document.querySelectorAll('.card')].filter(c => !c.hidden);
+    const items = visibleCards.map((c, idx) => ({
+      src: c.dataset.outputUrl,
+      downloadUrl: c.dataset.outputUrl,
+      label: c.dataset.label || `Image ${idx + 1}`,
+      role: 'result',
+      badge: `HISTORIQUE ${idx + 1}/${visibleCards.length}`,
+    }));
+    const idx = Math.max(0, visibleCards.indexOf(card));
+    openLightbox(items, idx);
+  };
+  if (thumb) {
+    thumb.style.cursor = 'zoom-in';
+    thumb.addEventListener('click', e => {
+      if (e.target.closest('.fav-btn')) return;
+      openCardLightbox(null);
+    });
+  }
+  card.querySelectorAll('.card-sources img').forEach((imgEl, sIdx) => {
+    imgEl.style.cursor = 'zoom-in';
+    imgEl.addEventListener('click', () => openCardLightbox(sIdx));
+  });
+});
+
+document.querySelectorAll('.use-in-edit').forEach(b => {
+  b.addEventListener('click', async () => {
+    const mode = b.dataset.mode || 'canvas';
+    const orig = b.textContent;
+    b.disabled = true;
+    b.textContent = '…';
+    try {
+      const r = await fetch('/api/use-output-as-source', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: b.dataset.id, filename: b.dataset.filename }),
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        alert(j.error || "Impossible d'envoyer l'image vers le Studio d'édition.");
+        b.disabled = false;
+        b.textContent = orig;
+        return;
+      }
+      sessionStorage.setItem('edit_incoming_source', JSON.stringify({
+        mode,
+        file: { filename: j.filename, url: j.url, name: j.name },
+      }));
+      window.location.href = "{{ url_for('edit') }}";
+    } catch (e) {
+      alert('Erreur: ' + e.message);
+      b.disabled = false;
+      b.textContent = orig;
+    }
+  });
+});
+
+document.querySelectorAll('.reuse').forEach(b => {
+  b.addEventListener('click', async () => {
     const p = b.dataset;
     let sources = [];
     try { sources = JSON.parse(p.sources || '[]'); } catch (e) {}
-    // Les modeles d'edition reviennent dans le Studio d'edition, images restaurées.
     if (p.editable === '1' && sources.length) {
       sessionStorage.setItem('edit_reuse', JSON.stringify({
         model: p.model, prompt: p.prompt, neg: p.neg, negative: p.neg,

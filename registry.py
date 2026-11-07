@@ -340,6 +340,7 @@ MODELS = {
         "supports_img2img": True,
         # --- Edition multi-images (cf. docs/ADD_MODEL_FR.md) ---
         "supports_ref_images": True,
+        "supports_outpainting": True,
         "input_modes": ["ref"],
         "max_ref_images": 10,
         "ref_tag_syntax": "<image{n}>",
@@ -400,6 +401,7 @@ MODELS = {
         "zero_cond_t_on_edit": True,
         # --- Edition multi-images ---
         "supports_ref_images": True,
+        "supports_outpainting": True,
         "input_modes": ["ref"],
         "max_ref_images": 10,
         "ref_tag_syntax": "<image{n}>",
@@ -570,6 +572,7 @@ MODELS = {
         "supports_img2img": True,
         # --- Edition multi-images ---
         "supports_ref_images": True,
+        "supports_outpainting": True,
         "input_modes": ["ref"],
         "max_ref_images": 10,
         "ref_tag_syntax": None,
@@ -615,6 +618,7 @@ MODELS = {
         "supports_img2img": True,
         # --- Edition multi-images ---
         "supports_ref_images": True,
+        "supports_outpainting": True,
         "input_modes": ["ref"],
         "max_ref_images": 10,
         "ref_tag_syntax": None,
@@ -674,6 +678,7 @@ MODELS = {
         "supports_img2img": True,
         # --- Edition multi-images (comme FLUX.2 Klein : jusqu'a 10 references) ---
         "supports_ref_images": True,
+        "supports_outpainting": True,
         "input_modes": ["ref"],
         "max_ref_images": 10,
         "ref_tag_syntax": None,
@@ -731,6 +736,7 @@ MODELS = {
         "needs_token": False,
         # --- Texte-image + édition (références) ---
         "supports_ref_images": True,
+        "supports_outpainting": True,
         "input_modes": ["ref"],
         "max_ref_images": 4,
         "ref_tag_syntax": "<image_{n}>",
@@ -774,6 +780,7 @@ MODELS = {
         "needs_token": False,
         # --- Édition par références uniquement (distillé pour l'édition en 4 étapes) ---
         "supports_ref_images": True,
+        "supports_outpainting": True,
         "input_modes": ["ref"],
         "max_ref_images": 4,
         "ref_tag_syntax": "<image_{n}>",
@@ -1086,6 +1093,393 @@ def max_ref_images(model_id: str, input_mode: str | None = None) -> int:
     return int(m.get("max_ref_images", 1))
 
 
+def supports_outpainting(model_id: str) -> bool:
+    """Indique si le modele supporte l'outpainting (extension du cadre du canvas)."""
+    m = MODELS.get(model_id, {})
+    return bool(m.get("supports_outpainting", False))
+
+
+def supports_inpainting(model_id: str) -> bool:
+    """Indique si le modele supporte le mode Inpainting au pinceau (retouche locale)."""
+    m = MODELS.get(model_id, {})
+    return bool(m.get("supports_inpainting", True) and m.get("supports_ref_images", False))
+
+
+def _describe_bbox_region(bbox: dict | None) -> tuple[str, list[int] | None]:
+    """
+    A partir d'une boite englobante en pourcentages {x1, y1, x2, y2} (0..100),
+    retourne (description_spatiale_en, [ymin, xmin, ymax, xmax] normalise 0..1000).
+    """
+    if not isinstance(bbox, dict):
+        return "in the painted target region", None
+    try:
+        x1 = max(0.0, min(100.0, float(bbox.get("x1", 0))))
+        y1 = max(0.0, min(100.0, float(bbox.get("y1", 0))))
+        x2 = max(x1, min(100.0, float(bbox.get("x2", 100))))
+        y2 = max(y1, min(100.0, float(bbox.get("y2", 100))))
+    except (TypeError, ValueError):
+        return "in the painted target region", None
+
+    cx = (x1 + x2) / 2.0
+    cy = (y1 + y2) / 2.0
+    v_part = "upper" if cy < 36 else ("lower" if cy > 64 else "middle")
+    h_part = "left" if cx < 36 else ("right" if cx > 64 else "center")
+    if v_part == "middle" and h_part == "center":
+        loc = "in the central area"
+    elif v_part == "middle":
+        loc = f"on the {h_part} side"
+    elif h_part == "center":
+        loc = f"in the {v_part} area"
+    else:
+        loc = f"in the {v_part}-{h_part} area"
+
+    norm_box = [
+        int(round(y1 * 10)),
+        int(round(x1 * 10)),
+        int(round(y2 * 10)),
+        int(round(x2 * 10)),
+    ]
+    return loc, norm_box
+
+
+def build_inpaint_prompt(model_id: str, user_prompt: str = "",
+                         bbox: dict | None = None) -> str:
+    """
+    Construit ou enrichit l'instruction d'edition pour un Inpainting localise au pinceau,
+    en ciblant precisement la zone peinte (description spatiale + boite normalisee)
+    et en preservant le reste de l'image intact.
+    """
+    ref_label = _ref_token(model_id, 1)
+    loc, norm_box = _describe_bbox_region(bbox)
+    box_str = f" (region {norm_box})" if norm_box else ""
+    clean = (user_prompt or "").strip()
+    action = clean if clean else "seamlessly remove the unwanted element and reconstruct the background naturally"
+    return (
+        f"Inpaint and modify ONLY the target area {loc}{box_str} of {ref_label}: {action}. "
+        f"Keep everything outside this target area in {ref_label} strictly unchanged and identical, "
+        "with seamless blending, matching lighting, perspective, and textures."
+    )
+
+
+def build_outpaint_prompt(model_id: str, user_prompt: str = "",
+                          directions: list[str] | None = None) -> str:
+    """
+    Construit ou enrichit l'instruction d'edition pour un outpainting (extension hors-cadre)
+    en respectant la syntaxe d'adressage du modele (<image1>, <image_1> ou langage naturel).
+    """
+    m = MODELS.get(model_id, {})
+    syntax = m.get("ref_tag_syntax")
+    ref_label = syntax.replace("{n}", "1") if syntax else "image 1"
+    dir_names = {
+        "top": "top",
+        "bottom": "bottom",
+        "left": "left",
+        "right": "right",
+    }
+    valid_dirs = [dir_names[d] for d in (directions or []) if d in dir_names]
+    if valid_dirs and len(valid_dirs) < 4:
+        where = "on the " + ", ".join(valid_dirs) + " border" + ("s" if len(valid_dirs) > 1 else "")
+    else:
+        where = "around the borders"
+
+    base = (
+        f"Outpaint and seamlessly extend {ref_label} {where} to fill the entire frame, "
+        f"keep the original central content of {ref_label} intact and unchanged, "
+        "match the exact lighting, colors, perspective, texture and style."
+    )
+    clean = (user_prompt or "").strip()
+    if not clean:
+        return base
+    if "outpaint" in clean.lower():
+        return clean
+    return f"{base} {clean}"
+
+
+def _ref_token(model_id: str, index: int = 1) -> str:
+    """Retourne le jeton d'image adapte au modele (<image1>, <image_1> ou 'image 1')."""
+    m = MODELS.get(model_id, {})
+    syntax = m.get("ref_tag_syntax")
+    if syntax:
+        return syntax.replace("{n}", str(index))
+    return f"image {index}"
+
+
+def outpaint_prompt_presets(model_id: str) -> list[dict]:
+    """
+    Pre-prompts d'outpainting adaptes a chaque modele compatible (syntaxe et style).
+    """
+    if not supports_outpainting(model_id):
+        return []
+    img1 = _ref_token(model_id, 1)
+    m = MODELS.get(model_id, {})
+    is_distilled_dit = m.get("arch") in ("flux2", "flux3")
+    if is_distilled_dit:
+        return [
+            {
+                "id": "outpaint_natural",
+                "label": "🌄 Prolonger la scène naturellement",
+                "prompt": (
+                    f"Outpaint and seamlessly extend {img1} to fill the entire frame, "
+                    f"keeping the original content of {img1} intact and naturally continuing "
+                    "the surrounding environment, lighting, perspective, and textures"
+                ),
+            },
+            {
+                "id": "outpaint_landscape",
+                "label": "🏞️ Étendre le paysage & le ciel",
+                "prompt": (
+                    f"Wide panoramic view outpainting {img1} across the entire frame, "
+                    f"keep the original {img1} unchanged and seamlessly extend the horizon, "
+                    "sky, clouds, ground details, and natural daylight"
+                ),
+            },
+            {
+                "id": "outpaint_fullbody",
+                "label": "🧍 Dézoomer / Compléter le personnage",
+                "prompt": (
+                    f"Wider framing of the person in {img1} filling the entire frame, "
+                    f"preserve the exact face, hair, pose, and outfit from {img1} while "
+                    "naturally extending the rest of the body and surrounding background"
+                ),
+            },
+            {
+                "id": "outpaint_studio",
+                "label": "📸 Prolonger un fond studio propre",
+                "prompt": (
+                    f"Outpaint {img1} with a clean, seamless studio backdrop filling the "
+                    f"entire frame, keep the subject in {img1} unchanged with soft natural "
+                    "contact shadows and studio lighting"
+                ),
+            },
+            {
+                "id": "outpaint_interior",
+                "label": "🛋️ Étendre un intérieur / architecture",
+                "prompt": (
+                    f"Wide architectural shot outpainting {img1} to fill the frame, "
+                    f"keep the original room in {img1} intact and coherently extend the walls, "
+                    "floor, ceiling, furniture, and indoor lighting perspective"
+                ),
+            },
+        ]
+    return [
+        {
+            "id": "outpaint_natural",
+            "label": "🌄 Prolonger la scène naturellement",
+            "prompt": (
+                f"Outpaint and seamlessly extend {img1} into the surrounding borders to fill "
+                f"the entire frame. Keep the original content of {img1} completely unchanged, "
+                "and match the exact lighting, colors, perspective, and style."
+            ),
+        },
+        {
+            "id": "outpaint_landscape",
+            "label": "🏞️ Étendre le paysage & le ciel",
+            "prompt": (
+                f"Outpaint {img1} to create a wider landscape view. Keep the original {img1} "
+                "intact and seamlessly extend the sky, horizon, terrain, foliage, and natural "
+                "atmospheric lighting into the borders."
+            ),
+        },
+        {
+            "id": "outpaint_fullbody",
+            "label": "🧍 Dézoomer / Compléter le personnage",
+            "prompt": (
+                f"Outpaint {img1} into a wider shot. Preserve the exact face, identity, pose, "
+                f"and clothing of the character in {img1}, and naturally complete their body "
+                "and the surrounding environment."
+            ),
+        },
+        {
+            "id": "outpaint_studio",
+            "label": "📸 Prolonger un fond studio propre",
+            "prompt": (
+                f"Outpaint {img1} by extending a clean, uniform studio backdrop and floor "
+                f"around the subject in {img1}, preserving the original subject and soft shadows."
+            ),
+        },
+        {
+            "id": "outpaint_interior",
+            "label": "🛋️ Étendre un intérieur / architecture",
+            "prompt": (
+                f"Outpaint {img1} to reveal more of the room and architecture. Keep {img1} "
+                "unchanged and coherently extend the walls, floor perspective, decor, and warm indoor lighting."
+            ),
+        },
+    ]
+
+
+def edit_prompt_presets(model_id: str) -> list[dict]:
+    """
+    Pre-prompts d'edition (1 image ou multi-references) adaptes a la syntaxe du modele.
+    """
+    m = MODELS.get(model_id, {})
+    if not m.get("supports_ref_images"):
+        return []
+    img1 = _ref_token(model_id, 1)
+    img2 = _ref_token(model_id, 2)
+    presets = [
+        {
+            "id": "edit_bg",
+            "category": "canvas",
+            "label": "🌆 Changer l'arrière-plan (garder le sujet)",
+            "prompt": (
+                f"Keep the main subject, pose, and face in {img1} completely unchanged, "
+                "replace the background with a scenic sunlit mountain landscape, matching the lighting and shadows"
+            ),
+        },
+        {
+            "id": "edit_relight",
+            "category": "canvas",
+            "label": "🌅 Relighting Golden Hour / Cinématique",
+            "prompt": (
+                f"Keep the subject, composition, and details of {img1} unchanged, relight the "
+                "scene with warm golden hour sunlight, rim lighting, and cinematic soft shadows"
+            ),
+        },
+        {
+            "id": "edit_outfit",
+            "category": "canvas",
+            "label": "👕 Changer la tenue du personnage",
+            "prompt": (
+                f"Keep the person's face, hair, pose, and background in {img1} unchanged, "
+                "dress them in a tailored dark leather jacket with natural fabric folds"
+            ),
+        },
+        {
+            "id": "edit_remove",
+            "category": "canvas",
+            "label": "🧹 Nettoyer / Supprimer un objet",
+            "prompt": (
+                f"Remove the unwanted background clutter in {img1} and reconstruct the background "
+                f"seamlessly while keeping the main subject of {img1} completely intact"
+            ),
+        },
+        {
+            "id": "edit_text",
+            "category": "canvas",
+            "label": "🔤 Modifier un texte / une enseigne",
+            "prompt": (
+                f"In {img1}, replace the visible text on the sign with 'STUDIO LOCAL', "
+                "preserving the exact font style, perspective, surface texture, and lighting"
+            ),
+        },
+        {
+            "id": "ref_tryon",
+            "category": "multi",
+            "label": "🧥 Transférer le vêtement de l'image 2 sur l'image 1",
+            "prompt": (
+                f"Keep the person, face, hair, pose, and background in {img1} unchanged, "
+                f"put the clothing from {img2} on the person in {img1} with natural fit and lighting"
+            ),
+        },
+        {
+            "id": "ref_object",
+            "category": "multi",
+            "label": "📦 Placer l'objet de l'image 2 dans l'image 1",
+            "prompt": (
+                f"Place the object from {img2} naturally into the scene of {img1}, "
+                f"matching the perspective, scale, shadows, and lighting of {img1}"
+            ),
+        },
+        {
+            "id": "ref_style",
+            "category": "multi",
+            "label": "🎨 Appliquer le style / l'ambiance de l'image 2",
+            "prompt": (
+                f"Keep the subject and composition of {img1}, transfer the color palette, "
+                f"lighting mood, and artistic rendering style from {img2}"
+            ),
+        },
+        {
+            "id": "ref_bg_swap",
+            "category": "multi",
+            "label": "🖼️ Utiliser l'image 2 comme nouveau décor de l'image 1",
+            "prompt": (
+                f"Keep the foreground subject of {img1} unchanged, replace the background of "
+                f"{img1} with the environment from {img2}, harmonize lighting and shadows"
+            ),
+        },
+    ]
+    for op in outpaint_prompt_presets(model_id):
+        presets.append({
+            "id": op["id"],
+            "category": "outpaint",
+            "label": op["label"],
+            "prompt": op["prompt"],
+        })
+    return presets
+
+
+def gen_prompt_presets(model_id: str) -> list[dict]:
+    """
+    Pre-prompts de generation text-to-image adaptes aux points forts de chaque modele.
+    """
+    m = MODELS.get(model_id, {})
+    arch = m.get("arch", "")
+    common = [
+        {
+            "id": "gen_portrait",
+            "label": "📷 Portrait photoréaliste 85mm",
+            "prompt": (
+                "Close-up editorial portrait of a weathered explorer in soft natural window light, "
+                "85mm f/1.4 lens, shallow depth of field, intricate skin texture, Kodachrome color grading"
+            ),
+        },
+        {
+            "id": "gen_landscape",
+            "label": "🏔️ Paysage cinématique Golden Hour",
+            "prompt": (
+                "Breathtaking alpine valley at golden hour, dramatic volumetric sunbeams piercing "
+                "through morning mist, crystal clear river reflection, ultra-detailed 8k nature photography"
+            ),
+        },
+        {
+            "id": "gen_cyberpunk",
+            "label": "🌃 Scène Cyberpunk néon sous la pluie",
+            "prompt": (
+                "Cinematic street-level view of a futuristic Tokyo alley at night in the rain, "
+                "vibrant neon holograms reflecting on wet asphalt, moody atmospheric fog, anamorphic lens flare"
+            ),
+        },
+        {
+            "id": "gen_product",
+            "label": "⌚ Photo produit commerciale Studio",
+            "prompt": (
+                "Luxury mechanical chronograph watch resting on dark volcanic stone with water droplets, "
+                "dramatic studio rim lighting, macro photography, razor-sharp reflections"
+            ),
+        },
+        {
+            "id": "gen_anime",
+            "label": "🎨 Illustration Anime / Concept Art",
+            "prompt": (
+                "Masterpiece anime illustration of a cozy steampunk rooftop greenhouse overlooking a "
+                "floating city at sunset, lush glowing plants, warm painterly lighting, Makoto Shinkai inspired"
+            ),
+        },
+    ]
+    if arch in ("ernie", "ideogram", "qwen_image", "moss_image", "flux3"):
+        common.insert(0, {
+            "id": "gen_typography",
+            "label": "🔤 Affiche / Texte lisible intégré",
+            "prompt": (
+                "Vintage travel poster of an art-deco train station at twilight with bold, crisp "
+                "typography at the top reading 'LOCAL IMAGE STUDIO', warm brass and teal palette, "
+                "clean vector-inspired illustration"
+            ),
+        })
+    elif arch in ("sd3",):
+        common.append({
+            "id": "gen_img2img_restyle",
+            "label": "🖌️ Transformation peinture à l'huile (img2img)",
+            "prompt": (
+                "Expressive impasto oil painting on canvas, rich visible brushstrokes, "
+                "warm chiaroscuro lighting, museum fine art quality"
+            ),
+        })
+    return common
+
+
 def clamp_ref_max_pixels(value) -> int | None:
     """Normalise le budget pixels des references (None = auto, gere par le moteur)."""
     if value in (None, "", 0, "0", "auto", "Auto"):
@@ -1210,7 +1604,8 @@ def _diffusion_path(model_id, quant):
 def build_command(model_id, quant, prompt, negative, width, height, steps,
                   cfg, seed, batch, out_template, sd_cli, manifest,
                   source_image=None, lora_dir=None, strength=None,
-                  ref_images=None, input_mode=None, ref_max_pixels=None):
+                  ref_images=None, input_mode=None, ref_max_pixels=None,
+                  mask_image=None):
     m = MODELS[model_id]
     arch = m["arch"]
     args = [sd_cli]
@@ -1357,6 +1752,8 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
             if ref_max_pixels:
                 args += ["--ref-image-args",
                          f"vae_input_max_pixels={int(ref_max_pixels)}"]
+        if mask_image and arch != "fibo2":
+            args += ["--mask", str(mask_image)]
 
     # Parametres (certains checkpoints Turbo imposent un nombre d'etapes/CFG fixe)
     cfg = m.get("fixed_cfg", cfg)

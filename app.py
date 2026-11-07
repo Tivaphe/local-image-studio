@@ -24,7 +24,10 @@ from engine import (tasks, load_settings, save_settings, hf_token, engine_ready,
                     model_status)
 import browser_launch
 from registry import (MODELS, DEPS, RATIOS, DEFAULT_NEGATIVE, input_modes,
-                      max_ref_images, check_images_input, clamp_ref_max_pixels)
+                      max_ref_images, check_images_input, clamp_ref_max_pixels,
+                      supports_outpainting, build_outpaint_prompt,
+                      supports_inpainting, build_inpaint_prompt,
+                      outpaint_prompt_presets, edit_prompt_presets, gen_prompt_presets)
 import gpu_info
 import uuid
 try:
@@ -68,9 +71,17 @@ def edit():
 @app.route("/history")
 def history():
     model_filter = request.args.get("model", "")
-    images = db.list_images(limit=300, model_id=(model_filter or None))
+    search_query = request.args.get("q", "").strip()
+    fav_only = request.args.get("fav", "") in ("1", "true", "yes")
+    images = db.list_images(
+        limit=300,
+        model_id=(model_filter or None),
+        search_query=(search_query or None),
+        favorites_only=fav_only,
+    )
     return render_template("history.html", images=images, models=MODELS,
-                           model_filter=model_filter, count=db.count_images())
+                           model_filter=model_filter, search_query=search_query,
+                           fav_only=fav_only, count=db.count_images())
 
 
 @app.route("/models")
@@ -164,6 +175,8 @@ def api_status():
         "elapsed": snap.get("elapsed", 0.0),
         "eta": snap.get("eta", 0.0),
         "stats": stats,
+        "queue": snap.get("queue", []),
+        "queue_size": snap.get("queue_size", 0),
     })
 
 
@@ -195,12 +208,17 @@ def api_models():
             "presets": m.get("presets", {}),
             # --- Capacites d'entree image (edition / img2img) ---
             "supports_ref_images": m.get("supports_ref_images", False),
+            "supports_outpainting": supports_outpainting(mid),
+            "supports_inpainting": supports_inpainting(mid),
             "input_modes": input_modes(mid),
             "max_ref_images": max_ref_images(mid),
             "ref_tag_syntax": m.get("ref_tag_syntax"),
             "ref_needs_vlm": m.get("ref_needs_vlm", False),
             "ref_hint": m.get("ref_hint", ""),
             "ref_examples": m.get("ref_examples", []),
+            "outpaint_presets": outpaint_prompt_presets(mid),
+            "edit_presets": edit_prompt_presets(mid),
+            "gen_presets": gen_prompt_presets(mid),
             "status": st,
         }
     return jsonify(out)
@@ -265,10 +283,62 @@ def api_generate():
     if err:
         return jsonify({"ok": False, "error": err}), 400
 
+    # --- Outpainting (extension de cadre pour les modeles compatibles) ---
+    outpaint_cfg = data.get("outpaint")
+    prompt_str = (data.get("prompt") or "").strip()
+    if outpaint_cfg:
+        if not supports_outpainting(mid):
+            return jsonify({
+                "ok": False,
+                "error": f"{m['name']} ne supporte pas l'outpainting. "
+                         "Choisissez Qwen-Image 2.1, FLUX.2 / FLUX.3 Klein ou Fibo 2.0."
+            }), 400
+        if not images:
+            return jsonify({
+                "ok": False,
+                "error": "L'outpainting nécessite une image de départ (canvas)."
+            }), 400
+        directions = None
+        auto_prompt = True
+        if isinstance(outpaint_cfg, dict):
+            directions = outpaint_cfg.get("directions")
+            if "auto_prompt" in outpaint_cfg:
+                auto_prompt = bool(outpaint_cfg.get("auto_prompt"))
+        if auto_prompt or not prompt_str:
+            prompt_str = build_outpaint_prompt(mid, prompt_str, directions)
+
+    # --- Inpainting au pinceau (retouche locale sur zone peinte) ---
+    inpaint_cfg = data.get("inpaint")
+    mask_rel_path = None
+    if inpaint_cfg and not outpaint_cfg:
+        if not supports_inpainting(mid):
+            return jsonify({
+                "ok": False,
+                "error": f"{m['name']} ne supporte pas le mode Inpainting."
+            }), 400
+        if not images:
+            return jsonify({
+                "ok": False,
+                "error": "L'inpainting nécessite une image de départ (canvas)."
+            }), 400
+        bbox = None
+        auto_inpaint_prompt = True
+        if isinstance(inpaint_cfg, dict):
+            bbox = inpaint_cfg.get("bbox")
+            if "auto_prompt" in inpaint_cfg:
+                auto_inpaint_prompt = bool(inpaint_cfg.get("auto_prompt"))
+            raw_mask = inpaint_cfg.get("mask_image")
+            if raw_mask and inpaint_cfg.get("use_cli_mask"):
+                valid_masks = _existing_sources([raw_mask])
+                if valid_masks:
+                    mask_rel_path = valid_masks[0]
+        if auto_inpaint_prompt or not prompt_str:
+            prompt_str = build_inpaint_prompt(mid, prompt_str, bbox=bbox)
+
     params = {
         "model_id": mid,
         "quant": quant,
-        "prompt": (data.get("prompt") or "").strip(),
+        "prompt": prompt_str,
         "negative": (data.get("negative") or "").strip(),
         "width": w, "height": h,
         "steps": int(m.get("fixed_steps", data.get("steps") or m["defaults"]["steps"])),
@@ -281,14 +351,45 @@ def api_generate():
         "source_image": images[0] if (images and input_mode == "init") else None,
         "strength": data.get("strength") if input_mode == "init" else None,
         "lora_dir": data.get("lora_dir"),
+        "outpaint": bool(outpaint_cfg),
+        "inpaint": bool(inpaint_cfg),
+        "mask_image": mask_rel_path,
     }
     if not params["prompt"]:
         return jsonify({"ok": False, "error": "Le prompt est vide."}), 400
+    allow_queue = bool(data.get("allow_queue", True))
     try:
-        tasks.start_generate(params)
+        if allow_queue:
+            q_info = tasks.enqueue_generate(params)
+            return jsonify({"ok": True, "params": params, **q_info})
+        else:
+            tasks.start_generate(params)
+            return jsonify({"ok": True, "params": params, "queued": False, "started": True})
     except RuntimeError as e:
         return jsonify({"ok": False, "error": str(e)}), 409
-    return jsonify({"ok": True, "params": params})
+
+
+@app.route("/api/queue", methods=["GET"])
+def api_queue_list():
+    q = tasks.list_queue()
+    return jsonify({"ok": True, "queue": q, "queue_size": len(q)})
+
+
+@app.route("/api/queue/remove", methods=["POST"])
+def api_queue_remove():
+    data = request.get_json(silent=True) or {}
+    qid = str(data.get("queue_id") or "").strip()
+    if not qid:
+        return jsonify({"ok": False, "error": "Identifiant de file manquant."}), 400
+    removed = tasks.remove_from_queue(qid)
+    q = tasks.list_queue()
+    return jsonify({"ok": True, "removed": removed, "queue": q, "queue_size": len(q)})
+
+
+@app.route("/api/queue/clear", methods=["POST"])
+def api_queue_clear():
+    cleared = tasks.clear_queue()
+    return jsonify({"ok": True, "cleared": cleared, "queue": [], "queue_size": 0})
 
 
 @app.route("/api/cancel", methods=["POST"])
@@ -350,13 +451,30 @@ def api_mmproj_status():
 
 
 # --------------------------------------------------------------------------- #
-#  API : historique
+#  API : historique & favoris
 # --------------------------------------------------------------------------- #
+@app.route("/api/toggle-favorite", methods=["POST"])
+def api_toggle_favorite():
+    data = request.get_json(silent=True) or {}
+    img_id = data.get("id")
+    if img_id is None:
+        return jsonify({"ok": False, "error": "Identifiant d'image manquant."}), 400
+    val = data.get("favorite") if "favorite" in data else None
+    new_state = db.toggle_favorite(int(img_id), value=val)
+    if new_state is None:
+        return jsonify({"ok": False, "error": "Image introuvable."}), 404
+    return jsonify({"ok": True, "id": int(img_id), "favorite": new_state})
+
+
 @app.route("/api/delete-image", methods=["POST"])
 def api_delete_image():
     data = request.get_json(force=True)
     img_id = data.get("id")
-    fname = db.delete_image(img_id)
+    force = bool(data.get("force", False))
+    try:
+        fname = db.delete_image(img_id, force=force)
+    except PermissionError as e:
+        return jsonify({"ok": False, "protected": True, "error": str(e)}), 400
     if fname:
         # suppression du fichier sur disque
         fp = config.OUTPUT_DIR / fname
@@ -482,8 +600,10 @@ def api_delete_source_image():
     except Exception:
         return jsonify({"ok": False, "error": "Chemin refusé."}), 400
     rel = _source_rel_path(target)
-    # Les sources d'une génération en cours ou enregistrée ne sont pas temporaires.
-    if (tasks.is_busy() and tasks.snapshot().get("kind") == "generate") or db.source_is_referenced(rel):
+    # Les sources d'une génération en cours, en file d'attente ou enregistrée ne sont pas temporaires.
+    if (tasks.is_busy() and tasks.snapshot().get("kind") == "generate") \
+            or (rel in tasks.queued_source_paths()) \
+            or db.source_is_referenced(rel):
         return jsonify({"ok": True, "deleted": False, "retained": True})
     existed = target.exists()
     if existed:
@@ -492,6 +612,52 @@ def api_delete_source_image():
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 500
     return jsonify({"ok": True, "deleted": existed})
+
+
+@app.route("/api/use-output-as-source", methods=["POST"])
+def api_use_output_as_source():
+    """
+    Copie une image générée (depuis output/) vers source_images/ pour pouvoir
+    l'utiliser comme image source (canvas ou référence) dans le Studio d'édition
+    ou en img2img, sans dépendre de la durée de vie de l'entrée d'historique.
+    """
+    import shutil
+    data = request.get_json(silent=True) or {}
+    rel_out = str(data.get("filename") or "").strip()
+    if not rel_out and data.get("id") is not None:
+        try:
+            row = db.get_image(int(data["id"]))
+        except (TypeError, ValueError):
+            row = None
+        if row:
+            rel_out = row.get("filename") or ""
+    if not rel_out:
+        return jsonify({"ok": False, "error": "Aucune image indiquée."}), 400
+
+    candidate = config.OUTPUT_DIR / rel_out
+    try:
+        resolved = candidate.resolve()
+        resolved.relative_to(config.OUTPUT_DIR.resolve())
+    except Exception:
+        return jsonify({"ok": False, "error": "Chemin d'image refusé."}), 400
+
+    if not resolved.exists() or not resolved.is_file():
+        return jsonify({"ok": False, "error": "Fichier image introuvable dans output/."}), 404
+
+    ext = resolved.suffix.lower()
+    if ext not in IMAGE_EXTS:
+        ext = ".png"
+    unique_name = f"{uuid.uuid4().hex[:12]}{ext}"
+    config.SOURCE_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    dest = config.SOURCE_IMAGES_DIR / unique_name
+    shutil.copy2(str(resolved), str(dest))
+    rel = _source_rel_path(dest)
+    return jsonify({
+        "ok": True,
+        "filename": rel,
+        "url": _source_url(rel),
+        "name": resolved.name,
+    })
 
 
 @app.route("/api/image/<int:img_id>")

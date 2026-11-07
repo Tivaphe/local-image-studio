@@ -18,10 +18,216 @@ let currentRatio = "1:1";
 let ratioBeforeOriginal = "1:1";
 let sourceImageSize = null;
 let sourcePreviewUrl = null;
+let activeGenSourceUrl = null;
+let currentBatchStamp = Date.now();
 let pollTimer = null;
 
 // ---------- memoire de la selection (FIX 4) ----------
 const STORE_KEY = "lis_generate_prefs";
+const GEN_DRAFT_KEY = "lis_generate_draft_v1";
+const GEN_CUSTOM_PREPROMPTS_KEY = "lis_gen_custom_preprompts";
+let isRestoringGenDraft = false;
+let lastGeneratedImages = [];
+let uploadedImageServerUrl = null;
+let uploadedImageName = '';
+
+function saveGenDraft() {
+  if (isRestoringGenDraft) return;
+  try {
+    const draft = {
+      model: $('#model')?.value || null,
+      quant: $('#quant')?.value || null,
+      preset: $('#preset')?.value || 'default',
+      prompt: $('#prompt')?.value || '',
+      negative: $('#negative')?.value || '',
+      steps: $('#steps')?.value || '',
+      cfg: $('#cfg')?.value || '',
+      seed: $('#seed')?.value || '',
+      batch: $('#batch')?.value || '1',
+      loraDir: $('#lora-dir')?.value || '',
+      loraPrompt: $('#lora-prompt')?.value || '',
+      strength: $('#strength')?.value || '0.75',
+      currentRatio,
+      ratioBeforeOriginal,
+      sourceImage: uploadedImagePath ? {
+        path: uploadedImagePath,
+        url: uploadedImageServerUrl || `/source-images/${uploadedImagePath.split('/').pop()}`,
+        name: uploadedImageName,
+        size: sourceImageSize,
+      } : null,
+      lastGeneratedImages,
+      activeGenSourceUrl: (activeGenSourceUrl && !String(activeGenSourceUrl).startsWith('blob:'))
+        ? activeGenSourceUrl
+        : null,
+      currentBatchStamp,
+    };
+    const json = JSON.stringify(draft);
+    sessionStorage.setItem(GEN_DRAFT_KEY, json);
+    localStorage.setItem(GEN_DRAFT_KEY, json);
+  } catch (e) {}
+}
+
+async function restoreGenDraft() {
+  let draft = null;
+  try {
+    const raw = sessionStorage.getItem(GEN_DRAFT_KEY) || localStorage.getItem(GEN_DRAFT_KEY);
+    draft = raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    draft = null;
+  }
+  if (!draft) return;
+
+  isRestoringGenDraft = true;
+  try {
+    const sel = $('#model');
+    if (draft.model && MODELS[draft.model] && sel) {
+      sel.value = draft.model;
+      onModelChange();
+    }
+    const m = MODELS[sel?.value];
+    if (draft.quant && m && m.quants.includes(draft.quant) && $('#quant')) {
+      $('#quant').value = draft.quant;
+    }
+    if (draft.preset && $('#preset')) {
+      const opt = $('#preset').querySelector(`option[value="${draft.preset}"]`);
+      if (opt) $('#preset').value = draft.preset;
+    }
+    if (typeof draft.prompt === 'string') $('#prompt').value = draft.prompt;
+    if (typeof draft.negative === 'string' && draft.negative) $('#negative').value = draft.negative;
+    if (draft.steps && !(m && m.fixed_steps != null)) $('#steps').value = draft.steps;
+    if (draft.cfg && !(m && m.fixed_cfg != null)) $('#cfg').value = draft.cfg;
+    if (draft.seed !== undefined && draft.seed !== null) $('#seed').value = draft.seed;
+    if (draft.batch && $('#batch')) {
+      $('#batch').value = draft.batch;
+      const v = parseInt(draft.batch, 10) || 1;
+      if ($('#batch-val')) $('#batch-val').textContent = v + ' image' + (v > 1 ? 's' : '');
+    }
+    if (typeof draft.loraDir === 'string' && $('#lora-dir')) $('#lora-dir').value = draft.loraDir;
+    if (typeof draft.loraPrompt === 'string' && $('#lora-prompt')) $('#lora-prompt').value = draft.loraPrompt;
+    if (draft.strength && $('#strength')) $('#strength').value = draft.strength;
+    if (draft.ratioBeforeOriginal && RATIOS[draft.ratioBeforeOriginal]) {
+      ratioBeforeOriginal = draft.ratioBeforeOriginal;
+    }
+    if (draft.currentRatio && (draft.currentRatio === 'original' || RATIOS[draft.currentRatio])) {
+      currentRatio = draft.currentRatio;
+    }
+
+    // Restauration de l'image source img2img si le modèle l'accepte et qu'elle existe toujours
+    const canInit = Boolean(m && (m.input_modes || []).includes('init'));
+    if (canInit && draft.sourceImage && draft.sourceImage.path && draft.sourceImage.url) {
+      try {
+        const dims = await readImageDimensions(draft.sourceImage.url);
+        uploadedImagePath = draft.sourceImage.path;
+        uploadedImageServerUrl = draft.sourceImage.url;
+        uploadedImageName = draft.sourceImage.name || draft.sourceImage.path.split('/').pop();
+        sourceImageSize = dims;
+        sourcePreviewUrl = draft.sourceImage.url;
+        $('#source-image-path').value = uploadedImagePath;
+        $('#preview-img').src = sourcePreviewUrl;
+        $('#preview-name').textContent = `${uploadedImageName} (${dims.width} × ${dims.height})`;
+        $('#upload-placeholder').classList.add('hidden');
+        $('#upload-preview').classList.remove('hidden');
+      } catch (e) {}
+    }
+    if (currentRatio === 'original' && !sourceImageSize) {
+      currentRatio = RATIOS[ratioBeforeOriginal] ? ratioBeforeOriginal : '1:1';
+    }
+    buildRatios();
+    buildRatiosApply();
+
+    if (Array.isArray(draft.lastGeneratedImages) && draft.lastGeneratedImages.length) {
+      currentBatchStamp = draft.currentBatchStamp || Date.now();
+      activeGenSourceUrl = draft.activeGenSourceUrl || null;
+      showResults(draft.lastGeneratedImages);
+    }
+  } finally {
+    isRestoringGenDraft = false;
+  }
+}
+
+function loadCustomGenPreprompts() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(GEN_CUSTOM_PREPROMPTS_KEY) || "[]");
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveCustomGenPreprompts(list) {
+  try {
+    localStorage.setItem(GEN_CUSTOM_PREPROMPTS_KEY, JSON.stringify(list));
+  } catch (e) {}
+}
+
+function renderGenPreprompts() {
+  const modelId = $('#model')?.value;
+  const m = MODELS[modelId];
+  const sel = $('#gen-preprompt-select');
+  const delBtn = $('#del-gen-preprompt-btn');
+  if (!sel || !m) return;
+
+  sel.innerHTML = `<option value="">→ Choisir un pré-prompt adapté à ${m.name} ←</option>`;
+  const builtIn = m.gen_presets || [];
+  const custom = loadCustomGenPreprompts();
+
+  const addGroup = (label, items, prefix) => {
+    if (!items.length) return;
+    const grp = document.createElement('optgroup');
+    grp.label = label;
+    items.forEach(item => {
+      const opt = document.createElement('option');
+      opt.value = `${prefix}:${item.id}`;
+      opt.textContent = item.label;
+      opt.dataset.prompt = item.prompt;
+      grp.appendChild(opt);
+    });
+    sel.appendChild(grp);
+  };
+
+  addGroup(`✨ Pré-prompts recommandés (${m.name})`, builtIn, 'builtin');
+  addGroup('⭐ Mes pré-prompts enregistrés', custom, 'custom');
+  if (delBtn) delBtn.hidden = true;
+}
+
+$('#gen-preprompt-select')?.addEventListener('change', e => {
+  const sel = e.target;
+  const opt = sel.selectedOptions[0];
+  const delBtn = $('#del-gen-preprompt-btn');
+  if (delBtn) {
+    delBtn.hidden = !(sel.value && sel.value.startsWith('custom:'));
+  }
+  if (!opt || !opt.dataset.prompt) return;
+  $('#prompt').value = opt.dataset.prompt;
+  saveGenDraft();
+});
+
+$('#save-gen-preprompt-btn')?.addEventListener('click', () => {
+  const txt = $('#prompt').value.trim();
+  if (!txt) {
+    alert("Écrivez d'abord un prompt avant de l'enregistrer.");
+    return;
+  }
+  const defaultName = txt.slice(0, 36) + (txt.length > 36 ? '…' : '');
+  const label = prompt("Nom de ce pré-prompt :", defaultName);
+  if (!label || !label.trim()) return;
+  const custom = loadCustomGenPreprompts();
+  const id = 'cust_' + Date.now();
+  custom.push({ id, label: label.trim(), prompt: txt });
+  saveCustomGenPreprompts(custom);
+  renderGenPreprompts();
+  $('#gen-preprompt-select').value = `custom:${id}`;
+  if ($('#del-gen-preprompt-btn')) $('#del-gen-preprompt-btn').hidden = false;
+});
+
+$('#del-gen-preprompt-btn')?.addEventListener('click', () => {
+  const sel = $('#gen-preprompt-select');
+  if (!sel || !sel.value.startsWith('custom:')) return;
+  const id = sel.value.slice('custom:'.length);
+  const custom = loadCustomGenPreprompts().filter(x => x.id !== id);
+  saveCustomGenPreprompts(custom);
+  renderGenPreprompts();
+});
 
 function loadPrefs() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY) || "{}"); }
@@ -97,6 +303,7 @@ async function loadModels() {
   }
   buildRatiosApply();
   onModelChange();
+  await restoreGenDraft();
 
   // reuse depuis l'historique
   const reuse = sessionStorage.getItem('reuse');
@@ -111,6 +318,7 @@ async function loadModels() {
     $('#cfg').value = p.cfg || '';
     $('#seed').value = p.seed || '';
   }
+  saveGenDraft();
 }
 
 function getOriginalOutputSize() {
@@ -298,6 +506,7 @@ function onModelChange() {
     strengthField.style.display = canInit ? '' : 'none';
   }
 
+  renderGenPreprompts();
   checkMmproj();
 }
 
@@ -320,7 +529,14 @@ function applyPreset(preset) {
 $('#batch').addEventListener('input', e => {
   const v = parseInt(e.target.value);
   $('#batch-val').textContent = v + ' image' + (v > 1 ? 's' : '');
+  saveGenDraft();
 });
+['#prompt', '#negative', '#steps', '#cfg', '#seed', '#lora-dir', '#lora-prompt', '#strength', '#quant', '#preset', '#model'].forEach(sel => {
+  $(sel)?.addEventListener('input', saveGenDraft);
+  $(sel)?.addEventListener('change', saveGenDraft);
+});
+window.addEventListener('beforeunload', saveGenDraft);
+window.addEventListener('pagehide', saveGenDraft);
 
 // ---------- Gestion de l'upload d'image source (img2img) ----------
 let uploadedImagePath = null;
@@ -367,10 +583,12 @@ async function handleFileSelect(file) {
       return;
     }
     uploadedImagePath = j.filename;
+    uploadedImageServerUrl = j.url;
+    uploadedImageName = file.name;
     sourceImageSize = dimensions;
     $('#source-image-path').value = j.filename;
 
-    if (sourcePreviewUrl) URL.revokeObjectURL(sourcePreviewUrl);
+    if (sourcePreviewUrl && sourcePreviewUrl.startsWith('blob:')) URL.revokeObjectURL(sourcePreviewUrl);
     sourcePreviewUrl = previewUrl;
     $('#preview-img').src = sourcePreviewUrl;
     $('#preview-name').textContent = `${file.name} (${dimensions.width} × ${dimensions.height})`;
@@ -381,6 +599,7 @@ async function handleFileSelect(file) {
     if (currentRatio !== 'original') ratioBeforeOriginal = currentRatio;
     currentRatio = 'original';
     buildRatios();
+    saveGenDraft();
     uploaded = true;
   } catch (e) {
     alert('Erreur: ' + e.message);
@@ -429,8 +648,10 @@ if (uploadArea) {
 function clearSourceImage(unlink = true) {
   const gone = uploadedImagePath;
   uploadedImagePath = null;
+  uploadedImageServerUrl = null;
+  uploadedImageName = '';
   sourceImageSize = null;
-  if (sourcePreviewUrl) URL.revokeObjectURL(sourcePreviewUrl);
+  if (sourcePreviewUrl && sourcePreviewUrl.startsWith('blob:')) URL.revokeObjectURL(sourcePreviewUrl);
   sourcePreviewUrl = null;
   $('#source-image-path').value = '';
   $('#source-image-input').value = '';
@@ -441,6 +662,7 @@ function clearSourceImage(unlink = true) {
     currentRatio = RATIOS[ratioBeforeOriginal] ? ratioBeforeOriginal : '1:1';
   }
   buildRatios();
+  saveGenDraft();
   if (gone && unlink) {
     fetch('/api/delete-source-image', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -450,6 +672,126 @@ function clearSourceImage(unlink = true) {
 }
 
 $('#remove-image')?.addEventListener('click', () => clearSourceImage());
+
+// ---------- Bouton « 🧹 Nouveau / Vider le brouillon » ----------
+$('#reset-gen-draft-btn')?.addEventListener('click', () => {
+  try {
+    sessionStorage.removeItem(GEN_DRAFT_KEY);
+    localStorage.removeItem(GEN_DRAFT_KEY);
+  } catch (e) {}
+  isRestoringGenDraft = true;
+  try {
+    $('#prompt').value = '';
+    const m = MODELS[$('#model')?.value];
+    $('#negative').value = (m && m.supports_neg) ? (window.DEFAULT_NEG || '') : '';
+    if ($('#seed')) $('#seed').value = '';
+    if ($('#batch')) {
+      $('#batch').value = '1';
+      if ($('#batch-val')) $('#batch-val').textContent = '1 image';
+    }
+    if ($('#lora-prompt')) $('#lora-prompt').value = '';
+    if ($('#gen-preprompt-select')) $('#gen-preprompt-select').value = '';
+    clearSourceImage(true);
+    currentRatio = '1:1';
+    ratioBeforeOriginal = '1:1';
+    buildRatios();
+    buildRatiosApply();
+    lastGeneratedImages = [];
+    activeGenSourceUrl = null;
+    if ($('#results')) $('#results').innerHTML = '';
+    if ($('#stats-box')) $('#stats-box').hidden = true;
+    if ($('#gen-error')) { $('#gen-error').hidden = true; $('#gen-error').textContent = ''; }
+  } finally {
+    isRestoringGenDraft = false;
+  }
+  saveGenDraft();
+  if (window.showToast) window.showToast('🧹 Brouillon réinitialisé');
+});
+
+// ---------- Coller une image avec Ctrl+V n'importe où sur la page ----------
+window.addEventListener('paste', async e => {
+  const items = e.clipboardData?.items ? [...e.clipboardData.items] : [];
+  const imgItem = items.find(it => it.type && it.type.startsWith('image/'));
+  if (!imgItem) return;
+  const file = imgItem.getAsFile();
+  if (!file) return;
+  e.preventDefault();
+
+  const m = MODELS[$('#model')?.value];
+  const canInit = Boolean(m && (m.input_modes || []).includes('init'));
+  if (canInit) {
+    const details = $('#img2img-box');
+    if (details) details.open = true;
+    await handleImageUpload(file);
+    if (window.showToast) {
+      window.showToast('📋 Image collée comme Image de départ (img2img)');
+    }
+  } else {
+    // Si le modèle actuel ne fait pas d'img2img sur /generate, proposer d'ouvrir directement dans /edit
+    if (window.showToast) {
+      window.showToast(
+        "📋 Image détectée dans le presse-papiers",
+        "✂️ Ouvrir dans Studio d'édition",
+        async () => {
+          const fd = new FormData();
+          fd.append('image', file, file.name || 'clipboard.png');
+          const r = await fetch('/api/upload-source-image', { method: 'POST', body: fd });
+          const j = await r.json();
+          if (j.ok) {
+            sessionStorage.setItem('edit_incoming_source', JSON.stringify({
+              mode: 'canvas',
+              file: { filename: j.filename, url: j.url, name: file.name || 'clipboard.png' },
+            }));
+            window.location.href = '/edit';
+          }
+        }
+      );
+    }
+  }
+});
+
+// ---------- File d'attente (Queue) ----------
+function renderGenQueue(queue) {
+  const box = $('#queue-box');
+  const list = $('#queue-list');
+  const countEl = $('#queue-count');
+  if (!box || !list) return;
+  const arr = Array.isArray(queue) ? queue : [];
+  if (countEl) countEl.textContent = String(arr.length);
+  if (!arr.length) {
+    box.hidden = true;
+    list.innerHTML = '';
+    return;
+  }
+  box.hidden = false;
+  list.innerHTML = arr.map(item => `
+    <div class="queue-item" data-qid="${item.queue_id}">
+      <span class="queue-pos">#${item.position}</span>
+      <div class="queue-info">
+        <strong>${item.model_name} (${item.quant})</strong> · ${item.width}×${item.height} · ×${item.batch}
+        <div class="queue-prompt">${(item.prompt || '').replace(/</g, '&lt;')}</div>
+      </div>
+      <button type="button" class="x queue-del" data-qid="${item.queue_id}" title="Retirer de la file">×</button>
+    </div>
+  `).join('');
+  $$('.queue-del', list).forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const r = await fetch('/api/queue/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queue_id: btn.dataset.qid }),
+      });
+      const j = await r.json();
+      if (j.ok) renderGenQueue(j.queue);
+    });
+  });
+}
+
+$('#queue-clear-btn')?.addEventListener('click', async () => {
+  const r = await fetch('/api/queue/clear', { method: 'POST' });
+  const j = await r.json();
+  if (j.ok) renderGenQueue([]);
+});
 
 // ---------- generation ----------
 $('#generate-btn').addEventListener('click', async () => {
@@ -493,11 +835,11 @@ $('#generate-btn').addEventListener('click', async () => {
     cfg: $('#cfg').value,
     seed: $('#seed').value || null,
     batch: $('#batch').value,
-    // Une seule image en img2img ; l'edition multi-images se fait sur /edit.
     input_mode: canInit ? 'init' : null,
     ref_images: uploadedImagePath ? [uploadedImagePath] : [],
     lora_dir: $('#lora-dir').value || null,
     strength: strengthVal ? parseFloat(strengthVal) : null,
+    allow_queue: true,
   };
   if (currentRatio === 'original' && sourceImageSize) {
     const outputSize = getOriginalOutputSize();
@@ -514,7 +856,17 @@ $('#generate-btn').addEventListener('click', async () => {
   }
   $('#gen-error').hidden = true;
   $('#gen-error').textContent = '';
-  $('#generate-btn').hidden = true;
+
+  if (j.queued) {
+    renderGenQueue(j.queue || []);
+    if (window.showToast) {
+      window.showToast(`⏳ Ajouté à la file d'attente (position #${j.position})`);
+    }
+    if (!pollTimer) pollStatus();
+    return;
+  }
+
+  $('#generate-btn').textContent = '＋ Ajouter à la file d\'attente';
   $('#cancel-btn').hidden = false;
   $('#results').innerHTML = '';
   $('#stats-box').hidden = true;
@@ -522,6 +874,11 @@ $('#generate-btn').addEventListener('click', async () => {
   $('#progress-fill').style.width = '0%';
   $('#log').textContent = '';
   $('#log').hidden = false;
+  activeGenSourceUrl = (canInit && uploadedImagePath)
+    ? (uploadedImageServerUrl || sourcePreviewUrl)
+    : null;
+  currentBatchStamp = Date.now();
+  saveGenDraft();
   pollStatus();
 });
 
@@ -571,14 +928,17 @@ function pollStatus() {
 
     if (j.log) $('#log').textContent = j.log + ($('#log').textContent ? '\n' + $('#log').textContent : '');
 
+    renderGenQueue(j.queue || []);
+
     // affichage des images au fur et a mesure
     if (j.kind === 'generate' && j.result && j.result.images && j.result.images.length > 0) {
       showResults(j.result.images);
     }
 
-    if (!j.busy) {
+    if (!j.busy && (!j.queue || j.queue.length === 0)) {
       clearInterval(pollTimer); pollTimer = null;
       $('#generate-btn').hidden = false;
+      $('#generate-btn').textContent = '✨ Générer';
       $('#cancel-btn').hidden = true;
       if (j.error) {
         $('#gen-error').hidden = false;
@@ -615,18 +975,74 @@ function showStats(stats) {
 function showResults(images) {
   const box = $('#results');
   box.innerHTML = '';
-  images.forEach(img => {
+  lastGeneratedImages = images;
+  const lbItems = [];
+  if (activeGenSourceUrl) {
+    lbItems.push({
+      src: activeGenSourceUrl,
+      downloadUrl: activeGenSourceUrl,
+      label: 'Image source (img2img)',
+      role: 'source',
+      badge: 'AVANT (SOURCE)',
+    });
+  }
+  const hasSource = lbItems.length > 0;
+  images.forEach((img, idx) => {
+    const displayUrl = `${img.url}?t=${currentBatchStamp}`;
+    lbItems.push({
+      src: displayUrl,
+      downloadUrl: img.url,
+      label: `Image ${idx + 1}/${images.length} · seed ${img.seed}`,
+      role: 'result',
+      badge: hasSource
+        ? (images.length > 1 ? `APRÈS #${idx + 1}` : 'APRÈS (MODIFIÉE)')
+        : (images.length > 1 ? `IMAGE ${idx + 1}/${images.length}` : 'IMAGE GÉNÉRÉE'),
+    });
+  });
+
+  images.forEach((img, idx) => {
+    const displayUrl = `${img.url}?t=${currentBatchStamp}`;
     const d = document.createElement('div');
     d.className = 'result';
     d.innerHTML = `
-      <img src="${img.url}?t=${Date.now()}" alt="">
+      <img src="${displayUrl}" alt="">
       <div class="rbar">
         <span>seed ${img.seed}</span>
         <a class="link" href="${img.url}" download>telecharger</a>
       </div>`;
-    d.querySelector('img').addEventListener('click', e => openLightbox(e.target.src));
+    d.querySelector('img').addEventListener('click', () => {
+      openLightbox(lbItems, hasSource ? idx + 1 : idx);
+    });
+    const sendToEdit = document.createElement('button');
+    sendToEdit.type = 'button';
+    sendToEdit.className = 'btn small result-use-source';
+    sendToEdit.textContent = '✂️ Utiliser comme source (Édition)';
+    sendToEdit.addEventListener('click', async () => {
+      sendToEdit.disabled = true;
+      sendToEdit.textContent = 'Envoi…';
+      try {
+        const r = await fetch('/api/use-output-as-source', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: img.id, filename: img.filename }),
+        });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || "Impossible d'envoyer l'image.");
+        sessionStorage.setItem('edit_incoming_source', JSON.stringify({
+          mode: 'canvas',
+          file: { filename: j.filename, url: j.url, name: j.name },
+        }));
+        window.location.href = '/edit';
+      } catch (e) {
+        alert(e.message || 'Erreur');
+        sendToEdit.disabled = false;
+        sendToEdit.textContent = '✂️ Utiliser comme source (Édition)';
+      }
+    });
+    d.appendChild(sendToEdit);
     box.appendChild(d);
   });
+  saveGenDraft();
 }
 
 
@@ -658,6 +1074,7 @@ async function doEnhance(mode) {
     }
     promptEl.value = j.prompt;
     status.textContent = 'prompt enrichi - modifiable';
+    saveGenDraft();
   } catch (e) {
     status.textContent = '';
     alert('Erreur: ' + e.message);
@@ -699,6 +1116,7 @@ async function doTranslate() {
     if (!j.ok) { status.textContent = ''; alert(j.error || 'Erreur'); return; }
     promptEl.value = j.prompt;
     status.textContent = 'traduit en anglais';
+    saveGenDraft();
   } catch (e) { status.textContent = ''; alert(e.message); }
   finally { btn.disabled = false; btn.textContent = '🌐 Traduire EN'; }
 }

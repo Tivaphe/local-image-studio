@@ -51,6 +51,11 @@ def init_db():
             conn.execute("SELECT source_images FROM images LIMIT 1")
         except Exception:
             conn.execute("ALTER TABLE images ADD COLUMN source_images TEXT")
+        # migration : favoris ⭐ (protection contre suppression accidentelle)
+        try:
+            conn.execute("SELECT favorite FROM images LIMIT 1")
+        except Exception:
+            conn.execute("ALTER TABLE images ADD COLUMN favorite INTEGER DEFAULT 0")
         conn.commit()
 
 
@@ -75,26 +80,33 @@ def add_image(batch_id, idx, model_id, model_name, quant, prompt, negative,
 
 
 def _decode_row(row):
-    """Ajoute `source_images_list` (liste de chemins relatifs) à une ligne brute."""
+    """Ajoute `source_images_list` (liste de chemins relatifs) et normalise `favorite`."""
     raw = row.get("source_images")
     try:
         row["source_images_list"] = json.loads(raw) if raw else []
     except Exception:
         row["source_images_list"] = []
+    row["favorite"] = bool(row.get("favorite", 0))
     return row
 
 
-def list_images(limit=200, offset=0, model_id=None):
+def list_images(limit=200, offset=0, model_id=None, search_query=None, favorites_only=False):
+    clauses = []
+    params = []
+    if model_id:
+        clauses.append("model = ?")
+        params.append(model_id)
+    if favorites_only:
+        clauses.append("COALESCE(favorite, 0) = 1")
+    if search_query and str(search_query).strip():
+        q_like = f"%{str(search_query).strip()}%"
+        clauses.append("(prompt LIKE ? OR model_name LIKE ? OR CAST(seed AS TEXT) LIKE ? OR quant LIKE ?)")
+        params.extend([q_like, q_like, q_like, q_like])
+    where_sql = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    sql = f"SELECT * FROM images {where_sql} ORDER BY id DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
     with _lock, _connect() as conn:
-        if model_id:
-            cur = conn.execute(
-                "SELECT * FROM images WHERE model=? ORDER BY id DESC LIMIT ? OFFSET ?",
-                (model_id, limit, offset))
-            rows = cur.fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM images ORDER BY id DESC LIMIT ? OFFSET ?",
-                (limit, offset)).fetchall()
+        rows = conn.execute(sql, tuple(params)).fetchall()
         return [_decode_row(dict(r)) for r in rows]
 
 
@@ -105,14 +117,29 @@ def get_image(img_id):
         return _decode_row(dict(r)) if r else None
 
 
-def delete_image(img_id):
+def toggle_favorite(img_id, value=None):
+    """Bascule ou force l'état favori (⭐) d'une image. Renvoie le nouvel état booléen ou None."""
     with _lock, _connect() as conn:
-        cur = conn.execute("SELECT filename FROM images WHERE id=?", (img_id,))
+        cur = conn.execute("SELECT favorite FROM images WHERE id=?", (img_id,))
         r = cur.fetchone()
-        conn.execute("DELETE FROM images WHERE id=?", (img_id,))
-        conn.commit()
         if not r:
             return None
+        new_val = (1 if bool(value) else 0) if value is not None else (0 if r["favorite"] else 1)
+        conn.execute("UPDATE images SET favorite=? WHERE id=?", (new_val, img_id))
+        conn.commit()
+        return bool(new_val)
+
+
+def delete_image(img_id, force=False):
+    with _lock, _connect() as conn:
+        cur = conn.execute("SELECT filename, COALESCE(favorite, 0) AS favorite FROM images WHERE id=?", (img_id,))
+        r = cur.fetchone()
+        if not r:
+            return None
+        if r["favorite"] and not force:
+            raise PermissionError("Cette image est marquée en Favori ⭐. Retirez-la des favoris avant de la supprimer.")
+        conn.execute("DELETE FROM images WHERE id=?", (img_id,))
+        conn.commit()
         # Les anciennes générations peuvent partager un nom de fichier.
         remaining = conn.execute("SELECT 1 FROM images WHERE filename=? LIMIT 1",
                                  (r["filename"],)).fetchone()
