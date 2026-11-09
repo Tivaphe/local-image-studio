@@ -73,12 +73,12 @@ class NewModelsRegistryTests(unittest.TestCase):
 
 
 class UpscalersRegistryTests(unittest.TestCase):
-    def test_three_upscalers_four_x(self):
-        self.assertEqual(len(UPSCALERS), 3)
+    def test_upscalers_all_four_x(self):
+        self.assertEqual(len(UPSCALERS), 6)
         for uid, u in UPSCALERS.items():
             with self.subTest(upscaler=uid):
                 self.assertEqual(u["scale"], 4)
-                self.assertTrue(u["filename"].endswith(".pth"))
+                self.assertTrue(u["filename"].endswith((".pth", ".safetensors", ".gguf")))
                 self.assertTrue(u["url"].startswith("https://"))
                 self.assertGreater(len(u["desc"]), 30)
                 self.assertEqual(upscaler_path(uid), config.UPSCALE_DIR / u["filename"])
@@ -243,7 +243,7 @@ class QualityApiTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         j = r.get_json()
         self.assertTrue(j["ok"])
-        self.assertEqual(len(j["upscalers"]), 3)
+        self.assertEqual(len(j["upscalers"]), 6)
         self.assertEqual(len(j["adetailers"]), 3)
         self.assertTrue(all("status" in u for u in j["upscalers"]))
         self.assertTrue(any(s["id"] == "dpm++2m" for s in j["samplers"]))

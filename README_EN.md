@@ -184,7 +184,7 @@ section with a clear explanation for every option:
 
 | Option | Effect | Where |
 |---|---|---|
-| **🔍 ×4 Upscaling** | Dedicated super-resolution (1024→4096 px): **RealESRGAN ×4** (photo), **4× Nomos2 MoSR** (natural textures), **RealESRGAN Anime 6B** (illustration) | During generation **or** afterwards: one-click "🔍 Upscale ×4" button on every result and in History |
+| **🔍 ×4 Upscaling** | Dedicated super-resolution (1024→4096 px): **RealESRGAN ×4** (photo), **4× Nomos2 MoSR** (natural textures), **4× UltraSharp** (details & sharpness), **4× UltraMix Balanced** (softer UltraSharp), **4× Remacri** (natural photo grain), **RealESRGAN Anime 6B** (illustration) | During generation **or** afterwards: one-click "🔍 Upscale ×4" button on every result and in History |
 | **🏗️ Hires Fix (2 passes)** | Pass 1 composes; pass 2 gently re-details at high resolution (up to ×2, ≤ ~2048 px) | Pure generation, img2img-capable models (SD 3.5, FLUX.1 Dev, Chroma) |
 | **🙂 ADetailer** | YOLOv8 detector that finds **faces/hands** and automatically re-details them — also one-click on any existing image | Generate & Edit pages (after installing the detector in Models) |
 | **⚡ Mini-VAE (TAE)** | Near-instant final decode for Qwen-Image models (~2 MB) | Quality → ⚡ Performance |
@@ -205,6 +205,13 @@ section with a clear explanation for every option:
 
 Upscaler models (17–64 MB) and ADetailer detectors (6–22 MB) download in **one click** from the
 dedicated sections at the bottom of the **Models** page.
+
+> ⚠️ **New upscalers & licenses** — **4× UltraSharp**, **4× UltraMix Balanced** and **4× Remacri**
+> are released under **CC-BY-NC-SA-4.0** (Kim2091 for the first two; Remacri by FoolhardyVEVO,
+> shipped here as a GGUF converted by stable-diffusion.cpp itself, license unchanged):
+> **private / non-commercial use only**. For commercial use, prefer **RealESRGAN ×4**
+> (BSD-3-Clause) or **4× Nomos2 MoSR** (CC-BY-4.0). These three are recent additions and have
+> **not been tested on a real GPU** — please report any issue.
 
 ---
 ---

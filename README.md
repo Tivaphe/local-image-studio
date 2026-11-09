@@ -183,7 +183,7 @@ Agrandissement » regroupe toutes les options avancées, chacune avec une **expl
 
 | Option | Effet | Où ? |
 |---|---|---|
-| **🔍 Agrandissement ×4** | Super-résolution dédiée (1024→4096 px). Choix : **RealESRGAN ×4** (photo), **4× Nomos2 MoSR** (textures naturelles), **RealESRGAN Anime 6B** (illustration) | Pendant la génération (case option) **ou** après coup : bouton « 🔍 Agrandir ×4 » sur chaque résultat et dans l'historique |
+| **🔍 Agrandissement ×4** | Super-résolution dédiée (1024→4096 px). Choix : **RealESRGAN ×4** (photo), **4× Nomos2 MoSR** (textures naturelles), **4× UltraSharp** (détails & netteté), **4× UltraMix Balanced** (UltraSharp adouci), **4× Remacri** (grain photo naturel), **RealESRGAN Anime 6B** (illustration) | Pendant la génération (case option) **ou** après coup : bouton « 🔍 Agrandir ×4 » sur chaque résultat et dans l'historique |
 | **🏗️ Hires Fix (2 passes)** | 1ʳᵉ passe : composition à taille choisie ; 2ᵉ passe : re-détaillage doux en haute résolution (jusqu'à ×2, ≤ ~2048 px) | Génération pure, modèles compatibles img2img (SD 3.5, FLUX.1 Dev, Chroma) |
 | **🙂 ADetailer** | Détecteur YOLOv8 qui repère **visages/mains** puis les re-détaille automatiquement — aussi en 1 clic après coup sur n'importe quelle image | Pages Générer & Édition (après installation du détecteur dans Modèles) |
 | **⚡ Mini-VAE (TAE)** | Décodage final Quasi instantané pour les modèles Qwen-Image (~2 Mo) | Section Qualité → ⚡ Performance |
@@ -197,6 +197,13 @@ Agrandissement » regroupe toutes les options avancées, chacune avec une **expl
 
 Les modèles d'agrandissement (17–64 Mo) et les détecteurs ADetailer (6–22 Mo) se téléchargent
 en **1 clic** depuis la page **Modèles** (sections dédiées en bas de page).
+
+> ⚠️ **Licences des nouveaux agrandisseurs** — **4× UltraSharp**, **4× UltraMix Balanced** et
+> **4× Remacri** sont publiés en **CC-BY-NC-SA-4.0** (Kim2091 pour les deux premiers ; Remacri par
+> FoolhardyVEVO, fourni ici en GGUF converti par stable-diffusion.cpp lui-même, licence inchangée) :
+> **usage privé / non commercial**. Pour un usage commercial, préférez **RealESRGAN ×4**
+> (BSD-3-Clause) ou **4× Nomos2 MoSR** (CC-BY-4.0). Ces trois modèles sont des ajouts récents :
+> **non testés sur GPU réel** — signalez tout problème via une issue.
 
 ---
 

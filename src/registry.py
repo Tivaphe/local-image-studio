@@ -44,6 +44,49 @@ UPSCALERS = {
             "préserve le grain de peau, les cheveux, le tissu et les micro-détails sans effet plastique."
         ),
     },
+    "4x-ultrasharp": {
+        "id": "4x-ultrasharp",
+        "name": "4× UltraSharp (Détails & netteté)",
+        "short_label": "🔪 UltraSharp ×4 (détails & netteté)",
+        "filename": "4x-UltraSharp.pth",
+        "url": "https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraSharp.pth",
+        "size_mb": 64,
+        "scale": 4,
+        "desc": (
+            "Le plus populaire des agrandisseurs « détails » (64 Mo, Kim2091) : micro-textures "
+            "(peau, tissu, cheveux, artefacts de compression JPEG) — idéal sur photos et rendus IA. "
+            "Licence CC-BY-NC-SA-4.0 : usage privé/non-commercial."
+        ),
+    },
+    "4x-ultramix-balanced": {
+        "id": "4x-ultramix-balanced",
+        "name": "4× UltraMix Balanced (UltraSharp adouci)",
+        "short_label": "⚖️ UltraMix Balanced ×4 (UltraSharp adouci)",
+        "filename": "4x-UltraMix_Balanced.pth",
+        "url": "https://huggingface.co/Kim2091/UltraSharp/resolve/main/Interpolations/4x-UltraMix_Balanced.pth",
+        "size_mb": 64,
+        "scale": 4,
+        "desc": (
+            "Variante interpolée « équilibrée » d'UltraSharp (64 Mo, Kim2091) : moins agressive que "
+            "l'UltraSharp — moins de micro-textures fantasques, bon compromis pour portraits et scènes "
+            "denses. Licence CC-BY-NC-SA-4.0 : usage privé/non-commercial."
+        ),
+    },
+    "4x-remacri": {
+        "id": "4x-remacri",
+        "name": "4× Remacri (Photo — grain naturel)",
+        "short_label": "🎞️ Remacri ×4 (grain naturel)",
+        "filename": "4x_foolhardy_Remacri.gguf",
+        "url": "https://huggingface.co/wbruna/upscalers-sdcpp-gguf/resolve/main/4x_foolhardy_Remacri.gguf",
+        "size_mb": 64,
+        "scale": 4,
+        "desc": (
+            "Le préféré des photographes pour garder un grain crédible (64 Mo, FoolhardyVEVO) : "
+            "peau, tissu et ciel sans aspect « plastique ». Fourni en GGUF converti par "
+            "stable-diffusion.cpp lui-même — poids inchangés, licence CC-BY-NC-SA-4.0 conservée "
+            "(usage privé/non-commercial)."
+        ),
+    },
     "realesrgan-anime-6b": {
         "id": "realesrgan-anime-6b",
         "name": "RealESRGAN ×4 Anime 6B (Illustration & Dessin)",
