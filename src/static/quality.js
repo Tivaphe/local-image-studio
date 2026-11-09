@@ -149,9 +149,9 @@
             <span>Aperçu en direct pendant l'échantillonnage</span>
             <select id="q-preview">
               <option value="none">Désactivé</option>
-              <option value="proj">Provisoire rapide (proj) — aucun modèle requis</option>
-              <option value="tae">Mini-VAE (tae) — aperçu très propre (nécessite le TAE)</option>
-              <option value="vae">VAE complet (vae) — meilleur aperçu, plus lent</option>
+              <option value="auto">✨ Auto (recommandé) — mini-VAE si installé, sinon projection</option>
+              <option value="proj">Provisoire rapide (proj) — projection des latents, aucun modèle requis</option>
+              <option value="tae">Mini-VAE (tae) — aperçu net, nécessite le mini-VAE installé</option>
             </select>
           </label>
           <label class="field" id="q-preview-interval-field">
@@ -160,9 +160,13 @@
           </label>
           <p class="hint">
             Pendant l'échantillonnage, une fenêtre « LIVE » apparaît au-dessus des résultats avec
-            l'image qui se construit (pages Générer et Édition, batch ×1, sd-cli requis). « proj »
-            décode instantanément l'état latent ; « tae » utilise le mini-VAE ci-dessus ;
-            « vae » décode avec le vrai VAE (plus net, plus coûteux).
+            l'image qui se débruite pas à pas (pages Générer et Édition, sd-cli requis).
+            <b>Activé par défaut</b> (« Auto ») : mini-VAE si installé pour ce modèle, sinon projection
+            des latents (instantanée). La projection est connue pour SD 1.x/XL, SD 3.5, FLUX (Dev/Schnell/
+            FHDR/Chroma/Kontext), FLUX.2 et Qwen-Image-2.1 ; sur Qwen-Image 2512, seul le mini-VAE
+            (onglet Modèles → ⚡ VAE rapide) affiche un aperçu. Avec le mini-VAE, le décodage final
+            reste fait par le vrai VAE (un peu plus lent, plus net). Sans fichier ni projection connue,
+            le moteur n'écrit aucun aperçu : c'est normal, l'image finale est inchangée.
           </p>
         </div>
 
@@ -243,8 +247,12 @@
     if ($("#q-hires-strength")) $("#q-hires-strength").value = prefs.hires_strength ?? 0.35;
     if ($("#q-taesd")) $("#q-taesd").checked = !!prefs.taesd;
     if ($("#q-sage-attn")) $("#q-sage-attn").checked = !!prefs.sage_attn;
-    setVal("q-preview", prefs.preview || "none");
+    // « vae » (ancienne option, sans effet) -> retour au mode « auto »
+    const savedPreview = ["none", "auto", "proj", "tae"].includes(prefs.preview) ? prefs.preview : "auto";
+    setVal("q-preview", savedPreview);
     if ($("#q-preview-interval")) $("#q-preview-interval").value = prefs.preview_interval ?? 3;
+    const piFieldInit = $("#q-preview-interval-field");
+    if (piFieldInit) piFieldInit.style.display = savedPreview === "none" ? "none" : "";
     // PuLID : peuple la liste des empreintes de portraits depuis /api/quality-info
     const pulidSel = $("#q-pulid-id");
     if (pulidSel) {
@@ -305,7 +313,7 @@
       const piLab = $("#q-preview-interval-val");
       if (piLab) piLab.textContent = String($("#q-preview-interval")?.value || 3);
       const piField = $("#q-preview-interval-field");
-      if (piField) piField.style.display = ($("#q-preview")?.value || "none") === "none" ? "none" : "";
+      if (piField) piField.style.display = ($("#q-preview")?.value || "auto") === "none" ? "none" : "";
       const pwVal = parseFloat($("#q-pulid-weight")?.value || "1");
       const pwLab = $("#q-pulid-weight-val");
       if (pwLab) pwLab.textContent = pwVal.toFixed(2).replace(".", ",");
@@ -388,7 +396,7 @@
     if (ad) out.adetailer_id = ad;
     if ($("#q-taesd")?.checked) out.taesd_id = "auto";
     if ($("#q-sage-attn")?.checked) out.sage_attn = true;
-    const preview = $("#q-preview")?.value || "none";
+    const preview = $("#q-preview")?.value || "auto";
     out.preview = preview;
     if (preview !== "none") out.preview_interval = parseInt($("#q-preview-interval")?.value || "3", 10);
     const pulidSel = $("#q-pulid-id");

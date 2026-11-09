@@ -206,6 +206,26 @@ class RegistryFeatureTests(unittest.TestCase):
         self.assertNotIn("--taesd", cmd)
         self.assertNotIn("--sage-attn", cmd)
 
+    def test_build_command_tae_preview_only(self):
+        cmd = build_command(
+            "qwen-image-2512", "Q4_K_M", "a cat", "", 512, 512, 4, 1.0, 42, 1,
+            "/tmp/out_%03d.png", "/bin/sd-cli", {"models": {}},
+            taesd_path="/fake/taew2_1.safetensors",
+            preview_method="tae", preview_path="/tmp/live_%03d.png",
+            preview_interval=2, tae_preview_only=True)
+        self.assertIn("--taesd", cmd)
+        self.assertIn("--taesd-preview-only", cmd)
+        self.assertIn("--preview", cmd)
+
+    def test_build_command_taesd_without_preview_only(self):
+        # TAE seul (aperçu désactivé) : on ne bascule pas le décodage final
+        cmd = build_command(
+            "qwen-image-2512", "Q4_K_M", "a cat", "", 512, 512, 4, 1.0, 42, 1,
+            "/tmp/out_%03d.png", "/bin/sd-cli", {"models": {}},
+            taesd_path="/fake/taew2_1.safetensors")
+        self.assertIn("--taesd", cmd)
+        self.assertNotIn("--taesd-preview-only", cmd)
+
     def test_build_command_pulid_flux_only(self):
         kwargs = dict(pulid_weights="/fake/pulid.safetensors",
                       pulid_id_embedding="/fake/id.pulidembd",

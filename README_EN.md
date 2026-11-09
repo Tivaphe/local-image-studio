@@ -189,7 +189,7 @@ section with a clear explanation for every option:
 | **🙂 ADetailer** | YOLOv8 detector that finds **faces/hands** and automatically re-details them — also one-click on any existing image | Generate & Edit pages (after installing the detector in Models) |
 | **⚡ Mini-VAE (TAE)** | Near-instant final decode for Qwen-Image models (~2 MB) | Quality → ⚡ Performance |
 | **⚡ SageAttention CUDA** | Faster attention, less VRAM on NVIDIA GPUs (SM80+, recent drivers) — no Python install | Quality → ⚡ Performance |
-| **📡 Live preview** | Watch the image build up while sampling (proj/tae/vae, every N steps) | Quality → ⚡ Performance |
+| **📡 Live preview** | « LIVE » window: watch the image denoise step by step (**on by default, « Auto »**: Mini-VAE if installed, else latent projection) | Quality → ⚡ Performance |
 | **🎭 Faithful Face (PuLID)** | Keeps a reference person's face (FLUX.1 Schnell/Dev/FHDR only) — see `docs/PULID_FR.md` (French) | Quality → 🎭 Faithful face |
 | **🩹 Restore ×2 (SeedVR2)** | Diffusion-based detail reconstruction + 2× resolution for existing images (~6.8 GB weights, ~10 GB VRAM) | One-click on every result and in History |
 | **⬆️ PiD ×4** | **Generative** super-resolution ×4 (1024→4096, 4 steps), prompt-conditioned — rebuilds plausible detail instead of smoothing | One-click "⬆️ PiD ×4" on every result and in History — see `docs/PID_FR.md` (French). **NSCLv1 non-commercial license** |
@@ -205,6 +205,17 @@ section with a clear explanation for every option:
 
 Upscaler models (17–64 MB) and ADetailer detectors (6–22 MB) download in **one click** from the
 dedicated sections at the bottom of the **Models** page.
+
+> 💡 **Live preview — how it works**: sd-cli writes one preview frame every N steps
+> (`--preview-interval`) into `.preview_cache/`; the UI polls it into the « LIVE » window above the
+> results (Generate and Edit pages). Modes: **Auto** (default) = Mini-VAE if one is installed for the
+> current model, else **proj** (latent projection, instant, no file needed). Projection is known for
+> SD1.x/XL, SD 3.5, FLUX (Schnell/Dev/FHDR/Chroma/Kontext), FLUX.2 and Qwen-Image-2.1. On
+> **Qwen-Image 2512**, only the Mini-VAE (Models → ⚡ Fast VAE) produces a preview. The old « vae »
+> mode never decoded with the real VAE in this binary (the preview runner is always the Mini-VAE) —
+> it is treated as « tae ». With the Mini-VAE, the **final** decode still uses the real VAE
+> (`--taesd-preview-only`). If a model has neither a known projection nor a TAE, no preview frames are
+> written: expected — the final image is unaffected.
 
 > ⚠️ **New upscalers & licenses** — **4× UltraSharp**, **4× UltraMix Balanced** and **4× Remacri**
 > are released under **CC-BY-NC-SA-4.0** (Kim2091 for the first two; Remacri by FoolhardyVEVO,

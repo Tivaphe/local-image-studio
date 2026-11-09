@@ -2452,6 +2452,7 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
                   vae_tiling=False, slg_scale=None, upscale_model=None,
                   adetailer_model=None, taesd_path=None, sage_attn=False,
                   preview_method=None, preview_path=None, preview_interval=None,
+                  tae_preview_only=False,
                   pulid_weights=None, pulid_id_embedding=None, pulid_id_weight=None):
     m = MODELS[model_id]
     arch = m["arch"]
@@ -2663,8 +2664,12 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
         args += ["--ad-model", str(adetailer_model)]
 
     # --- Performance : mini-VAE rapide (decodage final + apercu en direct) ---
+    # Avec --taesd-preview-only, le TAE ne sert qu'aux aperçus etape par etape :
+    # l'encodage/decodage final reste pris en charge par le vrai VAE.
     if taesd_path:
         args += ["--taesd", str(taesd_path)]
+        if tae_preview_only:
+            args += ["--taesd-preview-only"]
 
     # --- Performance : SageAttention CUDA (attention plus rapide, moins de VRAM) ---
     # Silencieusement ignore par le moteur si la carte/toolkit ne le permet pas.

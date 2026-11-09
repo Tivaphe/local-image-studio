@@ -188,7 +188,7 @@ Agrandissement » regroupe toutes les options avancées, chacune avec une **expl
 | **🙂 ADetailer** | Détecteur YOLOv8 qui repère **visages/mains** puis les re-détaille automatiquement — aussi en 1 clic après coup sur n'importe quelle image | Pages Générer & Édition (après installation du détecteur dans Modèles) |
 | **⚡ Mini-VAE (TAE)** | Décodage final Quasi instantané pour les modèles Qwen-Image (~2 Mo) | Section Qualité → ⚡ Performance |
 | **⚡ SageAttention CUDA** | Attention plus rapide et moins de VRAM sur GPU NVIDIA (SM80+, pilotes récents) — aucune installation Python | Section Qualité → ⚡ Performance |
-| **📡 Aperçu en direct** | Voyez l'image se construire pendant l'échantillonnage (proj/tae/vae, toutes les N étapes) | Section Qualité → ⚡ Performance |
+| **📡 Aperçu en direct** | Fenêtre « LIVE » : voyez l'image se débruiter pas à pas (**activé par défaut, mode « Auto »** : mini-VAE si installé, sinon projection des latents) | Section Qualité → ⚡ Performance |
 | **🎭 Visage fidèle (PuLID)** | Conserve le visage d'une photo (FLUX.1 Schnell/Dev/FHDR uniquement) | Section Qualité → 🎭 Visage fidèle — voir `docs/PULID_FR.md` |
 | **⬆️ PiD ×4** | Super-résolution **générative** ×4 (1024→4096 en 4 étapes), conditionnée par le prompt de l'image — reconstruit la matière là où ESRGAN lisse | Bouton « ⬆️ PiD ×4 » sur chaque résultat / dans l'historique (voir `docs/PID_FR.md`, licence NSCLv1) |
 | **🎛️ Sampler / Scheduler** | Choix de l'échantillonneur (euler, heun, dpm++2m, euler_a, lcm) et du planificateur (karras, beta, exponential…) | Pages Générer & Édition |
@@ -197,6 +197,17 @@ Agrandissement » regroupe toutes les options avancées, chacune avec une **expl
 
 Les modèles d'agrandissement (17–64 Mo) et les détecteurs ADetailer (6–22 Mo) se téléchargent
 en **1 clic** depuis la page **Modèles** (sections dédiées en bas de page).
+
+> 💡 **Aperçu en direct — comment ça marche** : le binaire sd-cli écrit une image d'aperçu toutes les
+> N étapes (`--preview-interval`) dans `.preview_cache/`, et l'interface l'affiche dans la fenêtre
+> « LIVE » au-dessus des résultats (pages Générer et Édition). Trois modes : **Auto** (défaut) =
+> mini-VAE si un TAE est installé pour ce modèle, sinon **proj** (projection des latents, instantanée,
+> sans fichier) ; la projection est connue pour SD1.x/XL, SD 3.5, FLUX (Schnell/Dev/FHDR/Chroma/Kontext),
+> FLUX.2 et Qwen-Image-2.1. Sur **Qwen-Image 2512**, seul le mini-VAE (Modèles → ⚡ VAE rapide) produit
+> un aperçu. L'ancienne option « vae » n'a jamais décodé avec le vrai VAE dans ce binaire (le runner
+> d'aperçu est toujours le mini-VAE) — elle est traitée comme « tae ». Avec le mini-VAE, le décodage
+> **final** reste fait par le vrai VAE (`--taesd-preview-only`). Aucune image d'aperçu avec un modèle
+> sans projection connue ni TAE : normal, l'image finale est inchangée.
 
 > ⚠️ **Licences des nouveaux agrandisseurs** — **4× UltraSharp**, **4× UltraMix Balanced** et
 > **4× Remacri** sont publiés en **CC-BY-NC-SA-4.0** (Kim2091 pour les deux premiers ; Remacri par

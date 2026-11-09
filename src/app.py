@@ -52,6 +52,10 @@ except Exception as _e:
 
 app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
+# Outil local qui se met à jour via git pull / update.bat : on demande au navigateur de
+# toujours revalider les fichiers statiques (ETag/Last-Modified → 304 si rien n'a changé),
+# sinon un update laissait l'ancien quality.js / generate.js en cache.
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 # Flask >= 2.3 : c'est le provider JSON qui fait foi (la config ci-dessus est ignoree).
 # `sort_keys=False` conserve l'ordre du registre dans /api/models (le plus pertinent d'abord),
 # `ensure_ascii=False` laisse les accents lisibles dans les messages d'erreur.
@@ -961,8 +965,8 @@ def api_generate():
     params["taesd_id"] = taesd_id or ""
     params["sage_attn"] = bool(data.get("sage_attn"))
 
-    preview = (data.get("preview") or "none").strip()
-    if preview not in ("none", "proj", "tae", "vae"):
+    preview = (data.get("preview") or "auto").strip().lower()
+    if preview not in ("none", "auto", "proj", "tae", "vae"):
         return jsonify({"ok": False, "error": "Méthode d'aperçu inconnue."}), 400
     params["preview"] = preview
     try:

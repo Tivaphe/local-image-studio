@@ -61,7 +61,7 @@ def load_settings():
             # sage_attn : acceleration CUDA SageAttention (ignoree si non supportee)
             _SETTINGS.setdefault("sage_attn", False)
             # preview : méthode d'apercu live ("none"|"proj"|"tae"|"vae")
-            _SETTINGS.setdefault("preview", "none")
+            _SETTINGS.setdefault("preview", "auto")
             # preview_interval : une image d'apercu toutes les N etapes
             _SETTINGS.setdefault("preview_interval", 3)
         return _SETTINGS
@@ -961,14 +961,34 @@ class TaskManager:
             sage_attn = bool(p.get("sage_attn")) or bool(load_settings().get("sage_attn"))
 
             # --- Apercu en direct pendant l'echantillonnage ---
-            preview_method = (p.get("preview") or load_settings().get("preview") or "none").strip()
+            # « auto » (defaut) : mini-VAE si un TAE est installe pour ce modele, sinon
+            # projection des latents (aucun fichier requis). Le mode « vae » n'a jamais
+            # produit d'apercu avec ce binaire (le runner d'apercu est toujours un mini-VAE) :
+            # on le traite comme « tae ».
+            preview_method = (p.get("preview") or load_settings().get("preview") or "auto").strip().lower()
+            if preview_method not in ("none", "auto", "proj", "tae", "vae"):
+                preview_method = "auto"
+            preview_hint = ""
+            if preview_method == "auto":
+                preview_method = "tae" if taesd_file else "proj"
+                if preview_method == "proj" and m.get("arch") == "qwen_image" and "2.1" not in model_id:
+                    preview_hint = (" — ⚠️ « proj » ne projette pas les latents de Qwen-Image 2512 ; "
+                                    "installez le mini-VAE TAE (Modèles → ⚡ VAE rapide) pour un aperçu réel")
+            elif preview_method == "vae":
+                # Ce binaire ne décode jamais l'aperçu avec le vrai VAE : le runner d'aperçu
+                # est toujours le mini-VAE — on traite « vae » comme « tae ».
+                preview_hint = " — « vae » traité comme « tae » (mini-VAE)"
+                if not taesd_file:
+                    preview_hint += ", TAE absent → repli sur « proj »"
+                    preview_method = "proj"
+                else:
+                    preview_method = "tae"
+            elif preview_method == "tae" and not taesd_file:
+                preview_hint = " — TAE absent, repli sur « proj »"
+                preview_method = "proj"
             preview_interval = int(p.get("preview_interval") or load_settings().get("preview_interval") or 3)
             preview_path = None
             if preview_method not in ("", "none"):
-                if preview_method == "tae" and not taesd_file:
-                    # La methode « tae » exige un mini-VAE TAE pour ce modele : repli sur proj
-                    self._set(log="Aperçu « tae » indisponible (mini-VAE TAE absent) — repli sur « proj ».")
-                    preview_method = "proj"
                 # Nettoie les anciens aperçus pour ne pas accumuler
                 try:
                     for _old in PREVIEW_DIR.glob("live_*.png"):
@@ -980,6 +1000,9 @@ class TaskManager:
                     pass
                 preview_path = str(PREVIEW_DIR / f"live_{batch_id}_%03d.png")
                 self._set(preview_batch_id=batch_id)
+                self._set(log=(f"Aperçu en direct « {preview_method} » actif : une image toutes "
+                               f"les {preview_interval} étapes (fenêtre LIVE au-dessus des résultats)."
+                               + preview_hint))
 
             # --- PuLID-FLUX : conservation du visage depuis un portrait ---
             pulid_w_path = None
@@ -1039,6 +1062,7 @@ class TaskManager:
                 taesd_path=taesd_file, sage_attn=sage_attn,
                 preview_method=preview_method, preview_path=preview_path,
                 preview_interval=preview_interval,
+                tae_preview_only=(preview_method == "tae" and bool(taesd_file)),
                 pulid_weights=pulid_w_path, pulid_id_embedding=pulid_emb_path,
                 pulid_id_weight=pulid_w,
                 **final_quality)
