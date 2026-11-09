@@ -20,6 +20,10 @@ A simple web interface to generate images with the latest AI models (FLUX, Qwen-
 3. Download a model → Write a prompt → Generate!
 ```
 
+> 🔄 **Updating**: if you cloned with `git clone`, just double-click **`update.bat`** — it offers
+> `main` or any other branch, fast-forwards the code (your models, images, history and settings
+> are never touched), then **reinstalls the dependencies in `.venv`** automatically.
+
 **No image, no prompt ever leaves your computer.** Everything runs on your local GPU.
 
 ---
@@ -235,6 +239,7 @@ Some models require a **free Hugging Face token**:
 ```
 local-image-studio/
 ├── start.bat              ← ⭐ Double-click to launch (Windows)
+├── update.bat             ← 🔄 Update: branch picker (main or others) + refreshes .venv
 ├── README.md              ← Documentation principale (FR)
 ├── README_EN.md           ← This document (EN)
 ├── requirements.txt       ← Python dependencies

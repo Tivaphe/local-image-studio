@@ -49,6 +49,11 @@ Interface web simple pour générer des images avec les modèles d'IA les plus r
 5. C'est tout : **Google Chrome s'ouvre automatiquement** sur `http://127.0.0.1:7860`
    (si Chrome n'est pas installé, c'est votre navigateur par défaut qui s'ouvre)
 
+> 🔄 **Mise à jour** : si vous avez cloné le dépôt avec `git clone`, double-cliquez simplement sur
+> **`update.bat`** — il propose `main` ou les autres branches, met le code à jour en avance rapide
+> (vos modèles, images, historique et réglages ne sont jamais touchés), puis **réinstalle les
+> dépendances dans `.venv`** automatiquement.
+
 ### Option B : En ligne de commande
 
 ```bash
@@ -265,6 +270,7 @@ est rangé dans des sous-dossiers :
 ```
 local-image-studio/
 ├── start.bat              ← ⭐ Double-cliquez ici pour lancer (Windows)
+├── update.bat             ← 🔄 Mise à jour : choix de branche (main ou autres) + rafraîchit .venv
 ├── README.md              ← Ce document (FR)
 ├── README_EN.md           ← English documentation
 ├── requirements.txt       ← Dépendances Python
