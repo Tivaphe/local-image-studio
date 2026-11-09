@@ -185,6 +185,7 @@ section with a clear explanation for every option:
 | **📡 Live preview** | Watch the image build up while sampling (proj/tae/vae, every N steps) | Quality → ⚡ Performance |
 | **🎭 Faithful Face (PuLID)** | Keeps a reference person's face (FLUX.1 Schnell/Dev/FHDR only) — see `docs/PULID_FR.md` (French) | Quality → 🎭 Faithful face |
 | **🩹 Restore ×2 (SeedVR2)** | Diffusion-based detail reconstruction + 2× resolution for existing images (~6.8 GB weights, ~10 GB VRAM) | One-click on every result and in History |
+| **⬆️ PiD ×4** | **Generative** super-resolution ×4 (1024→4096, 4 steps), prompt-conditioned — rebuilds plausible detail instead of smoothing | One-click "⬆️ PiD ×4" on every result and in History — see `docs/PID_FR.md` (French). **NSCLv1 non-commercial license** |
 | **🎛️ Sampler / Scheduler** | Choose the sampler (euler, heun, dpm++2m, euler_a, lcm) and scheduler (karras, beta, exponential…) | Generate & Edit pages |
 | **⚙️ VAE Tiling** | Tiled VAE decode — saves VRAM on large images | Expert settings |
 | **⚙️ SLG (Skip Layer Guidance)** | Better prompt adherence on DiT models (recommended: 3) | Expert settings |
@@ -217,6 +218,7 @@ Some models require a **free Hugging Face token**:
 | 🗂️ **Prompt batch** | One line per prompt (16 max), queued back-to-back |
 | ⚔️ **Seed duel / Model compare** | Same prompt on 2 consecutive seeds or on 2 models |
 | 📥 **PNG-embedded metadata** | Drag & drop any generated PNG: prompt, seed, model… restored instantly |
+| ⬆️ **PiD ×4** | Generative super-resolution (FLUX.1 / FLUX.2 / Qwen-Image), 4 steps, 4096×4096 output |
 | 🌐 **Translation** | Translates your prompt (FR, ES…) to English |
 | ✨ **Enrichment** | An LLM enriches your prompt (style, lighting, composition…) |
 | 📊 **Statistics** | Generation time per model, most used model, etc. |
@@ -252,7 +254,9 @@ local-image-studio/
 │
 ├── docs/                  ← Documentation
 │   ├── ADD_MODEL_FR.md    ← Comment ajouter un modèle (FR)
-│   └── ADD_MODEL_EN.md    ← How to add a model (EN)
+│   ├── ADD_MODEL_EN.md    ← How to add a model (EN)
+│   ├── PULID_FR.md        ← PuLID: portrait fingerprints & install (FR)
+│   └── PID_FR.md          ← PiD: generative ×4 super-resolution (FR)
 ├── tests/                 ← Unit tests (python -m unittest discover -s tests)
 │
 └── (created automatically on first launch)

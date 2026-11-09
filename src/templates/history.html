@@ -88,6 +88,10 @@
           <button type="button" class="link restore-link" data-id="{{ im.id }}"
                   title="🩹 Restaurer ×2 par diffusion (SeedVR2, lent, ~10 Go de VRAM) — la version restaurée est ajoutée à l'historique">🩹 ×2</button>
           {% endif %}
+          {% if pid_ready %}
+          <button type="button" class="link pid-link" data-id="{{ im.id }}"
+                  title="⬆️ Super-résolution générative PiD (NVIDIA Pixel Diffusion, 4 étapes, sortie 4096×4096, prompt repris de l'image) — la grande version est ajoutée à l'historique">⬆️ PiD</button>
+          {% endif %}
           <button class="link danger del {% if im.favorite %}locked{% endif %}"
                   data-id="{{ im.id }}"
                   title="{{ 'Image protégée en Favori ⭐ — cliquez sur l’étoile pour déverrouiller' if im.favorite else 'Supprimer (double clic de sécurité)' }}">
@@ -337,7 +341,7 @@ document.querySelectorAll('.reuse').forEach(b => {
   });
 });
 
-// --- 🔍 Agrandissement ×4 / 🙂 Réparation / 🩹 Restauration ×2 en 1 clic ---
+// --- 🔍 Agrandissement ×4 / 🙂 Réparation / 🩹 Restauration ×2 / ⬆️ PiD ×4 en 1 clic ---
 // Une fois la tâche auxiliaire terminée, on recharge la page pour montrer le résultat.
 window.__lisOnUpscaleDone = imgs => {
   if (imgs && imgs.length) setTimeout(() => location.reload(), 1600);
@@ -387,6 +391,22 @@ document.querySelectorAll('.restore-link').forEach(b => {
       b.textContent = orig;
     } else {
       b.textContent = '🩹 en cours…';
+    }
+  });
+});
+document.querySelectorAll('.pid-link').forEach(b => {
+  b.addEventListener('click', async () => {
+    b.disabled = true;
+    const orig = b.textContent;
+    b.textContent = '⬆️ …';
+    const ok = window.LisQuality
+      ? await LisQuality.startPid({ imageId: parseInt(b.dataset.id, 10) })
+      : false;
+    if (!ok) {
+      b.disabled = false;
+      b.textContent = orig;
+    } else {
+      b.textContent = '⬆️ en cours…';
     }
   });
 });

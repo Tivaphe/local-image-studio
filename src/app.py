@@ -36,6 +36,7 @@ from registry import (MODELS, DEPS, RATIOS, DEFAULT_NEGATIVE, input_modes,
                       TAESD, taesd_status, taesd_for_model,
                       PULID, pulid_status, list_portraits, supports_pulid,
                       pulid_weights_path,
+                      PID, pid_status,
                       recommended_quant, quant_recommendations,
                       SAMPLERS_INFO, SCHEDULERS_INFO)
 import metadata as _pngmeta
@@ -93,12 +94,14 @@ def history():
     upscaler_ready = any(upscaler_status(uid)["downloaded"] for uid in UPSCALERS)
     repair_ready = any(adetailer_status(did)["downloaded"] for did in ADETAILERS)
     seedvr2_ready = seedvr2_status()["downloaded"]
+    pid_ready = pid_status()["downloaded"]
     return render_template("history.html", images=images, models=MODELS,
                            model_filter=model_filter, search_query=search_query,
                            fav_only=fav_only, count=db.count_images(),
                            upscaler_ready=upscaler_ready,
                            repair_ready=repair_ready,
-                           seedvr2_ready=seedvr2_ready)
+                           seedvr2_ready=seedvr2_ready,
+                           pid_ready=pid_ready)
 
 
 @app.route("/models")
@@ -112,6 +115,14 @@ def models_page():
         {**d, "status": adetailer_status(did)} for did, d in ADETAILERS.items()
     ]
     seedvr2_card = {**SEEDVR2, "status": seedvr2_status()}
+    pid_st = pid_status()
+    pid_backbone_cards = [
+        {**bb, "status": pid_st["backbones"][bb_id]}
+        for bb_id, bb in PID["backbones"].items()
+    ]
+    pid_card = {**{k: v for k, v in PID.items() if k != "backbones"},
+                "status": pid_st,
+                "backbone_cards": pid_backbone_cards}
     taesd_cards = [
         {**t, "status": taesd_status(tid)} for tid, t in TAESD.items()
     ]
@@ -125,6 +136,7 @@ def models_page():
                            gpu_name=gpu_name,
                            upscalers=upscale_cards, adetailers=adetailer_cards,
                            seedvr2=seedvr2_card, taesd=taesd_cards, pulid=pulid_card,
+                           pid=pid_card,
                            quant_recs=quant_recs)
 
 
@@ -341,9 +353,16 @@ def api_download_engine():
 @app.route("/api/quality-info")
 def api_quality_info():
     """Catalogue qualité : échantillonneurs, planificateurs, modèles ×4, détecteurs,
-    SeedVR2, mini-VAE TAE et PuLID."""
+    SeedVR2, mini-VAE TAE, PuLID et PiD."""
     vram_mb, _gpu = gpu_info.get_gpu_info()
     vram_gb = round(vram_mb / 1024, 1) if vram_mb else 0
+    pid_st = pid_status()
+    pid_card = {**{k: v for k, v in PID.items() if k != "backbones"},
+                "backbones": {
+                    bb_id: {**bb, "status": pid_st["backbones"][bb_id]}
+                    for bb_id, bb in PID["backbones"].items()
+                },
+                "status": pid_st}
     return jsonify({
         "ok": True,
         "engine_ready": engine_ready(),
@@ -360,6 +379,7 @@ def api_quality_info():
         "taesd": [
             {**t, "status": taesd_status(tid)} for tid, t in TAESD.items()
         ],
+        "pid": pid_card,
         "pulid": {**PULID, "status": pulid_status(),
                   "portraits": list_portraits()},
         "quant_recommendations": quant_recommendations(vram_gb),
@@ -488,6 +508,21 @@ def api_download_seedvr2():
     return jsonify({"ok": True})
 
 
+@app.route("/api/download-pid", methods=["POST"])
+def api_download_pid():
+    """Télécharge le socle PiD (Gemma 2 2B + tokenizer non-gated) + le backbone choisi."""
+    data = request.get_json(silent=True) or {}
+    backbone = (data.get("backbone") or "").strip()
+    if backbone not in PID["backbones"]:
+        return jsonify({"ok": False, "error": f"Backbone PiD inconnu : {backbone or '?'}. "
+                        f"Choix : {', '.join(PID['backbones'])}"}), 400
+    try:
+        tasks.start_pid_download(backbone)
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 409
+    return jsonify({"ok": True, "backbone": backbone})
+
+
 @app.route("/api/download-taesd", methods=["POST"])
 def api_download_taesd():
     data = request.get_json(silent=True) or {}
@@ -576,6 +611,46 @@ def api_restore_x2():
     params = {
         "task_kind": "restore_x2",
         "source_image": src_rel,
+        "seed": data.get("seed"),
+    }
+    try:
+        q_info = tasks.enqueue_generate(params)
+        return jsonify({"ok": True, **q_info})
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 409
+
+
+@app.route("/api/pid-upscale", methods=["POST"])
+def api_pid_upscale():
+    """Super-résolution générative ×4 PiD (NVIDIA Pixel Diffusion, 1024→4096).
+
+    Le backbone est choisi automatiquement : famille du modèle source (FLUX.1 /
+    FLUX.2 / Qwen-Image) si elle est installée, sinon premier backbone prêt.
+    Le prompt reprend celui de l'image source (historique) si non fourni."""
+    data = request.get_json(force=True)
+    st = pid_status()
+    if not st["downloaded"]:
+        return jsonify({"ok": False, "error": (
+            "PiD n'est pas installé. Téléchargez-le dans l'onglet Modèles, "
+            "section « ⬆️ PiD ×4 » (socle ~5,4 Go + ~1,6 Go par backbone)."
+        )}), 400
+    backbone = (data.get("backbone") or "").strip()
+    if backbone and backbone not in PID["backbones"]:
+        return jsonify({"ok": False, "error": f"Backbone PiD inconnu : {backbone}"}), 400
+    if backbone and not st["backbones"][backbone]["ready"]:
+        return jsonify({"ok": False, "error": (
+            f"PiD ({backbone}) n'est pas complet. Finalisez l'installation dans "
+            "l'onglet Modèles, section « ⬆️ PiD ×4 »."
+        )}), 400
+    src_rel, err = _resolve_source_image(data)
+    if err:
+        return err
+    params = {
+        "task_kind": "pid",
+        "source_image": src_rel,
+        "image_id": data.get("image_id"),
+        "backbone": backbone,
+        "prompt": (data.get("prompt") or "").strip(),
         "seed": data.get("seed"),
     }
     try:

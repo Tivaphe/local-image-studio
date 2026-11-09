@@ -183,6 +183,7 @@ Agrandissement » regroupe toutes les options avancées, chacune avec une **expl
 | **⚡ SageAttention CUDA** | Attention plus rapide et moins de VRAM sur GPU NVIDIA (SM80+, pilotes récents) — aucune installation Python | Section Qualité → ⚡ Performance |
 | **📡 Aperçu en direct** | Voyez l'image se construire pendant l'échantillonnage (proj/tae/vae, toutes les N étapes) | Section Qualité → ⚡ Performance |
 | **🎭 Visage fidèle (PuLID)** | Conserve le visage d'une photo (FLUX.1 Schnell/Dev/FHDR uniquement) | Section Qualité → 🎭 Visage fidèle — voir `docs/PULID_FR.md` |
+| **⬆️ PiD ×4** | Super-résolution **générative** ×4 (1024→4096 en 4 étapes), conditionnée par le prompt de l'image — reconstruit la matière là où ESRGAN lisse | Bouton « ⬆️ PiD ×4 » sur chaque résultat / dans l'historique (voir `docs/PID_FR.md`, licence NSCLv1) |
 | **🎛️ Sampler / Scheduler** | Choix de l'échantillonneur (euler, heun, dpm++2m, euler_a, lcm) et du planificateur (karras, beta, exponential…) | Pages Générer & Édition |
 | **⚙️ VAE Tiling** | Décodage par tuiles — économise la VRAM sur grandes images | Réglages experts |
 | **⚙️ SLG (Skip Layer Guidance)** | Améliore le respect du prompt sur les modèles DiT (valeur conseillée : 3) | Réglages experts |
@@ -201,6 +202,7 @@ Deux outils agissent directement sur une image déjà générée (boutons sur ch
 | **🩹 Restauration ×2 (SeedVR2)** | Reconstruit la matière (peau, tissus, texte) et double la résolution par diffusion | ~6,8 Go à installer, ~10 Go de VRAM, lent mais bluffant sur vieilles photos |
 | **🙂 Réparation visages & mains (ADetailer)** | Le détecteur repère visages/mains et le modèle re-détaille ces zones uniquement | Quelques Mo à installer, modifie uniquement les zones détectées |
 | **🔍 Agrandissement ×4 (ESRGAN)** | Super-résolution classique | 17–64 Mo, rapide |
+| **⬆️ PiD ×4 (NVIDIA Pixel Diffusion)** | Ré-encode l'image avec le VAE du backbone puis la décode en **4096×4096 en 4 étapes**, guidée par le prompt de l'image — backbones FLUX.1 / FLUX.2 / Qwen-Image | ~1,6 Go par backbone + socle ~5,4 Go (Gemma 2 2B), **licence NSCLv1 non-commerciale** — voir `docs/PID_FR.md` |
 
 ---
 
@@ -243,6 +245,7 @@ Certains modèles nécessitent un **token Hugging Face gratuit** :
 | ⚔️ **Duel / Comparaison** | Même prompt en 2 seeds consécutifs, ou sur 2 modèles |
 | 📡 **Aperçu en direct** | L'image se construit à l'écran pendant l'échantillonnage |
 | 📥 **Réglages dans le PNG** | Glissez-déposez n'importe quel PNG généré : prompt, seed, modèle… restaurés |
+| ⬆️ **PiD ×4** | Super-résolution générative (FLUX.1 / FLUX.2 / Qwen-Image), 4 étapes, sortie 4096×4096 |
 | 🌐 **Traduction** | Traduit votre prompt (FR, ES…) vers l'anglais automatiquement |
 | ✨ **Enrichissement** | Un LLM enrichit votre prompt (style, lumière, composition…) |
 | 📊 **Statistiques** | Temps de génération par modèle, modèle le plus utilisé, etc. |
@@ -282,7 +285,9 @@ local-image-studio/
 │
 ├── docs/                  ← Documentation
 │   ├── ADD_MODEL_FR.md    ← Comment ajouter un modèle (FR)
-│   └── ADD_MODEL_EN.md    ← How to add a model (EN)
+│   ├── ADD_MODEL_EN.md    ← How to add a model (EN)
+│   ├── PULID_FR.md        ← PuLID : installation & empreintes de portrait (FR)
+│   └── PID_FR.md          ← PiD : super-résolution générative ×4 (FR)
 ├── tests/                 ← Tests unitaires (python -m unittest discover -s tests)
 │
 └── (créés automatiquement au premier lancement)

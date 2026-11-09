@@ -988,7 +988,7 @@ function pollStatus() {
     updateLivePreview(j);
 
     // Op terminée : agrandissement ×4, réparation ou restauration ×2
-    const AUX_KINDS = ['upscale', 'repair', 'restore_x2'];
+    const AUX_KINDS = ['upscale', 'repair', 'restore_x2', 'pid'];
     if (AUX_KINDS.includes(j.kind) && j.busy) window.__auxDonePending = j.kind;
     if (window.__auxDonePending && !j.busy) {
       const auxKind = window.__auxDonePending;
@@ -1120,6 +1120,9 @@ function showResults(images) {
     if (window.LisQuality && typeof LisQuality.makeRestoreX2Button === 'function') {
       d.appendChild(LisQuality.makeRestoreX2Button({ imageId: img.id }));
     }
+    if (window.LisQuality && typeof LisQuality.makePidButton === 'function') {
+      d.appendChild(LisQuality.makePidButton({ imageId: img.id }));
+    }
     box.appendChild(d);
   });
   saveGenDraft();
@@ -1129,6 +1132,7 @@ function showResults(images) {
 function auxResultBadge(img) {
   if (img.repaired) return { text: '🙂 RÉPARÉE', title: 'Visages & mains re-détaillés (ADetailer), enregistrée dans l\'historique', label: 'Image réparée' };
   if ((img.scale || 4) === 2 && /restore/.test(img.filename || '')) return { text: '🩹 RESTAURÉE ×2', title: 'Restaurée ×2 par diffusion (SeedVR2), enregistrée dans l\'historique', label: 'Image restaurée ×2' };
+  if (/^pid_/.test(img.filename || '')) return { text: '⬆️ PID ×4', title: 'Super-résolution générative (NVIDIA PiD, sortie 4096px), enregistrée dans l\'historique', label: 'Image PiD ×4' };
   const sc = img.scale || 4;
   return { text: `🔍 AGRANDIE ×${sc}`, title: `Version agrandie ×${sc}, enregistrée dans l'historique`, label: `Version agrandie ×${sc}` };
 }
@@ -1188,6 +1192,7 @@ function appendUpscaledResults(images) {
       if (LisQuality.makeUpscaleButton) d.appendChild(LisQuality.makeUpscaleButton({ imageId: img.id }));
       if (LisQuality.makeRepairButton) d.appendChild(LisQuality.makeRepairButton({ imageId: img.id }));
       if (LisQuality.makeRestoreX2Button) d.appendChild(LisQuality.makeRestoreX2Button({ imageId: img.id }));
+      if (LisQuality.makePidButton) d.appendChild(LisQuality.makePidButton({ imageId: img.id }));
     }
     box.appendChild(d);
   });

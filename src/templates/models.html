@@ -193,6 +193,48 @@
     </div>
   </div>
 
+  <!-- ==================================================== PiD -->
+  <div class="aux-header">
+    <h2>⬆️ PiD <span class="muted small">(NVIDIA Pixel Diffusion — super-résolution générative ×4, 1024→4096)</span></h2>
+    <p class="muted">
+      Contrairement à RealESRGAN (lissage) ou SeedVR2 (restauration ×2), PiD <em>ré-encode l'image avec le VAE
+      de son backbone</em> puis la décode directement en <strong>pixels 4096×4096</strong>, en seulement
+      <strong>4 étapes</strong>, <strong>conditionnée par le prompt</strong> de l'image (repris automatiquement
+      depuis l'historique). Idéal pour recréer de la matière crédible : peau, tissu, texte, végétation.
+      Backbones : <strong>FLUX.1</strong>, <strong>FLUX.2</strong>, <strong>Qwen-Image</strong> (int8_convrot, ~1,6 Go chacun).
+      Socle commun : encodeur <strong>Gemma 2 2B bf16</strong> (~5,4 Go) + tokenizer (~18 Mo) — dépôts
+      <strong>non-gated</strong> (Comfy-Org/PixelDiT + unsloth/gemma-2-2b-it), aucun compte Google requis.
+      <br>⚠️ <strong>Licence NSCLv1 : recherche / évaluation non-commerciale uniquement.</strong>
+      Requiert le binaire <strong>sd-cli ≥ 2026-05-31</strong>. Une fois installé, le bouton
+      «&nbsp;⬆️&nbsp;PiD&nbsp;×4&nbsp;» apparaît sur chaque image et dans l'historique (sortie 4096×4096).
+      <br>Note : pour <strong>Qwen-Image 2.1</strong> (latents 64 canaux), préférez 🩹 SeedVR2.
+    </p>
+  </div>
+  <div class="model-grid">
+    {% for b in pid.backbone_cards %}
+    <div class="model-card" data-id="pid-{{ b.id }}">
+      <div class="mc-head">
+        <h3>{{ b.label_long }}</h3>
+        {% if b.status.ready %}<span class="tag tag-ok">installé ✓</span>
+        {% elif b.status.model or pid.status.shared.gemma %}<span class="tag tag-warn">partiel</span>
+        {% else %}<span class="tag">à télécharger</span>{% endif %}
+      </div>
+      <p class="muted mc-desc">
+        Modèle PiD 1.5 <em>int8_convrot</em> (1024→4096, 4 étapes) + VAE «&nbsp;{{ b.vae_format }}&nbsp;».
+        {% if not pid.status.shared.ready %}Le socle commun (Gemma 2 2B + tokenizer, ~5,4 Go) sera téléchargé automatiquement avec le premier backbone.{% endif %}
+      </p>
+      <p class="mc-hf-link"><a href="{{ pid.hf_url }}" target="_blank" rel="noopener">🔗 Comfy-Org/PixelDiT sur Hugging Face ↗</a></p>
+      <p class="muted small">Modèle&nbsp;: {{ '%.1f'|format(b.size_mb / 1024) }} Go · VAE&nbsp;: {{ b.vae_dep }} · socle commun&nbsp;: ~5,4 Go (une seule fois)</p>
+      <div class="mc-actions">
+        <button class="btn {% if b.status.ready %}ghost{% else %}primary{% endif %} dl-pid-btn" data-backbone="{{ b.id }}">
+          {% if b.status.ready %}Ré-télécharger (~{{ '%.1f'|format(b.size_mb / 1024) }} Go)
+          {% else %}Télécharger (~{{ '%.1f'|format((b.size_mb + (0 if pid.status.shared.ready else pid.gemma.size_mb + pid.tokenizer.size_mb)) / 1024) }} Go){% endif %}
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
   <!-- ==================================================== Mini-VAE TAE -->
   <div class="aux-header">
     <h2>⚡ VAE rapide (TAE) <span class="muted small">(décodage final accéléré)</span></h2>

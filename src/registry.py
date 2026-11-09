@@ -11,7 +11,7 @@ from pathlib import Path
 
 from config import (DIFFUSION_DIR, VAE_DIR, TEXTENC_DIR, LLM_DIR, UPSCALE_DIR,
                     ADETAILER_DIR, SEEDVR2_DIR, TAESD_DIR, PULID_DIR,
-                    PORTRAITS_DIR, MANIFEST_PATH)
+                    PORTRAITS_DIR, PID_DIR, MANIFEST_PATH)
 
 
 # --------------------------------------------------------------------------- #
@@ -179,6 +179,181 @@ def seedvr2_status() -> dict:
             "diffusion": diff_ok,
             "vae": vae_ok,
             "paths": [str(p) for p in (diff_p, vae_p)] if (diff_ok and vae_ok) else None}
+
+
+# --------------------------------------------------------------------------- #
+#  PiD — NVIDIA Pixel Diffusion (super-résolution GÉNÉRATIVE ×4, 1024 → 4096)
+#  PiD ré-encode l'image avec le VAE du backbone puis la décode directement en
+#  pixels 4096×4096 en 4 étapes (diffusion pixel-space conditionnée par le
+#  prompt). sd-cli ≥ 2026-05-31 requis (docs/pid.md : -r <image> + --vae-format).
+#
+#  Poids : safetensors du dépôt NON-gated Comfy-Org/PixelDiT (repack des
+#  checkpoints officiels nvidia/PiD). Le tokenizer Gemma 2 (tokenizer.json)
+#  provient du miroir NON-gated unsloth/gemma-2-2b-it (le dépôt officiel
+#  google/gemma-2-2b est gated — connexion Google requise, évitée ici).
+#  ⚠️ Licence NSCLv1 : recherche / évaluation NON-commerciale uniquement.
+# --------------------------------------------------------------------------- #
+PID = {
+    "id": "pid",
+    "name": "PiD 1.5 (NVIDIA Pixel Diffusion ×4)",
+    "short_label": "⬆️ PiD ×4 (super-résolution générative)",
+    "license": "NSCLv1 — non-commerciale (recherche / usage personnel)",
+    "repo": "Comfy-Org/PixelDiT",
+    "hf_url": "https://huggingface.co/Comfy-Org/PixelDiT",
+    "tokenizer_repo": "unsloth/gemma-2-2b-it",
+    "steps": 4,
+    "cfg": 1.0,
+    "output_size": 4096,
+    "desc": (
+        "Super-résolution générative conditionnée par le prompt (NVIDIA PiD 1.5, 4 étapes, "
+        "1024→4096) : ré-encode l'image avec le VAE du backbone puis la décode en pixels "
+        "4096×4096 — reconstruit des détails crédibles (peau, tissu, texte) là où un ESRGAN "
+        "se contente de lisser. Backbones : FLUX.1, FLUX.2, Qwen-Image. "
+        "⚠️ Licence NSCLv1 (non-commerciale). ~1,6 Go par backbone (int8) + socle commun "
+        "~5,4 Go (encodeur Gemma 2 2B bf16 + tokenizer, dépôts non-gated)."
+    ),
+    # Socle commun aux trois backbones (téléchargé une seule fois)
+    "gemma": {
+        "repo": "Comfy-Org/PixelDiT",
+        "filename": "text_encoders/gemma_2_2b_it_elm_bf16.safetensors",
+        "dest_name": "gemma_2_2b_it_elm_bf16.safetensors",
+        "size_mb": 5356,
+    },
+    "tokenizer": {
+        "repo": "unsloth/gemma-2-2b-it",
+        "filename": "tokenizer.json",
+        "dest_name": "tokenizer_gemma2.json",
+        "size_mb": 18,
+    },
+    "backbones": {
+        "flux1": {
+            "id": "flux1",
+            "label": "FLUX.1",
+            "label_long": "FLUX.1 — Dev / Schnell / Kontext / Chroma / Z-Image",
+            "filename": "pid_1.5_flux1_1024_to_4096_4step_int8_convrot.safetensors",
+            "repo_filename": "diffusion_models/pid_1.5_flux1_1024_to_4096_4step_int8_convrot.safetensors",
+            "size_mb": 1620,
+            "vae_format": "flux",
+            "vae_dep": "vae_flux",          # models/vae/ae.safetensors (0,32 Go)
+            "arches": ["flux", "flux_kontext", "chroma", "zimage"],
+        },
+        "flux2": {
+            "id": "flux2",
+            "label": "FLUX.2",
+            "label_long": "FLUX.2 — Klein 4B / 9B",
+            "filename": "pid_1.5_flux2_1024_to_4096_4step_int8_convrot.safetensors",
+            "repo_filename": "diffusion_models/pid_1.5_flux2_1024_to_4096_4step_int8_convrot.safetensors",
+            "size_mb": 1630,
+            "vae_format": "flux2",
+            "vae_dep": "vae_flux2",         # models/vae/flux2-vae.safetensors (0,25 Go)
+            "arches": ["flux2"],
+        },
+        "qwenimage": {
+            "id": "qwenimage",
+            "label": "Qwen-Image",
+            "label_long": "Qwen-Image — 2508 / 2512 (VAE Wan 2D)",
+            "filename": "pid_1.5_qwenimage_1024_to_4096_4step_int8_convrot.safetensors",
+            "repo_filename": "diffusion_models/pid_1.5_qwenimage_1024_to_4096_4step_int8_convrot.safetensors",
+            "size_mb": 1620,
+            "vae_format": "wan",
+            "vae_dep": "vae_qwen",          # models/vae/qwen_image_vae.safetensors (0,27 Go)
+            "arches": ["qwen_image"],
+        },
+    },
+}
+
+# Correspondance famille de modèle (arch MODELS) → backbone PiD
+PID_ARCH_TO_BACKBONE = {}
+for _bb_id, _bb in PID["backbones"].items():
+    for _arch in _bb["arches"]:
+        PID_ARCH_TO_BACKBONE[_arch] = _bb_id
+
+_DEFAULT_PID_PROMPT = ("masterpiece, best quality, ultra detailed, sharp focus, "
+                       "professional photography, highly detailed textures")
+
+
+def pid_gemma_path() -> Path:
+    return PID_DIR / PID["gemma"]["dest_name"]
+
+
+def pid_tokenizer_path() -> Path:
+    return PID_DIR / PID["tokenizer"]["dest_name"]
+
+
+def pid_model_path(backbone: str) -> Path:
+    return PID_DIR / PID["backbones"][backbone]["filename"]
+
+
+def pid_vae_path(backbone: str) -> Path | None:
+    """VAE requis par le backbone (réutilise les dépôts/chemins de DEPS)."""
+    dep = DEPS.get(PID["backbones"][backbone]["vae_dep"])
+    dest = dep.get("dest") if dep else None
+    return Path(dest) if dest is not None else None
+
+
+# Seuils de taille pour valider un fichier PiD (patchables en test)
+PID_GEMMA_MIN_BYTES = 1024 * 1024 * 1024
+PID_TOKENIZER_MIN_BYTES = 1024 * 1024
+PID_MODEL_MIN_BYTES = 512 * 1024 * 1024
+PID_VAE_MIN_BYTES = 1024 * 1024
+
+
+def _pid_shared_status() -> dict:
+    gemma_p, tok_p = pid_gemma_path(), pid_tokenizer_path()
+    gemma_ok = gemma_p.exists() and gemma_p.stat().st_size > PID_GEMMA_MIN_BYTES
+    tok_ok = tok_p.exists() and tok_p.stat().st_size > PID_TOKENIZER_MIN_BYTES
+    return {"gemma": gemma_ok, "tokenizer": tok_ok,
+            "ready": gemma_ok and tok_ok,
+            "gemma_path": str(gemma_p) if gemma_ok else None,
+            "tokenizer_path": str(tok_p) if tok_ok else None}
+
+
+def pid_backbone_ready(backbone: str) -> bool:
+    bb = PID["backbones"].get(backbone)
+    if not bb:
+        return False
+    shared = _pid_shared_status()
+    model_p = pid_model_path(backbone)
+    vae_p = pid_vae_path(backbone)
+    model_ok = model_p.exists() and model_p.stat().st_size > PID_MODEL_MIN_BYTES
+    vae_ok = bool(vae_p) and vae_p.exists() and vae_p.stat().st_size > PID_VAE_MIN_BYTES
+    return shared["ready"] and model_ok and vae_ok
+
+
+def pid_status() -> dict:
+    """État d'installation PiD : socle commun + par backbone."""
+    shared = _pid_shared_status()
+    backbones = {}
+    ready = []
+    for bb_id, bb in PID["backbones"].items():
+        model_p = pid_model_path(bb_id)
+        vae_p = pid_vae_path(bb_id)
+        model_ok = model_p.exists() and model_p.stat().st_size > PID_MODEL_MIN_BYTES
+        vae_ok = bool(vae_p) and vae_p.exists() and vae_p.stat().st_size > PID_VAE_MIN_BYTES
+        ok = shared["ready"] and model_ok and vae_ok
+        backbones[bb_id] = {
+            "model": model_ok, "vae": vae_ok, "ready": ok,
+            "size_mb": bb["size_mb"],
+            "vae_format": bb["vae_format"],
+            "vae_dep": bb["vae_dep"],
+        }
+        if ok:
+            ready.append(bb_id)
+    return {"downloaded": bool(ready),
+            "shared": shared,
+            "backbones": backbones,
+            "ready_backbones": ready}
+
+
+def pid_backbone_for_arch(arch: str | None) -> str | None:
+    """Famille de modèle → backbone PiD (None si non applicable)."""
+    if not arch:
+        return None
+    return PID_ARCH_TO_BACKBONE.get(arch)
+
+
+def pid_default_prompt() -> str:
+    return _DEFAULT_PID_PROMPT
 
 
 # --------------------------------------------------------------------------- #
@@ -2517,6 +2692,34 @@ def build_seedvr2_command(sd_cli, input_path, output_path, diffusion_path, vae_p
         "--upscale-factor", str(int(upscale_factor)),
         "-s", str(int(seed) if seed not in (None, "") else 42),
         "-o", str(output_path),
+        "-v",
+    ]
+
+
+def build_pid_command(sd_cli, input_path, output_path, model_path, gemma_path,
+                      tokenizer_path, vae_path, vae_format, prompt, seed=42,
+                      width=4096, height=4096):
+    """
+    Super-résolution générative ×4 par PiD (NVIDIA Pixel Diffusion, docs/pid.md) :
+    ré-encode l'image source avec le VAE du backbone (--vae-format), puis décode
+    directement en pixels (4096×4096 par défaut) en 4 étapes distilled.
+    PiD tourne comme un pipeline image-édition : -r <image_source> requis.
+    """
+    return [
+        str(sd_cli),
+        "--diffusion-model", str(model_path),
+        "--llm", str(gemma_path),
+        "--tokenizer", str(tokenizer_path),
+        "--vae", str(vae_path),
+        "--vae-format", str(vae_format),
+        "--cfg-scale", "1.0",
+        "-p", str(prompt),
+        "-r", str(input_path),
+        "--steps", "4",
+        "-H", str(int(height)), "-W", str(int(width)),
+        "-s", str(int(seed) if seed not in (None, "") else 42),
+        "-o", str(output_path),
+        "--rng", "cpu",
         "-v",
     ]
 

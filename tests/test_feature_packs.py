@@ -27,7 +27,9 @@ from registry import (MODELS, DEPS, SEEDVR2, TAESD, PULID,
                       pulid_status, supports_pulid, recommended_quant,
                       quant_recommendations,
                       build_command, build_adetailer_command,
-                      build_seedvr2_command)
+                      build_seedvr2_command,
+                      PID, pid_status, pid_backbone_for_arch,
+                      build_pid_command)
 
 try:
     from PIL import Image, PngImagePlugin
@@ -244,6 +246,81 @@ class RegistryFeatureTests(unittest.TestCase):
         self.assertIn("denoising_strength=0.4", "".join(cmd))
         self.assertIn("-i", cmd) and self.assertIn("in.png", cmd)
 
+    def test_pid_status_missing_files(self):
+        with patch.object(registry, "PID_DIR", Path("/nonexistent-lis")):
+            st = pid_status()
+            self.assertFalse(st["downloaded"])
+            self.assertEqual(st["ready_backbones"], [])
+            self.assertFalse(st["shared"]["ready"])
+            for bb in st["backbones"].values():
+                self.assertFalse(bb["ready"])
+
+    def test_pid_status_with_fake_weights(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            gemma = tmp / PID["gemma"]["dest_name"]
+            tok = tmp / PID["tokenizer"]["dest_name"]
+            model = tmp / PID["backbones"]["flux1"]["filename"]
+            gemma.write_bytes(b"g" * 64)
+            tok.write_bytes(b"t" * 64)
+            model.write_bytes(b"m" * 64)
+            flux_vae = Path(DEPS["vae_flux"]["dest"])
+            flux_vae.parent.mkdir(parents=True, exist_ok=True)
+            created_vae = not flux_vae.exists()
+            if created_vae:
+                flux_vae.write_bytes(b"v" * 64)
+            try:
+                with patch.object(registry, "PID_DIR", tmp), \
+                     patch.object(registry, "PID_GEMMA_MIN_BYTES", 1), \
+                     patch.object(registry, "PID_TOKENIZER_MIN_BYTES", 1), \
+                     patch.object(registry, "PID_MODEL_MIN_BYTES", 1), \
+                     patch.object(registry, "PID_VAE_MIN_BYTES", 1):
+                    st = pid_status()
+                    self.assertTrue(st["downloaded"])
+                    self.assertIn("flux1", st["ready_backbones"])
+                    self.assertTrue(st["backbones"]["flux1"]["ready"])
+                    self.assertFalse(st["backbones"]["flux2"]["ready"])
+            finally:
+                if created_vae:
+                    flux_vae.unlink(missing_ok=True)
+
+    def test_pid_arch_mapping(self):
+        self.assertEqual(pid_backbone_for_arch("flux"), "flux1")
+        self.assertEqual(pid_backbone_for_arch("flux_kontext"), "flux1")
+        self.assertEqual(pid_backbone_for_arch("chroma"), "flux1")
+        self.assertEqual(pid_backbone_for_arch("zimage"), "flux1")
+        self.assertEqual(pid_backbone_for_arch("flux2"), "flux2")
+        self.assertEqual(pid_backbone_for_arch("qwen_image"), "qwenimage")
+        self.assertIsNone(pid_backbone_for_arch("sd3"))
+        self.assertIsNone(pid_backbone_for_arch(None))
+
+    def test_pid_vae_deps_exist(self):
+        for bb in PID["backbones"].values():
+            self.assertIn(bb["vae_dep"], DEPS)
+
+    def test_pid_tokenizer_source_is_not_gated(self):
+        # Le tokenizer Gemma 2 provient du miroir non-gated unsloth (le dépôt
+        # officiel google/gemma-2-2b est gated).
+        self.assertEqual(PID["tokenizer"]["repo"], "unsloth/gemma-2-2b-it")
+        self.assertEqual(PID["gemma"]["repo"], "Comfy-Org/PixelDiT")
+
+    def test_build_pid_command(self):
+        cmd = build_pid_command("/bin/sd-cli", "in.png", "out.png",
+                                "/fake/pid.safetensors", "/fake/gemma.safetensors",
+                                "/fake/tokenizer_gemma2.json", "/fake/ae.safetensors",
+                                "flux", "un chat", seed=7)
+        self.assertEqual(cmd[cmd.index("--diffusion-model") + 1], "/fake/pid.safetensors")
+        self.assertEqual(cmd[cmd.index("--llm") + 1], "/fake/gemma.safetensors")
+        self.assertEqual(cmd[cmd.index("--tokenizer") + 1], "/fake/tokenizer_gemma2.json")
+        self.assertEqual(cmd[cmd.index("--vae-format") + 1], "flux")
+        self.assertEqual(cmd[cmd.index("-r") + 1], "in.png")
+        self.assertEqual(cmd[cmd.index("-p") + 1], "un chat")
+        self.assertEqual(cmd[cmd.index("--steps") + 1], "4")
+        self.assertEqual(cmd[cmd.index("-H") + 1], "4096")
+        self.assertEqual(cmd[cmd.index("-W") + 1], "4096")
+        self.assertEqual(cmd[cmd.index("-s") + 1], "7")
+        self.assertEqual(cmd[cmd.index("-o") + 1], "out.png")
+
     def test_build_seedvr2_command(self):
         cmd = build_seedvr2_command("/bin/sd-cli", "in.png", "out.png",
                                     "/fake/seedvr2.safetensors",
@@ -264,12 +341,14 @@ class EngineKindTests(unittest.TestCase):
         self.assertEqual(engine.TaskManager._kind_of({"task_kind": "upscale"}), "upscale")
         self.assertEqual(engine.TaskManager._kind_of({"task_kind": "repair"}), "repair")
         self.assertEqual(engine.TaskManager._kind_of({"task_kind": "restore_x2"}), "restore_x2")
+        self.assertEqual(engine.TaskManager._kind_of({"task_kind": "pid"}), "pid")
         self.assertEqual(engine.TaskManager._kind_of({}), "generate")
         self.assertEqual(engine.TaskManager._kind_of({"task_kind": "autre"}), "generate")
 
     def test_queue_summaries_for_new_kinds(self):
         for kind, model_name_part in (("repair", "🙂"),
-                                      ("restore_x2", "SeedVR2")):
+                                      ("restore_x2", "SeedVR2"),
+                                      ("pid", "PiD")):
             item = engine.tasks._build_queue_item(
                 {"task_kind": kind, "source_image": "output/foo.png",
                  "detector_id": "face_yolov8n"})
@@ -314,8 +393,10 @@ class FeatureApiTests(unittest.TestCase):
         r = self.client.get("/api/quality-info")
         self.assertEqual(r.status_code, 200)
         j = r.get_json()
-        for key in ("seedvr2", "taesd", "pulid", "quant_recommendations", "vram_gb"):
+        for key in ("seedvr2", "taesd", "pulid", "pid", "quant_recommendations", "vram_gb"):
             self.assertIn(key, j)
+        self.assertIn("backbones", j["pid"])
+        self.assertIn("status", j["pid"])
         self.assertEqual(len(j["taesd"]), 2)
         self.assertIn("status", j["pulid"])
 
@@ -370,6 +451,80 @@ class FeatureApiTests(unittest.TestCase):
             r = self.client.post("/api/restore-x2", json={"path": "image.png"})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(captured["params"]["task_kind"], "restore_x2")
+
+    def test_pid_upscale_requires_install(self):
+        with patch.object(app, "pid_status",
+                          lambda: {"downloaded": False,
+                                   "ready_backbones": [],
+                                   "shared": {"ready": False},
+                                   "backbones": {bb: {"ready": False} for bb in PID["backbones"]}}):
+            r = self.client.post("/api/pid-upscale", json={"path": "x.png"})
+        self.assertEqual(r.status_code, 400)
+
+    def test_pid_upscale_rejects_unknown_backbone(self):
+        fake = {"downloaded": True, "ready_backbones": ["flux1"],
+                "shared": {"ready": True},
+                "backbones": {bb: {"ready": bb == "flux1"} for bb in PID["backbones"]}}
+        with patch.object(app, "pid_status", lambda: fake):
+            r = self.client.post("/api/pid-upscale", json={"path": "x.png", "backbone": "nope"})
+            self.assertEqual(r.status_code, 400)
+            r = self.client.post("/api/pid-upscale", json={"path": "x.png", "backbone": "flux2"})
+            self.assertEqual(r.status_code, 400)
+
+    def test_pid_upscale_happy_path(self):
+        (self.output / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 4096)
+        fake = {"downloaded": True, "ready_backbones": ["flux1"],
+                "shared": {"ready": True},
+                "backbones": {bb: {"ready": bb == "flux1",
+                                   "model": bb == "flux1", "vae": bb == "flux1",
+                                   "vae_dep": "vae_flux"} for bb in PID["backbones"]}}
+        captured = {}
+
+        def fake_enqueue(params):
+            captured["params"] = dict(params)
+            return {"queued": True, "position": 1}
+
+        img_id = db.add_image(batch_id="b", idx=0, model_id="flux-schnell",
+                              model_name="FLUX.1 Schnell", quant="Q4_K_M",
+                              prompt="un chat", negative="", seed=42,
+                              width=1024, height=1024, steps=4, cfg=1.0,
+                              sampler="euler", filename="image.png",
+                              batch_size=1, gen_time=1.0)
+
+        # 1) via image_id (image présente dans l'historique)
+        with patch.object(app, "pid_status", lambda: fake), \
+             patch.object(engine.tasks, "enqueue_generate", fake_enqueue), \
+             patch.object(app.tasks, "enqueue_generate", fake_enqueue):
+            r = self.client.post("/api/pid-upscale",
+                                 json={"image_id": img_id})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(captured["params"]["task_kind"], "pid")
+        self.assertEqual(captured["params"]["image_id"], img_id)
+
+        # 2) via path direct (sans image_id)
+        captured.clear()
+        with patch.object(app, "pid_status", lambda: fake), \
+             patch.object(engine.tasks, "enqueue_generate", fake_enqueue), \
+             patch.object(app.tasks, "enqueue_generate", fake_enqueue):
+            r = self.client.post("/api/pid-upscale", json={"path": "image.png"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(captured["params"]["task_kind"], "pid")
+        self.assertEqual(captured["params"]["source_image"], "output/image.png")
+
+    def test_download_pid_rejects_unknown_backbone(self):
+        r = self.client.post("/api/download-pid", json={"backbone": "nope"})
+        self.assertEqual(r.status_code, 400)
+
+    def test_download_pid_happy_path(self):
+        captured = {}
+
+        def fake_start(backbone):
+            captured["backbone"] = backbone
+
+        with patch.object(app.tasks, "start_pid_download", fake_start):
+            r = self.client.post("/api/download-pid", json={"backbone": "flux1"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(captured["backbone"], "flux1")
 
     def test_image_meta_rejects_garbage(self):
         data = {"image": (io.BytesIO(b"pas un png du tout"), "fake.png")}

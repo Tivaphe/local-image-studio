@@ -33,7 +33,7 @@ function startPolling() {
       if (fill) fill.style.width = pct + '%';
       if (text) text.textContent = j.log || (j.busy ? 'en cours…' : 'termine');
       // desactive les boutons pendant la tache
-      document.querySelectorAll('.dl-btn, .dl-upscale-btn, .dl-ad-btn, .dl-seedvr2-btn, .dl-taesd-btn, .dl-pulid-btn, #install-engine')
+      document.querySelectorAll('.dl-btn, .dl-upscale-btn, .dl-ad-btn, .dl-seedvr2-btn, .dl-taesd-btn, .dl-pulid-btn, .dl-pid-btn, #install-engine')
         .forEach(b => b.disabled = true);
       if (!j.busy) {
         clearInterval(taskTimer); taskTimer = null;
@@ -152,6 +152,34 @@ $$('.dl-ad-btn').forEach(btn => {
       const r = await fetch('/api/download-adetailer', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ detector_id: did })
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        btn.disabled = false;
+        btn.textContent = 'Télécharger';
+        alert(j.error || 'Erreur');
+        return;
+      }
+      startPolling();
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Télécharger';
+      alert('Connexion au serveur impossible : ' + e.message);
+    }
+  });
+});
+
+// --- Boutons : telecharger PiD (socle commun non-gated + backbone int8) ---
+$$('.dl-pid-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const backbone = btn.dataset.backbone;
+    btn.disabled = true;
+    btn.textContent = 'en cours…';
+    showBanner('Téléchargement de PiD (' + backbone + ')…');
+    try {
+      const r = await fetch('/api/download-pid', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ backbone })
       });
       const j = await r.json();
       if (!j.ok) {

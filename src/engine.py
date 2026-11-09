@@ -20,7 +20,7 @@ from pathlib import Path
 from urllib.request import urlopen, Request
 
 from config import (ROOT, BIN_DIR, DIFFUSION_DIR, OUTPUT_DIR, UPSCALE_DIR,
-                    ADETAILER_DIR, SEEDVR2_DIR, TAESD_DIR, PREVIEW_DIR,
+                    ADETAILER_DIR, SEEDVR2_DIR, TAESD_DIR, PREVIEW_DIR, PID_DIR,
                     find_sd_cli)
 from registry import (MODELS, DEPS, DEP_QUANT_PRIORITY, resolve_dep_gguf,
                       load_manifest, save_manifest, build_command, _dep_path,
@@ -30,7 +30,10 @@ from registry import (MODELS, DEPS, DEP_QUANT_PRIORITY, resolve_dep_gguf,
                       SEEDVR2, seedvr2_paths, seedvr2_status,
                       TAESD, taesd_path, taesd_status, taesd_for_model,
                       PULID, pulid_weights_path, pulid_status,
-                      portrait_embedding, supports_pulid, round16)
+                      portrait_embedding, supports_pulid, round16,
+                      PID, pid_status, pid_gemma_path, pid_tokenizer_path,
+                      pid_model_path, pid_vae_path, pid_backbone_for_arch,
+                      pid_default_prompt, build_pid_command)
 import metadata as _pngmeta
 
 
@@ -297,6 +300,46 @@ def download_seedvr2(token, msg_cb=None):
         _hf_download_file(SEEDVR2["repo"], info["filename"], dest, token, msg_cb)
 
 
+def download_pid(backbone, token, msg_cb=None):
+    """Télécharge le nécessaire pour PiD (une fois) : socle commun Gemma 2 2B
+    (encodeur bf16 + tokenizer non-gated) puis le modèle int8 du backbone choisi
+    + son VAE (réutilise le dépôt déjà utilisé par les modèles de la famille)."""
+    if backbone not in PID["backbones"]:
+        raise ValueError(f"Backbone PiD inconnu : {backbone}")
+    PID_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 1) Socle commun (une seule fois, partagé par les 3 backbones)
+    gemma = PID["gemma"]
+    gemma_dest = pid_gemma_path()
+    if not (gemma_dest.exists() and gemma_dest.stat().st_size > 1024 * 1024 * 1024):
+        if msg_cb:
+            msg_cb(f"Téléchargement PiD — encodeur Gemma 2 2B bf16 (~{gemma['size_mb']} Mo, ~5 Go)…")
+        _hf_download_file(gemma["repo"], gemma["filename"], gemma_dest, token, msg_cb)
+
+    tok = PID["tokenizer"]
+    tok_dest = pid_tokenizer_path()
+    if not (tok_dest.exists() and tok_dest.stat().st_size > 1024 * 1024):
+        if msg_cb:
+            msg_cb(f"Téléchargement PiD — tokenizer Gemma 2 (miroir non-gated {tok['repo']}, ~{tok['size_mb']} Mo)…")
+        _hf_download_file(tok["repo"], tok["filename"], tok_dest, token, msg_cb)
+
+    # 2) Modèle PiD 1.5 du backbone (int8_convrot, 1024→4096, 4 étapes)
+    bb = PID["backbones"][backbone]
+    model_dest = pid_model_path(backbone)
+    if not (model_dest.exists() and model_dest.stat().st_size > 512 * 1024 * 1024):
+        if msg_cb:
+            msg_cb(f"Téléchargement PiD — {bb['filename']} (~{bb['size_mb']} Mo)…")
+        _hf_download_file(PID["repo"], bb["repo_filename"], model_dest, token, msg_cb)
+
+    # 3) VAE du backbone (réutilise DEPS ; best effort : souvent déjà installé)
+    try:
+        ensure_dep(bb["vae_dep"], token, msg_cb)
+    except Exception as e:
+        if msg_cb:
+            msg_cb(f"⚠️ VAE « {bb['vae_dep']} » non téléchargé ({e}). "
+                   "Installez d'abord le modèle correspondant dans l'onglet Modèles.")
+
+
 def download_taesd(ta_id, token, msg_cb=None):
     """Télécharge un mini-VAE TAE (~2 Mo) depuis Hugging Face."""
     t = TAESD[ta_id]
@@ -514,6 +557,27 @@ class TaskManager:
         self._thread = t
         t.start()
 
+    def start_pid_download(self, backbone):
+        """Télécharge le socle PiD (Gemma 2 2B + tokenizer, une seule fois) puis
+        le modèle int8 du backbone choisi (~1,6 Go) + son VAE."""
+        if backbone not in PID["backbones"]:
+            raise RuntimeError(f"Backbone PiD inconnu : {backbone}")
+        if self.is_busy():
+            raise RuntimeError("Une tâche est déjà en cours.")
+        token = hf_token()
+        self._reset("download")
+
+        def work():
+            def msg(s):
+                self._set(log=s)
+            download_pid(backbone, token, msg_cb=msg)
+            self._set(log=f"PiD ({backbone}) installé ✓", progress=1.0, done=True, busy=False,
+                      result={"type": "download", "pid": backbone})
+
+        t = threading.Thread(target=self._safe_aux_run, args=(work,), daemon=True)
+        self._thread = t
+        t.start()
+
     def start_taesd_download(self, ta_id):
         """Télécharge un mini-VAE TAE (~2 Mo, quasi instantané)."""
         if ta_id not in TAESD:
@@ -636,6 +700,24 @@ class TaskManager:
                 },
                 "created_at": time.time(),
             }
+        if params.get("task_kind") == "pid":
+            bb = (params.get("backbone") or "").strip() or "auto"
+            bb_label = (PID.get("backbones", {}).get(bb, {}) or {}).get("label", bb)
+            src_name = Path(params.get("source_image") or "?").name
+            return {
+                "queue_id": uuid.uuid4().hex[:8],
+                "params": dict(params),
+                "summary": {
+                    "model_id": f"pid_{bb}",
+                    "model_name": f"⬆️ PiD ×4 ({bb_label})",
+                    "quant": "×4",
+                    "prompt": f"Super-résolution PiD de {src_name}",
+                    "batch": 1,
+                    "width": 4096,
+                    "height": 4096,
+                },
+                "created_at": time.time(),
+            }
         return {
             "queue_id": uuid.uuid4().hex[:8],
             "params": dict(params),
@@ -683,7 +765,7 @@ class TaskManager:
     @staticmethod
     def _kind_of(params):
         tk = params.get("task_kind")
-        if tk in ("upscale", "repair", "restore_x2"):
+        if tk in ("upscale", "repair", "restore_x2", "pid"):
             return tk
         return "generate"
 
@@ -706,6 +788,8 @@ class TaskManager:
                 self._run_repair(current_params)
             elif tk == "restore_x2":
                 self._run_seedvr2(current_params)
+            elif tk == "pid":
+                self._run_pid(current_params)
             else:
                 self._run_generate(current_params)
             with self._lock:
@@ -1571,6 +1655,183 @@ class TaskManager:
         except Exception as e:
             self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
                       result={"type": "restore_x2", "images": [], "error": str(e),
+                              "cancelled": False})
+
+    def _run_pid(self, p):
+        try:
+            import db
+            st = pid_status()
+            if not st["downloaded"]:
+                raise RuntimeError(
+                    "PiD n'est pas installé. Ouvrez l'onglet Modèles → section "
+                    "« ⬆️ PiD ×4 » (socle commun ~5,4 Go + ~1,6 Go par backbone).")
+            sd = find_sd_cli()
+            if not sd:
+                raise RuntimeError("Le moteur sd-cli n'est pas installé. Allez dans l'onglet Modèles.")
+            src_rel = p.get("source_image")
+            src = (ROOT / src_rel) if src_rel else None
+            if not src or not src.exists():
+                raise RuntimeError("Image source introuvable sur le disque.")
+
+            # --- Retrouve l'image d'origine dans l'historique (prompt + famille) ---
+            img_id = p.get("image_id")
+            src_image = None
+            if img_id not in (None, ""):
+                try:
+                    src_image = db.get_image(int(img_id))
+                except Exception:
+                    src_image = None
+
+            # --- Choix du backbone : explicite > famille du modèle source > premier dispo ---
+            backbone = (p.get("backbone") or "").strip()
+            if backbone and backbone not in PID["backbones"]:
+                raise RuntimeError(f"Backbone PiD inconnu : {backbone}")
+            ready = st["ready_backbones"]
+            if backbone:
+                if not st["backbones"][backbone]["ready"]:
+                    bb = st["backbones"][backbone]
+                    missing = []
+                    if not st["shared"]["ready"]:
+                        missing.append("socle commun (Gemma 2 2B + tokenizer)")
+                    if not bb["model"]:
+                        missing.append("modèle int8 du backbone")
+                    if not bb["vae"]:
+                        missing.append(f"VAE « {bb['vae_dep']} »")
+                    raise RuntimeError(
+                        "PiD (" + backbone + ") n'est pas complet : il manque "
+                        + ", ".join(missing) + ". Ouvrez l'onglet Modèles → « ⬆️ PiD ×4 ».")
+            else:
+                arch = None
+                if src_image:
+                    src_model = MODELS.get(src_image.get("model_id") or "")
+                    arch = (src_model or {}).get("arch")
+                pref = pid_backbone_for_arch(arch)
+                backbone = pref if (pref and pref in ready) else (ready[0] if ready else None)
+                if not backbone:
+                    raise RuntimeError(
+                        "Aucun backbone PiD utilisable n'est installé. Ouvrez l'onglet Modèles → « ⬆️ PiD ×4 ».")
+
+            bb = PID["backbones"][backbone]
+            vae_path = pid_vae_path(backbone)
+            if not vae_path or not vae_path.exists() or vae_path.stat().st_size < 1024 * 1024:
+                raise RuntimeError(
+                    f"VAE requis introuvable : {vae_path}. Relancez le téléchargement « ⬆️ PiD ×4 » "
+                    "dans l'onglet Modèles (ou installez le modèle de la famille correspondante).")
+
+            # --- Prompt : celui de l'image source (historique) sinon défaut qualité ---
+            prompt = (p.get("prompt") or "").strip()
+            if not prompt and src_image:
+                prompt = (src_image.get("prompt") or "").strip()
+            if not prompt:
+                prompt = pid_default_prompt()
+
+            seed = p.get("seed") or 42
+            try:
+                seed = int(seed)
+            except (TypeError, ValueError):
+                seed = 42
+
+            out_size = int(PID.get("output_size") or 4096)
+            stem = re.sub(r"[^a-zA-Z0-9_]", "_", src.stem.lower())[:40] or "image"
+            out_name = f"pid_{backbone}_{stem}_{uuid.uuid4().hex[:6]}.png"
+            out_path = OUTPUT_DIR / out_name
+            cmd = build_pid_command(str(sd), str(src), str(out_path),
+                                    pid_model_path(backbone), pid_gemma_path(),
+                                    pid_tokenizer_path(), vae_path,
+                                    bb["vae_format"], prompt, seed=seed,
+                                    width=out_size, height=out_size)
+
+            self._set(log=f"⬆️ PiD ×4 de « {src.name} » ({bb['label']}, 4 étapes, sortie {out_size}×{out_size})…",
+                      progress=0.02, step=0, total_steps=0, error=None, done=False)
+
+            creationflags = 0
+            if os.name == "nt":
+                creationflags = subprocess.CREATE_NO_WINDOW
+            t_start = time.time()
+            self._proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace",
+                bufsize=1, creationflags=creationflags)
+
+            step_re = re.compile(r"step\s+(\d+)\s+(?:of|/)\s+(\d+)", re.I)
+            pct_re = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+            last_lines = []
+            for line in self._proc.stdout:
+                if self._cancel:
+                    break
+                line = line.rstrip()
+                if not line:
+                    continue
+                last_lines.append(line)
+                last_lines = last_lines[-400:]
+                prog = self.state.get("progress", 0.0)
+                sm = step_re.search(line)
+                if sm:
+                    s, tot = int(sm.group(1)), int(sm.group(2))
+                    self._set(step=s, total_steps=tot,
+                              progress=min(1.0, s / max(1, tot)),
+                              log=line, elapsed=time.time() - t_start)
+                else:
+                    pm = pct_re.search(line)
+                    if pm:
+                        prog = max(prog, float(pm.group(1)) / 100.0)
+                    self._set(log=line, progress=prog, elapsed=time.time() - t_start)
+
+            ret_code = self._proc.wait()
+            self._proc = None
+            total_seconds = time.time() - t_start
+
+            if self._cancel:
+                out_path.unlink(missing_ok=True)
+                self._set(log="PiD annulée.", done=True, busy=False,
+                          result={"type": "pid", "cancelled": True, "images": []})
+                return
+
+            def _err_summary():
+                err_lines = [l for l in last_lines if any(k in l.lower() for k in (
+                    "error", "exception", "failed", "unknown", "invalid", "cuda", "cannot", "abort"))]
+                if err_lines:
+                    return "\n".join(err_lines[-6:])
+                return "\n".join(last_lines[-8:]) if last_lines else "Aucun message du moteur."
+
+            if ret_code != 0:
+                raise RuntimeError(
+                    f"Le moteur sd-cli s'est arrêté avec le code d'erreur {ret_code} :\n"
+                    f"{_err_summary()}\n\n💡 PiD décode en {out_size}×{out_size} (pixel-space) : "
+                    "si la VRAM est insuffisante, utilisez plutôt 🩹 Restaurer ×2 (SeedVR2) ou 🔍 Agrandir ×4.")
+            if not out_path.exists() or out_path.stat().st_size < 16 * 1024:
+                raise RuntimeError(
+                    f"Aucune image PiD n'a été produite :\n{_err_summary()}")
+
+            try:
+                txt = _pngmeta.build_webui_text(
+                    prompt=prompt, negative="",
+                    steps=4, cfg=1.0, seed=seed, sampler="pid",
+                    model_id=f"pid_{backbone}")
+                _pngmeta.embed_params(out_path, txt, only_if_missing=True)
+            except Exception:
+                pass
+
+            out_dims = _png_size(out_path) or (out_size, out_size)
+            image_id = db.add_image(
+                batch_id=uuid.uuid4().hex, idx=0,
+                model_id=f"pid_{backbone}", model_name=f"⬆️ PiD ×4 ({bb['label']})",
+                quant="×4", prompt=prompt,
+                negative="", seed=seed,
+                width=out_dims[0], height=out_dims[1],
+                steps=4, cfg=1.0, sampler="pid", filename=out_name, batch_size=1,
+                gen_time=round(total_seconds, 1), source_images=[src_rel])
+            self._set(log=f"PiD ×4 terminée ✓ ({src.name} → {bb['label']}) en {total_seconds:.1f}s",
+                      progress=1.0, done=True, busy=False, error=None,
+                      result={"type": "pid",
+                              "backbone": backbone,
+                              "images": [{"url": f"/output/{out_name}", "filename": out_name,
+                                          "seed": seed, "id": image_id,
+                                          "upscaled": True, "scale": 4}],
+                              "cancelled": False})
+        except Exception as e:
+            self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
+                      result={"type": "pid", "images": [], "error": str(e),
                               "cancelled": False})
 
 

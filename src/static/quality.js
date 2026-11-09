@@ -579,6 +579,70 @@
     return btn;
   };
 
+  // ------------------------------------------------------------------ //
+  //  Super-résolution générative PiD ×4 (POST /api/pid-upscale, NVIDIA PiD)
+  // ------------------------------------------------------------------ //
+  Q.startPid = async function ({ imageId = null, path = null, backbone = null } = {}) {
+    const body = {};
+    if (imageId != null) body.image_id = imageId;
+    if (path) body.path = path;
+    if (backbone) body.backbone = backbone;
+    let j;
+    try {
+      const r = await fetch("/api/pid-upscale", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      j = await r.json();
+    } catch (e) {
+      if (window.showToast) window.showToast("❌ Connexion au serveur impossible : " + e.message);
+      return false;
+    }
+    if (!j.ok) {
+      if (window.showToast) window.showToast("❌ " + (j.error || "PiD impossible."));
+      return false;
+    }
+    if (j.queued) {
+      if (window.showToast) {
+        window.showToast(`⏳ PiD ajouté à la file d'attente (position #${j.position}).`);
+      }
+    } else if (window.showToast) {
+      window.showToast("⬆️ PiD ×4 en cours (sortie 4096×4096, 4 étapes — reconstruit les détails, prompt repris de l'image)…");
+    }
+    ensurePolling();
+    return true;
+  };
+
+  Q.makePidButton = function ({ imageId = null, path = null, backbone = null } = {}) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn small pid-mini";
+    btn.textContent = "⬆️ PiD ×4";
+    btn.title =
+      "Super-résolution générative PiD (NVIDIA Pixel Diffusion) : ré-encode l'image avec le VAE " +
+      "du backbone puis la décode en 4096×4096 en 4 étapes. Contrairement à SeedVR2, elle est " +
+      "conditionnée par le prompt de l'image (repris automatiquement depuis l'historique). " +
+      "Backbone choisi automatiquement selon la famille du modèle source (FLUX.1 / FLUX.2 / " +
+      "Qwen-Image) — ou forcez-le via backbone. Licence NSCLv1 (non-commerciale). " +
+      "La grande version est enregistrée dans l'historique.";
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "⬆️ pid…";
+      Q._doneCbs.push(() => {
+        btn.disabled = false;
+        btn.textContent = "⬆️ PiD ×4";
+      });
+      const ok = await Q.startPid({ imageId, path, backbone });
+      if (!ok) {
+        Q._doneCbs.pop();
+        btn.disabled = false;
+        btn.textContent = "⬆️ PiD ×4";
+      }
+    });
+    return btn;
+  };
+
   // Fabrique un bouton « 🔍 Agrandir ×4 » prêt à poser sur une carte image.
   Q.makeUpscaleButton = function ({ imageId = null, path = null } = {}) {
     const btn = document.createElement("button");
@@ -619,6 +683,8 @@
         window.showToast("🙂 Visages & mains réparés ✓ — enregistré dans l'historique.");
       } else if (kind === "restore_x2") {
         window.showToast("🩹 Restauration ×2 terminée ✓ — enregistré dans l'historique.");
+      } else if (kind === "pid") {
+        window.showToast("⬆️ PiD ×4 terminée ✓ — enregistré dans l'historique.");
       } else {
         const sc = images[0].scale || 4;
         const w = images[0].width ? ` (${images[0].width}×${images[0].height || "?"})` : "";
