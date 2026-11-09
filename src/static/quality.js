@@ -444,6 +444,7 @@
       if (window.showToast) window.showToast("❌ " + (j.error || "Agrandissement impossible."));
       return false;
     }
+    window.__lisAwaitToken = j.task_token || null;
     if (j.queued) {
       if (window.showToast) {
         window.showToast(`⏳ Agrandissement ajouté à la file d'attente (position #${j.position}).`);
@@ -485,6 +486,7 @@
       if (window.showToast) window.showToast("❌ " + (j.error || "Réparation impossible."));
       return false;
     }
+    window.__lisAwaitToken = j.task_token || null;
     if (j.queued) {
       if (window.showToast) window.showToast(`⏳ Réparation ajoutée à la file d'attente (position #${j.position}).`);
     } else if (window.showToast) {
@@ -545,6 +547,7 @@
       if (window.showToast) window.showToast("❌ " + (j.error || "Restauration impossible."));
       return false;
     }
+    window.__lisAwaitToken = j.task_token || null;
     if (j.queued) {
       if (window.showToast) window.showToast(`⏳ Restauration ajoutée à la file d'attente (position #${j.position}).`);
     } else if (window.showToast) {
@@ -603,6 +606,7 @@
       if (window.showToast) window.showToast("❌ " + (j.error || "PiD impossible."));
       return false;
     }
+    window.__lisAwaitToken = j.task_token || null;
     if (j.queued) {
       if (window.showToast) {
         window.showToast(`⏳ PiD ajouté à la file d'attente (position #${j.position}).`);
@@ -706,11 +710,17 @@
         const r = await fetch("/api/status");
         const j = await r.json();
         if (j.busy) return;
+        const expected = window.__lisAwaitToken || null;
+        if (expected && j.task_token && j.task_token !== expected) return; // une autre tâche a fini entre-temps
         clearInterval(Q._poll);
         Q._poll = null;
+        window.__lisAwaitToken = null;
         const type = j.result && j.result.type;
-        if (j.result && ["upscale", "repair", "restore_x2"].includes(type)) {
+        if (j.result && ["upscale", "repair", "restore_x2", "pid"].includes(type)) {
           if (j.result.error || !(j.result.images || []).length) {
+            if (window.showToast && j.result.error) {
+              window.showToast("❌ " + String(j.result.error).split("\n")[0].slice(0, 160));
+            }
             Q._done([], type);
             return;
           }

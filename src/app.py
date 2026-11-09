@@ -274,6 +274,7 @@ def api_status():
         "queue": snap.get("queue", []),
         "queue_size": snap.get("queue_size", 0),
         "preview_batch_id": snap.get("preview_batch_id"),
+        "task_token": snap.get("task_token"),
     })
 
 

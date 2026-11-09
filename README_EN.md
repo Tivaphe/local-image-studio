@@ -194,6 +194,12 @@ section with a clear explanation for every option:
 | **⚙️ VAE Tiling** | Tiled VAE decode — saves VRAM on large images | Expert settings |
 | **⚙️ SLG (Skip Layer Guidance)** | Better prompt adherence on DiT models (recommended: 3) | Expert settings |
 
+> 💡 **Live progress** : on the **History** page, every operation launched on an existing image
+> ("🙂 Réparer" / repair, "🩹 Restaurer ×2", "🔍 Agrandir ×4", "⬆️ PiD ×4") shows a **real-time
+> progress banner**: running or **queued** operation (with position), percentage, step x/y,
+> elapsed time, latest sd-cli log line, and the **full error message** on failure —
+> no more buttons stuck on "running…" with zero feedback.
+
 Upscaler models (17–64 MB) and ADetailer detectors (6–22 MB) download in **one click** from the
 dedicated sections at the bottom of the **Models** page.
 

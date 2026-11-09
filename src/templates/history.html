@@ -34,6 +34,17 @@
 
   <p class="muted">{{ count }} image(s) au total · enregistrées dans <code>output/</code> · 300 entrées les plus récentes affichées · les images ⭐ sont protégées contre la suppression</p>
 
+  <!-- Bandeau de suivi en direct des opérations auxiliaires (🔍⬆️🙂🩹) -->
+  <div id="aux-banner" class="banner" hidden>
+    <div class="banner-line">
+      <strong id="aux-title">Opération en cours…</strong>
+      <button type="button" class="btn small ghost" id="aux-cancel" title="Annuler l'opération en cours">✕ Annuler</button>
+    </div>
+    <div class="progress-bar" style="margin-top:8px"><div id="aux-fill"></div></div>
+    <div class="banner-meta"><span id="aux-detail">démarrage…</span><span id="aux-elapsed"></span></div>
+    <div class="banner-detail" id="aux-log" title="Dernière ligne du moteur sd-cli"></div>
+  </div>
+
   {% if images %}
   <div class="gallery" id="history-gallery">
     {% for im in images %}
@@ -124,6 +135,217 @@
 
 <script src="{{ url_for('static', filename='quality.js') }}"></script>
 <script>
+// --- Suivi en direct des opérations auxiliaires (upscale / repair / restore / pid) ---
+const AUX_META = {
+  upscale:    { icon: '🔍', label: 'Agrandissement ×4' },
+  repair:     { icon: '🙂', label: 'Réparation visages & mains' },
+  restore_x2: { icon: '🩹', label: 'Restauration ×2 (SeedVR2)' },
+  pid:        { icon: '⬆️', label: 'PiD ×4 (super-résolution générative)' },
+};
+const auxBanner  = document.getElementById('aux-banner');
+const auxTitle   = document.getElementById('aux-title');
+const auxFill    = document.getElementById('aux-fill');
+const auxDetail  = document.getElementById('aux-detail');
+const auxElapsed = document.getElementById('aux-elapsed');
+const auxLog     = document.getElementById('aux-log');
+const auxCancel  = document.getElementById('aux-cancel');
+let auxTimer = null;
+let auxAmbiguousPolls = 0;   // compteur de polls « introuvable côté serveur »
+
+const auxExpected = () => window.__lisAwaitToken || null;
+
+function fmtElapsed(s) {
+  s = Math.max(0, Math.floor(Number(s) || 0));
+  const m = Math.floor(s / 60);
+  return (m > 0 ? m + 'min ' : '') + String(s % 60).padStart(2, '0') + 's';
+}
+
+function auxSetMode(kind, mode, queuedPos) {
+  const meta = AUX_META[kind] || { icon: '⚙️', label: kind };
+  auxBanner.hidden = false;
+  auxBanner.classList.toggle('ok', mode === 'ok');
+  auxBanner.classList.toggle('error', mode === 'error');
+  if (mode === 'run') {
+    auxTitle.textContent = meta.icon + ' ' + meta.label + ' — en cours…';
+    auxCancel.hidden = false;
+    auxCancel.textContent = '✕ Annuler';
+    auxCancel.title = "Annuler l'opération en cours";
+  } else if (mode === 'queued') {
+    auxTitle.textContent = meta.icon + ' ' + meta.label + ' — en file d’attente';
+    auxCancel.hidden = false;
+    auxCancel.textContent = '✕ Retirer de la file';
+    auxCancel.title = "Retirer cette opération de la file d'attente";
+  } else if (mode === 'ok') {
+    auxTitle.textContent = '✅ ' + meta.label + ' terminée';
+    auxCancel.hidden = false;
+    auxCancel.textContent = 'Fermer';
+    auxCancel.title = 'Masquer ce bandeau';
+  } else if (mode === 'error') {
+    auxTitle.textContent = '❌ ' + meta.label + ' — échec';
+    auxCancel.hidden = false;
+    auxCancel.textContent = 'Fermer';
+    auxCancel.title = 'Masquer ce bandeau';
+  }
+}
+
+function auxFinish() {           // arrête le poll et réinitialise l'état du bouton
+  clearInterval(auxTimer);
+  auxTimer = null;
+  auxAmbiguousPolls = 0;
+  window.__lisAwaitToken = null;
+}
+
+function auxFinalize(j) {
+  const res = j.result || {};
+  const type = AUX_META[res.type] ? res.type : null;
+  if (type && res.error) {
+    auxSetMode(type, 'error');
+    auxFill.style.width = '0%';
+    auxDetail.textContent = 'Le moteur sd-cli a renvoyé une erreur (la tâche est terminée).';
+    auxElapsed.textContent = j.elapsed ? fmtElapsed(j.elapsed) : '';
+    auxLog.textContent = String(res.error);
+    if (window.showToast) window.showToast('❌ ' + type + ' — échec, détail dans le bandeau.');
+    if (window.LisQuality) window.LisQuality._done([], type); // réactive les boutons
+  } else if (type && res.cancelled) {
+    auxBanner.hidden = true;
+    if (window.showToast) window.showToast('Opération annulée.');
+    if (window.LisQuality) window.LisQuality._done([], type);
+  } else if (type) {
+    auxSetMode(type, 'ok');
+    auxFill.style.width = '100%';
+    auxDetail.textContent = 'Terminée — enregistrement dans l’historique…';
+    auxElapsed.textContent = j.elapsed ? fmtElapsed(j.elapsed) : '';
+    auxLog.textContent = String(j.log || '');
+    if (window.LisQuality) window.LisQuality._done(res.images || [], type); // → toast + reload
+  } else {
+    auxBanner.hidden = true;
+    if (window.LisQuality) window.LisQuality._done([], null);
+  }
+  auxFinish();
+}
+
+function auxGiveUp() {
+  auxBanner.hidden = true;
+  if (window.showToast) window.showToast('ℹ️ État de l’opération introuvable côté serveur (redémarrage ?). La liste va se recharger.');
+  if (window.LisQuality) window.LisQuality._done([], null);
+  auxFinish();
+  setTimeout(() => location.reload(), 800);
+}
+
+async function pollAux() {
+  let j;
+  try {
+    const r = await fetch('/api/status');
+    j = await r.json();
+  } catch (e) {
+    return; // réseau : on réessaie au prochain cycle
+  }
+  const expected = auxExpected();
+  window.__lisLastQueue = Array.isArray(j.queue) ? j.queue : [];
+
+  // --- Cas 1 : on connaît le token de notre tâche (clic sur cette page) ---
+  if (expected) {
+    const queue = Array.isArray(j.queue) ? j.queue : [];
+    const pos = queue.findIndex(q => q.queue_id === expected);
+    if (j.busy && j.task_token === expected) {
+      auxAmbiguousPolls = 0;
+      const kind = AUX_META[j.kind] ? j.kind : 'pid';
+      auxSetMode(kind, 'run');
+      const pct = Math.round((j.progress || 0) * 100);
+      auxFill.style.width = pct + '%';
+      const step = (j.total_steps > 0) ? ' · étape ' + j.step + '/' + j.total_steps : '';
+      auxDetail.textContent = pct + ' %' + step;
+      auxElapsed.textContent = fmtElapsed(j.elapsed);
+      auxLog.textContent = String(j.log || '').split('\n').map(x => x.trim()).filter(Boolean).slice(-1)[0] || 'démarrage…';
+      return;
+    }
+    if (pos >= 0) {
+      auxAmbiguousPolls = 0;
+      // Retrouver le type via le summary de la file si possible
+      const qitem = queue[pos];
+      const model = String((qitem && qitem.model_id) || '');
+      let queuedKind = model.split(':')[0];
+      if (queuedKind === 'seedvr2') queuedKind = 'restore_x2';
+      if (queuedKind.startsWith('pid')) queuedKind = 'pid';
+      if (!AUX_META[queuedKind]) queuedKind = 'upscale';
+      auxSetMode(queuedKind, 'queued');
+      auxFill.style.width = '0%';
+      auxDetail.textContent = 'Position #' + (pos + 1) + ' dans la file · ' + (queue.length - pos - 1) + ' tâche(s) derrière · démarrera automatiquement';
+      auxElapsed.textContent = '';
+      auxLog.textContent = (qitem && qitem.prompt) ? qitem.prompt : '';
+      return;
+    }
+    if (!j.busy && j.task_token === expected) { auxFinalize(j); return; }
+    // Ni en cours, ni dans la file, ni terminée → tâche introuvable (redémarrage serveur ?)
+    auxAmbiguousPolls += 1;
+    if (auxAmbiguousPolls > 120) auxGiveUp();   // ~2 min d'ambiguïté
+    return;
+  }
+
+  // --- Cas 2 : page chargée pendant une opération (aucun token) — affichage générique ---
+  if (j.busy && AUX_META[j.kind]) {
+    auxSetMode(j.kind, 'run');
+    const pct = Math.round((j.progress || 0) * 100);
+    auxFill.style.width = pct + '%';
+    const step = (j.total_steps > 0) ? ' · étape ' + j.step + '/' + j.total_steps : '';
+    auxDetail.textContent = pct + ' %' + step;
+    auxElapsed.textContent = fmtElapsed(j.elapsed);
+    auxLog.textContent = String(j.log || '').split('\n').map(x => x.trim()).filter(Boolean).slice(-1)[0] || 'démarrage…';
+    return;
+  }
+  if (!j.busy) {
+    // Résultat éventuellement présenté une fois, puis on s'arrête.
+    auxFinalize(j);
+  }
+}
+
+function startAuxPoll() {
+  if (auxTimer) return;
+  auxTimer = setInterval(pollAux, 1000);
+  pollAux();
+}
+
+auxCancel.addEventListener('click', async () => {
+  const expected = auxExpected();
+  // Fermer (état ok/erreur) : masque simplement le bandeau.
+  if (auxBanner.classList.contains('error') || auxBanner.classList.contains('ok')) {
+    auxBanner.hidden = true;
+    return;
+  }
+  // Retrait de la file d'attente
+  const queue = window.__lisLastQueue || [];
+  const inQueue = expected && queue.some(q => q.queue_id === expected);
+  try {
+    if (inQueue) {
+      const r = await fetch('/api/queue/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queue_id: expected }),
+      });
+      const j = await r.json();
+      if (window.showToast) window.showToast(j.ok ? 'Opération retirée de la file.' : ('❌ ' + (j.error || 'Retrait impossible.')));
+      auxBanner.hidden = true;
+      if (window.LisQuality) window.LisQuality._done([], null);
+      auxFinish();
+    } else {
+      await fetch('/api/cancel', { method: 'POST' });
+      if (window.showToast) window.showToast('Annulation demandée…');
+    }
+  } catch (e) { /* on réessaiera au prochain clic */ }
+});
+
+window.__lisPagePoll = startAuxPoll;
+
+// Au chargement : une opération auxiliaire lancée depuis une autre page tourne peut-être déjà.
+(async function initAuxBanner() {
+  try {
+    const r = await fetch('/api/status');
+    const j = await r.json();
+    window.__lisLastQueue = Array.isArray(j.queue) ? j.queue : [];
+    if (j.busy && AUX_META[j.kind]) startAuxPoll();
+  } catch (e) { /* silencieux */ }
+})();
+
 // --- Recherche instantanée & filtre Favoris ---
 let favOnlyFilter = {{ 'true' if fav_only else 'false' }};
 const searchInput = document.getElementById('history-search');

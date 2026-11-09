@@ -102,8 +102,19 @@ small{color:var(--muted)}
 /* progress */
 .progress-wrap{margin-bottom:16px}
 .progress-bar{height:8px;background:var(--bg2);border-radius:6px;overflow:hidden;border:1px solid var(--border)}
-#progress-fill,#banner-fill{height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .2s}
+#progress-fill,#banner-fill,#aux-fill{height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .2s}
 .progress-meta{display:flex;justify-content:space-between;color:var(--muted);font-size:13px;margin-top:6px}
+
+/* bandeau de suivi des opérations auxiliaires (history) */
+.banner.ok{border:1px solid #36c98a55;background:#36c98a14;border-radius:12px;padding:10px 14px}
+.banner.ok .banner-text{color:var(--ok);margin-top:6px}
+.banner.error{border:1px solid #e0566b55;background:#e0566b14;border-radius:12px;padding:10px 14px}
+.banner.error .banner-text{color:var(--danger);margin-top:6px;white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:12px}
+.banner-line{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.banner-line strong{font-size:13px}
+.banner-detail{color:var(--muted);font-size:12px;font-family:ui-monospace,monospace;margin-top:6px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.banner-meta{display:flex;justify-content:space-between;gap:12px;color:var(--muted);font-size:12px;margin-top:6px}
 
 /* results */
 .results{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;min-height:120px}

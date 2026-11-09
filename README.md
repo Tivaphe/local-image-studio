@@ -209,6 +209,12 @@ Deux outils agissent directement sur une image déjà générée (boutons sur ch
 | **🔍 Agrandissement ×4 (ESRGAN)** | Super-résolution classique | 17–64 Mo, rapide |
 | **⬆️ PiD ×4 (NVIDIA Pixel Diffusion)** | Ré-encode l'image avec le VAE du backbone puis la décode en **4096×4096 en 4 étapes**, guidée par le prompt de l'image — backbones FLUX.1 / FLUX.2 / Qwen-Image | ~1,6 Go par backbone + socle ~5,4 Go (Gemma 2 2B), **licence NSCLv1 non-commerciale** — voir `docs/PID_FR.md` |
 
+> 💡 **Suivi en direct** : depuis la page **Historique**, chaque opération lancée sur une image existante
+> (« 🙂 Réparer », « 🩹 Restaurer ×2 », « 🔍 Agrandir ×4 », « ⬆️ PiD ×4 ») affiche un **bandeau de
+> progression en temps réel** : opération en cours ou **en file d'attente** (position), pourcentage,
+> étape x/y, chronomètre, dernière ligne du moteur sd-cli, et **le message d'erreur complet** en cas
+> d'échec — plus de bouton bloqué sur « en cours » sans retour.
+
 ---
 
 ## 📥 Métadonnées intégrées dans chaque PNG

@@ -2586,6 +2586,9 @@ function pollStatus() {
       const auxKind = window.__auxDonePending;
       window.__auxDonePending = false;
       if (j.result && j.result.type === auxKind && window.LisQuality) {
+        if (j.result.error && window.showToast) {
+          window.showToast("❌ " + String(j.result.error).split("\n")[0].slice(0, 160));
+        }
         LisQuality._done(j.result.error || j.result.cancelled ? [] : (j.result.images || []), auxKind);
       }
     }

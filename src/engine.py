@@ -410,11 +410,12 @@ class TaskManager:
             "eta": 0.0,            # FIX 3 : temps restant estimé
         }
 
-    def _reset(self, kind):
+    def _reset(self, kind, token=None):
         with self._lock:
             self.state = {"busy": True, "kind": kind, "log": "", "progress": 0.0,
                           "step": 0, "total_steps": 0, "error": None,
-                          "done": False, "result": None, "preview_batch_id": None}
+                          "done": False, "result": None, "preview_batch_id": None,
+                          "task_token": token or uuid.uuid4().hex[:12]}
 
     def is_busy(self):
         with self._lock:
@@ -743,20 +744,25 @@ class TaskManager:
                 raise RuntimeError("Un téléchargement est en cours. Patientez avant de lancer une génération.")
             if self.state["busy"]:
                 item = self._build_queue_item(params)
+                # le queue_id sert aussi de task_token : corrélation côté client
+                item["token"] = item["queue_id"]
                 self._queue.append(item)
                 return {
                     "queued": True,
                     "started": False,
                     "queue_id": item["queue_id"],
+                    "task_token": item["token"],
                     "position": len(self._queue),
                     "queue_size": len(self._queue),
                     "queue": self._serialize_queue_locked(),
                 }
-        self.start_generate(params)
+        token = uuid.uuid4().hex[:12]
+        self.start_generate(params, token=token)
         return {
             "queued": False,
             "started": True,
             "queue_id": None,
+            "task_token": token,
             "position": 0,
             "queue_size": len(self.list_queue()),
             "queue": self.list_queue(),
@@ -769,10 +775,10 @@ class TaskManager:
             return tk
         return "generate"
 
-    def start_generate(self, params):
+    def start_generate(self, params, token=None):
         if self.is_busy():
             raise RuntimeError("Une tâche est déjà en cours.")
-        self._reset(self._kind_of(params))
+        self._reset(self._kind_of(params), token=token)
         self._cancel = False
         t = threading.Thread(target=self._run_generate_loop, args=(params,), daemon=True)
         self._thread = t
@@ -808,6 +814,7 @@ class TaskManager:
                         "result": self.state.get("result"),
                         "elapsed": 0.0,
                         "eta": 0.0,
+                        "task_token": next_item.get("token") or uuid.uuid4().hex[:12],
                     }
                     self._cancel = False
                 else:
