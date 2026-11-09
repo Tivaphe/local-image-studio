@@ -179,7 +179,12 @@ section with a clear explanation for every option:
 |---|---|---|
 | **🔍 ×4 Upscaling** | Dedicated super-resolution (1024→4096 px): **RealESRGAN ×4** (photo), **4× Nomos2 MoSR** (natural textures), **RealESRGAN Anime 6B** (illustration) | During generation **or** afterwards: one-click "🔍 Upscale ×4" button on every result and in History |
 | **🏗️ Hires Fix (2 passes)** | Pass 1 composes; pass 2 gently re-details at high resolution (up to ×2, ≤ ~2048 px) | Pure generation, img2img-capable models (SD 3.5, FLUX.1 Dev, Chroma) |
-| **🙂 ADetailer** | YOLOv8 detector that finds **faces/hands** and automatically re-details them | Generate & Edit pages (after installing the detector in Models) |
+| **🙂 ADetailer** | YOLOv8 detector that finds **faces/hands** and automatically re-details them — also one-click on any existing image | Generate & Edit pages (after installing the detector in Models) |
+| **⚡ Mini-VAE (TAE)** | Near-instant final decode for Qwen-Image models (~2 MB) | Quality → ⚡ Performance |
+| **⚡ SageAttention CUDA** | Faster attention, less VRAM on NVIDIA GPUs (SM80+, recent drivers) — no Python install | Quality → ⚡ Performance |
+| **📡 Live preview** | Watch the image build up while sampling (proj/tae/vae, every N steps) | Quality → ⚡ Performance |
+| **🎭 Faithful Face (PuLID)** | Keeps a reference person's face (FLUX.1 Schnell/Dev/FHDR only) — see `docs/PULID_FR.md` (French) | Quality → 🎭 Faithful face |
+| **🩹 Restore ×2 (SeedVR2)** | Diffusion-based detail reconstruction + 2× resolution for existing images (~6.8 GB weights, ~10 GB VRAM) | One-click on every result and in History |
 | **🎛️ Sampler / Scheduler** | Choose the sampler (euler, heun, dpm++2m, euler_a, lcm) and scheduler (karras, beta, exponential…) | Generate & Edit pages |
 | **⚙️ VAE Tiling** | Tiled VAE decode — saves VRAM on large images | Expert settings |
 | **⚙️ SLG (Skip Layer Guidance)** | Better prompt adherence on DiT models (recommended: 3) | Expert settings |
@@ -209,6 +214,9 @@ Some models require a **free Hugging Face token**:
 |---|---|
 | 🖼️ **Generation** | 1 to 4 images per batch, 5 formats + original aspect ratio when editing |
 | ✂️ **Edit studio** | **Edit** tab: 1 canvas + up to **10 reference images**, reordering, before/after comparison |
+| 🗂️ **Prompt batch** | One line per prompt (16 max), queued back-to-back |
+| ⚔️ **Seed duel / Model compare** | Same prompt on 2 consecutive seeds or on 2 models |
+| 📥 **PNG-embedded metadata** | Drag & drop any generated PNG: prompt, seed, model… restored instantly |
 | 🌐 **Translation** | Translates your prompt (FR, ES…) to English |
 | ✨ **Enrichment** | An LLM enriches your prompt (style, lighting, composition…) |
 | 📊 **Statistics** | Generation time per model, most used model, etc. |

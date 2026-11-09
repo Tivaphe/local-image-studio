@@ -33,7 +33,7 @@ function startPolling() {
       if (fill) fill.style.width = pct + '%';
       if (text) text.textContent = j.log || (j.busy ? 'en cours…' : 'termine');
       // desactive les boutons pendant la tache
-      document.querySelectorAll('.dl-btn, .dl-upscale-btn, .dl-ad-btn, #install-engine')
+      document.querySelectorAll('.dl-btn, .dl-upscale-btn, .dl-ad-btn, .dl-seedvr2-btn, .dl-taesd-btn, .dl-pulid-btn, #install-engine')
         .forEach(b => b.disabled = true);
       if (!j.busy) {
         clearInterval(taskTimer); taskTimer = null;
@@ -165,6 +165,99 @@ $$('.dl-ad-btn').forEach(btn => {
       btn.disabled = false;
       btn.textContent = 'Télécharger';
       alert('Connexion au serveur impossible : ' + e.message);
+    }
+  });
+});
+
+// --- Bouton : telecharger SeedVR2 (restauration ×2 par diffusion, ~6,8 Go) ---
+const dlSeedvr2 = $('.dl-seedvr2-btn');
+if (dlSeedvr2) {
+  dlSeedvr2.addEventListener('click', async () => {
+    dlSeedvr2.disabled = true;
+    dlSeedvr2.textContent = 'en cours…';
+    showBanner('Téléchargement de SeedVR2 (~6,8 Go)…');
+    try {
+      const r = await fetch('/api/download-seedvr2', { method: 'POST' });
+      const j = await r.json();
+      if (!j.ok) {
+        dlSeedvr2.disabled = false;
+        dlSeedvr2.textContent = 'Télécharger (~6,8 Go)';
+        alert(j.error || 'Erreur');
+        return;
+      }
+      startPolling();
+    } catch (e) {
+      dlSeedvr2.disabled = false;
+      dlSeedvr2.textContent = 'Télécharger (~6,8 Go)';
+      alert('Connexion au serveur impossible : ' + e.message);
+    }
+  });
+}
+
+// --- Boutons : telecharger un mini-VAE TAE (~2 Mo) ---
+$$('.dl-taesd-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const taId = btn.dataset.taesd;
+    btn.disabled = true;
+    btn.textContent = 'en cours…';
+    showBanner('Téléchargement du mini-VAE…');
+    try {
+      const r = await fetch('/api/download-taesd', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taesd_id: taId })
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        btn.disabled = false;
+        btn.textContent = 'Télécharger';
+        alert(j.error || 'Erreur');
+        return;
+      }
+      startPolling();
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Télécharger';
+      alert('Connexion au serveur impossible : ' + e.message);
+    }
+  });
+});
+
+// --- Bouton : telecharger les poids PuLID-FLUX (~1,14 Go) ---
+const dlPulid = $('.dl-pulid-btn');
+if (dlPulid) {
+  dlPulid.addEventListener('click', async () => {
+    dlPulid.disabled = true;
+    dlPulid.textContent = 'en cours…';
+    showBanner('Téléchargement des poids PuLID (~1,14 Go)…');
+    try {
+      const r = await fetch('/api/download-pulid', { method: 'POST' });
+      const j = await r.json();
+      if (!j.ok) {
+        dlPulid.disabled = false;
+        dlPulid.textContent = 'Télécharger (~1,14 Go)';
+        alert(j.error || 'Erreur');
+        return;
+      }
+      startPolling();
+    } catch (e) {
+      dlPulid.disabled = false;
+      dlPulid.textContent = 'Télécharger (~1,14 Go)';
+      alert('Connexion au serveur impossible : ' + e.message);
+    }
+  });
+}
+
+// --- Bouton : copier la commande d'extraction PuLID ---
+$$('.copy-extract-cmd').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const cmd = btn.dataset.cmd || '';
+    try {
+      await navigator.clipboard.writeText(cmd);
+      btn.textContent = '✅ Copiée !';
+      setTimeout(() => { btn.textContent = '📋 Copier la commande complète'; }, 1800);
+    } catch (e) {
+      // presse-papier indisponible : affiche la commande pour copie manuelle
+      prompt('Copiez la commande :', cmd);
     }
   });
 });

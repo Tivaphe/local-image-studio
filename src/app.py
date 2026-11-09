@@ -11,6 +11,9 @@ Options :
 """
 import argparse
 import os
+import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -29,7 +32,13 @@ from registry import (MODELS, DEPS, RATIOS, DEFAULT_NEGATIVE, input_modes,
                       supports_inpainting, build_inpaint_prompt,
                       outpaint_prompt_presets, edit_prompt_presets, gen_prompt_presets,
                       UPSCALERS, ADETAILERS, upscaler_status, adetailer_status,
+                      SEEDVR2, seedvr2_status,
+                      TAESD, taesd_status, taesd_for_model,
+                      PULID, pulid_status, list_portraits, supports_pulid,
+                      pulid_weights_path,
+                      recommended_quant, quant_recommendations,
                       SAMPLERS_INFO, SCHEDULERS_INFO)
+import metadata as _pngmeta
 import gpu_info
 import uuid
 try:
@@ -82,10 +91,14 @@ def history():
         favorites_only=fav_only,
     )
     upscaler_ready = any(upscaler_status(uid)["downloaded"] for uid in UPSCALERS)
+    repair_ready = any(adetailer_status(did)["downloaded"] for did in ADETAILERS)
+    seedvr2_ready = seedvr2_status()["downloaded"]
     return render_template("history.html", images=images, models=MODELS,
                            model_filter=model_filter, search_query=search_query,
                            fav_only=fav_only, count=db.count_images(),
-                           upscaler_ready=upscaler_ready)
+                           upscaler_ready=upscaler_ready,
+                           repair_ready=repair_ready,
+                           seedvr2_ready=seedvr2_ready)
 
 
 @app.route("/models")
@@ -98,12 +111,21 @@ def models_page():
     adetailer_cards = [
         {**d, "status": adetailer_status(did)} for did, d in ADETAILERS.items()
     ]
+    seedvr2_card = {**SEEDVR2, "status": seedvr2_status()}
+    taesd_cards = [
+        {**t, "status": taesd_status(tid)} for tid, t in TAESD.items()
+    ]
+    pulid_card = {**PULID, "status": pulid_status(),
+                  "portraits": list_portraits()}
+    quant_recs = quant_recommendations(round(vram_mb / 1024, 1) if vram_mb else 0)
     return render_template("models.html", models=MODELS, deps=DEPS,
                            statuses=statuses, engine_ready=engine_ready(),
                            token_set=bool(hf_token()),
                            vram_gb=round(vram_mb/1024, 1) if vram_mb else 0,
                            gpu_name=gpu_name,
-                           upscalers=upscale_cards, adetailers=adetailer_cards)
+                           upscalers=upscale_cards, adetailers=adetailer_cards,
+                           seedvr2=seedvr2_card, taesd=taesd_cards, pulid=pulid_card,
+                           quant_recs=quant_recs)
 
 
 @app.route("/settings")
@@ -120,6 +142,48 @@ def serve_output(filename):
 
 
 # --------------------------------------------------------------------------- #
+#  Aperçus en direct (fichiers temporaires écrits par sd-cli pendant l'échantillonnage)
+# --------------------------------------------------------------------------- #
+@app.route("/preview-cache/<path:filename>")
+def serve_preview(filename):
+    """Sert l'image d'aperçu la plus récente (rafraîchie par le front en polling)."""
+    safe = Path(filename).name
+    f = config.PREVIEW_DIR / safe
+    if not f.exists():
+        return "", 404
+    resp = send_from_directory(str(config.PREVIEW_DIR), safe)
+    resp.headers["Cache-Control"] = "no-store, max-age=0"
+    return resp
+
+
+@app.route("/api/preview")
+def api_preview():
+    """Retourne l'aperçu le plus récent du job en cours (ou 404 s'il n'y en a pas encore)."""
+    snap = tasks.state
+    bid = snap.get("preview_batch_id")
+    best = None
+    try:
+        candidates = list(config.PREVIEW_DIR.glob(
+            f"live_{bid}_*.png" if bid else "live_*.png"))
+    except Exception:
+        candidates = []
+    if candidates:
+        best = max(candidates, key=lambda f: f.stat().st_mtime)
+    if not best:
+        # repli global : le fichier live_ le plus récent, quel que soit le batch
+        try:
+            candidates = list(config.PREVIEW_DIR.glob("live_*.png"))
+            if candidates:
+                best = max(candidates, key=lambda f: f.stat().st_mtime)
+        except Exception:
+            best = None
+    if not best:
+        return jsonify({"ok": False, "error": "Aperçu pas encore disponible."}), 404
+    return jsonify({"ok": True, "url": f"/preview-cache/{best.name}",
+                    "mtime": best.stat().st_mtime})
+
+
+# --------------------------------------------------------------------------- #
 #  Images sources uploadees (edition / img2img)
 # --------------------------------------------------------------------------- #
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
@@ -129,6 +193,15 @@ IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
 def serve_source_image(filename):
     """Sert les images sources (reaffichees dans l'historique et le studio d'edition)."""
     return send_from_directory(str(config.SOURCE_IMAGES_DIR), filename)
+
+
+@app.route("/portraits/<path:filename>")
+def serve_portrait(filename):
+    """Sert les vignettes de portraits (fichiers .png/.jpg/.jpeg/.webp de portraits/)."""
+    safe = Path(filename).name
+    if Path(safe).suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+        return "", 404
+    return send_from_directory(str(config.PORTRAITS_DIR), safe)
 
 
 def _source_rel_path(dest: Path) -> str:
@@ -188,6 +261,7 @@ def api_status():
         "stats": stats,
         "queue": snap.get("queue", []),
         "queue_size": snap.get("queue_size", 0),
+        "preview_batch_id": snap.get("preview_batch_id"),
     })
 
 
@@ -266,10 +340,14 @@ def api_download_engine():
 # --------------------------------------------------------------------------- #
 @app.route("/api/quality-info")
 def api_quality_info():
-    """Catalogue qualité : échantillonneurs, planificateurs, modèles ×4 et détecteurs."""
+    """Catalogue qualité : échantillonneurs, planificateurs, modèles ×4, détecteurs,
+    SeedVR2, mini-VAE TAE et PuLID."""
+    vram_mb, _gpu = gpu_info.get_gpu_info()
+    vram_gb = round(vram_mb / 1024, 1) if vram_mb else 0
     return jsonify({
         "ok": True,
         "engine_ready": engine_ready(),
+        "vram_gb": vram_gb,
         "samplers": SAMPLERS_INFO,
         "schedulers": SCHEDULERS_INFO,
         "upscalers": [
@@ -278,6 +356,13 @@ def api_quality_info():
         "adetailers": [
             {**d, "status": adetailer_status(did)} for did, d in ADETAILERS.items()
         ],
+        "seedvr2": {**SEEDVR2, "status": seedvr2_status()},
+        "taesd": [
+            {**t, "status": taesd_status(tid)} for tid, t in TAESD.items()
+        ],
+        "pulid": {**PULID, "status": pulid_status(),
+                  "portraits": list_portraits()},
+        "quant_recommendations": quant_recommendations(vram_gb),
     })
 
 
@@ -364,6 +449,269 @@ def api_upscale():
         return jsonify({"ok": True, "upscaler_id": uid, **q_info})
     except RuntimeError as e:
         return jsonify({"ok": False, "error": str(e)}), 409
+
+
+def _resolve_source_image(data):
+    """Résout l'image source d'une opération sur fichier : (src_rel, erreur_json_ou_None)."""
+    if data.get("image_id") is not None:
+        try:
+            img = db.get_image(int(data["image_id"]))
+        except Exception:
+            img = None
+        if not img:
+            return None, (jsonify({"ok": False,
+                                   "error": "Image introuvable dans l'historique."}), 404)
+        fn = img["filename"]
+        if not (config.OUTPUT_DIR / fn).exists():
+            return None, (jsonify({"ok": False,
+                                   "error": "Le fichier image n'existe plus sur le disque."}), 404)
+        return str(Path("output") / fn), None
+    raw = str(data.get("path") or "").strip().lstrip("/")
+    if raw.startswith("output/"):
+        raw = raw[len("output/"):]
+    cand = config.OUTPUT_DIR / raw
+    try:
+        cand.resolve().relative_to(config.OUTPUT_DIR.resolve())
+    except Exception:
+        return None, (jsonify({"ok": False, "error": "Chemin d'image invalide."}), 400)
+    if not raw or not cand.exists():
+        return None, (jsonify({"ok": False, "error": "Image introuvable sur le disque."}), 404)
+    return str(Path("output") / raw), None
+
+
+@app.route("/api/download-seedvr2", methods=["POST"])
+def api_download_seedvr2():
+    try:
+        tasks.start_seedvr2_download()
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 409
+    return jsonify({"ok": True})
+
+
+@app.route("/api/download-taesd", methods=["POST"])
+def api_download_taesd():
+    data = request.get_json(silent=True) or {}
+    ta_id = (data.get("taesd_id") or "").strip()
+    if ta_id not in TAESD:
+        return jsonify({"ok": False, "error": "Mini-VAE inconnu."}), 400
+    try:
+        tasks.start_taesd_download(ta_id)
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 409
+    return jsonify({"ok": True})
+
+
+@app.route("/api/download-pulid", methods=["POST"])
+def api_download_pulid():
+    try:
+        tasks.start_pulid_download()
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 409
+    return jsonify({"ok": True})
+
+
+@app.route("/api/repair", methods=["POST"])
+def api_repair():
+    """Répare visages/mains d'une image existante (mode -M adetailer, ADetailer)."""
+    data = request.get_json(force=True)
+    did = (data.get("detector_id") or "").strip()
+    if did and did not in ADETAILERS:
+        return jsonify({"ok": False, "error": "Détecteur ADetailer inconnu."}), 400
+    if not did:
+        did = next((k for k in ADETAILERS if adetailer_status(k)["downloaded"]), None)
+        if not did:
+            return jsonify({"ok": False, "error": (
+                "Aucun détecteur ADetailer n'est installé. Téléchargez-en un dans "
+                "l'onglet Modèles, section « 🙂 ADetailer » (quelques Mo)."
+            )}), 400
+    elif not adetailer_status(did)["downloaded"]:
+        return jsonify({"ok": False, "error": (
+            f"« {ADETAILERS[did]['name']} » n'est pas installé. Téléchargez-le dans "
+            "l'onglet Modèles, section « 🙂 ADetailer »."
+        )}), 400
+
+    src_rel, err = _resolve_source_image(data)
+    if err:
+        return err
+
+    params = {
+        "task_kind": "repair",
+        "detector_id": did,
+        "source_image": src_rel,
+        "model_id": (data.get("model_id") or "").strip(),
+        "quant": (data.get("quant") or "").strip(),
+        "prompt": (data.get("prompt") or "").strip(),
+        "ad_prompt": (data.get("ad_prompt") or "").strip(),
+        "seed": data.get("seed"),
+        "taesd_id": (data.get("taesd_id") or "").strip(),
+        "sage_attn": bool(data.get("sage_attn")),
+    }
+    strength = data.get("strength")
+    try:
+        if strength is not None:
+            strength = max(0.1, min(1.0, float(strength)))
+    except (TypeError, ValueError):
+        strength = None
+    params["strength"] = strength
+    try:
+        q_info = tasks.enqueue_generate(params)
+        return jsonify({"ok": True, "detector_id": did, **q_info})
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 409
+
+
+@app.route("/api/restore-x2", methods=["POST"])
+def api_restore_x2():
+    """Restauration ×2 par diffusion (SeedVR2, mode -M vid_upscale, ~6,8 Go)."""
+    data = request.get_json(force=True)
+    st = seedvr2_status()
+    if not st["downloaded"]:
+        return jsonify({"ok": False, "error": (
+            "SeedVR2 n'est pas installé. Téléchargez-le dans l'onglet Modèles, "
+            "section « 🩹 Restauration ×2 » (~6,8 Go)."
+        )}), 400
+    src_rel, err = _resolve_source_image(data)
+    if err:
+        return err
+    params = {
+        "task_kind": "restore_x2",
+        "source_image": src_rel,
+        "seed": data.get("seed"),
+    }
+    try:
+        q_info = tasks.enqueue_generate(params)
+        return jsonify({"ok": True, **q_info})
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 409
+
+
+@app.route("/api/image-meta", methods=["POST"])
+def api_image_meta():
+    """Lit le chunk « parameters » d'un PNG déposé (drag-drop) : retourne les
+    réglages (prompt, seed, modèle…) pour les ré-appliquer au formulaire."""
+    f = request.files.get("image")
+    if f and f.filename:
+        raw = f.read(64 * 1024 * 1024)  # 64 Mo max, large pour un PNG 4K retouché
+        import io
+        params = _pngmeta.read_params(io.BytesIO(raw))
+    else:
+        data = request.get_json(silent=True) or {}
+        path = str(data.get("path") or "").strip()
+        if not path:
+            return jsonify({"ok": False, "error": "Aucun fichier fourni."}), 400
+        p = Path(path)
+        if not p.is_absolute():
+            p = (config.ROOT / path).resolve()
+        try:
+            p.relative_to(config.ROOT.resolve())
+        except Exception:
+            return jsonify({"ok": False, "error": "Chemin invalide."}), 400
+        if not p.exists():
+            return jsonify({"ok": False, "error": "Fichier introuvable."}), 404
+        params = _pngmeta.read_params(p)
+    if not params:
+        return jsonify({"ok": False, "error": (
+            "Aucune métadonnée lisible dans cette image. Seuls les PNG tagués par "
+            "Local Image Studio (ou par sd-cli) sont supportés pour la restauration des réglages."
+        )}), 422
+    form = _pngmeta.to_form_settings(params, MODELS)
+    return jsonify({"ok": True, "params": params, "form": form})
+
+
+@app.route("/api/batch", methods=["POST"])
+def api_batch():
+    """Génère N variantes d'un même réglage, une par ligne de prompt (une par job)."""
+    data = request.get_json(force=True)
+    lines = [l.strip() for l in str(data.get("prompts") or "").splitlines()]
+    lines = [l for l in lines if l]
+    if not lines:
+        return jsonify({"ok": False, "error": "Aucun prompt fourni (une ligne par image)."}), 400
+    if len(lines) > 16:
+        return jsonify({"ok": False, "error": "Maximum 16 prompts par lot."}), 400
+    mid = data.get("model_id")
+    if mid not in MODELS:
+        return jsonify({"ok": False, "error": "Modèle inconnu"}), 400
+
+    # Réutilise la validation complète de /api/generate en injectant chaque prompt
+    base = dict(data)
+    base.pop("prompts", None)
+    queued, errors = [], []
+    for line in lines:
+        payload = dict(base)
+        payload["prompt"] = line
+        payload["allow_queue"] = True
+        # Appel interne : on rejoue la logique de api_generate via un mini-client
+        with app.test_request_context("/api/generate", method="POST", json=payload):
+            resp = api_generate()
+        body = None
+        try:
+            if isinstance(resp, tuple):
+                maybe_json = resp[0]
+                body = maybe_json.get_json(silent=True) if hasattr(maybe_json, "get_json") else None
+            elif hasattr(resp, "get_json"):
+                body = resp.get_json(silent=True)
+        except Exception:
+            body = None
+        if body and body.get("ok"):
+            queued.append(line)
+        else:
+            msg = (body or {}).get("error", "échec inconnu")
+            errors.append({"prompt": line[:80], "error": msg})
+    return jsonify({"ok": bool(queued), "queued": len(queued), "errors": errors})
+
+
+@app.route("/api/pulid-extract", methods=["POST"])
+def api_pulid_extract():
+    """Extrait l'empreinte d'identité d'un portrait via l'extracteur externe
+    (script Python livré dans scripts/pulid_extract_id.py — pile PyTorch requise)."""
+    data = request.get_json(force=True)
+    portrait_rel = (data.get("portrait") or "").strip()
+    name = (data.get("name") or "").strip()
+    if not portrait_rel:
+        return jsonify({"ok": False, "error": "Aucun portrait fourni."}), 400
+    p = (config.SOURCE_IMAGES_DIR / Path(portrait_rel).name).resolve()
+    if not p.exists():
+        # Tolère un chemin absolu/relatif dans le dépôt (comme /api/use-output-as-source)
+        cand = (config.ROOT / portrait_rel).resolve()
+        try:
+            cand.relative_to(config.ROOT.resolve())
+            if cand.exists():
+                p = cand
+        except Exception:
+            pass
+    if not p.exists():
+        return jsonify({"ok": False, "error": "Portrait introuvable sur le disque."}), 404
+    base = re.sub(r"[^a-zA-Z0-9_\-]", "_", name)[:60].strip("_")
+    if not base:
+        base = re.sub(r"[^a-zA-Z0-9_\-]", "_", p.stem)[:60] or "portrait"
+    out = config.PORTRAITS_DIR / f"{base}.pulidembd"
+    script = config.ROOT / "scripts" / "pulid_extract_id.py"
+    py = shutil.which("python3") or shutil.which("python") or sys.executable
+    # Les poids PuLID sont requis par l'extracteur amont : explicites-le.
+    wpath = pulid_weights_path()
+    if not wpath.exists():
+        return jsonify({"ok": False, "error": (
+            "Les poids PuLID-FLUX sont requis pour l'extraction (~1,14 Go). "
+            "Téléchargez-les d'abord dans l'onglet Modèles → « 🎭 Visage fidèle (PuLID) »."
+        )}), 400
+    cmd = [py, str(script), "--portrait", str(p), "--out", str(out),
+           "--pulid-weights", str(wpath)]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+    except FileNotFoundError:
+        return jsonify({"ok": False, "error": "Python introuvable pour l'extracteur."}), 500
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "error": "L'extraction a dépassé le temps imparti (15 min)."}), 500
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip().splitlines()
+        detail = "\n".join(detail[-12:])
+        return jsonify({"ok": False, "error": (
+            "L'extracteur d'identité a échoué (la pile PyTorch est-elle installée ? "
+            "voir scripts/pulid_extract_id.py) :\n" + detail
+        )}), 500
+    out_rel = str(Path("portraits") / out.name)
+    return jsonify({"ok": True, "embedding": out.name, "path": out_rel,
+                    "size_bytes": out.stat().st_size if out.exists() else 0})
 
 
 # --------------------------------------------------------------------------- #
@@ -516,6 +864,52 @@ def api_generate():
                 "Téléchargez-le dans l'onglet Modèles (section « 🙂 ADetailer »)."
             )}), 400
     params["adetailer_id"] = adetailer_id
+
+    # --- Options Performance : mini-VAE TAE, SageAttention, Aperçu direct, PuLID ---
+    taesd_id = (data.get("taesd_id") or "").strip()
+    if taesd_id and taesd_id != "auto":
+        if taesd_id not in TAESD:
+            return jsonify({"ok": False, "error": "Mini-VAE TAE inconnu."}), 400
+        if not taesd_status(taesd_id)["downloaded"]:
+            t = TAESD[taesd_id]
+            return jsonify({"ok": False, "error": (
+                f"« {t['name']} » n'est pas installé. Téléchargez-le "
+                "dans l'onglet Modèles (section « ⚡ VAE rapide »)."
+            )}), 400
+    if taesd_id == "auto":
+        auto_ta = taesd_for_model(mid)
+        if auto_ta and taesd_status(auto_ta)["downloaded"]:
+            taesd_id = auto_ta
+        else:
+            taesd_id = ""   # auto mais pas encore installé → on génère sans TAE
+    params["taesd_id"] = taesd_id or ""
+    params["sage_attn"] = bool(data.get("sage_attn"))
+
+    preview = (data.get("preview") or "none").strip()
+    if preview not in ("none", "proj", "tae", "vae"):
+        return jsonify({"ok": False, "error": "Méthode d'aperçu inconnue."}), 400
+    params["preview"] = preview
+    try:
+        params["preview_interval"] = max(1, min(10, int(data.get("preview_interval") or 3)))
+    except (TypeError, ValueError):
+        params["preview_interval"] = 3
+
+    pulid_id = (data.get("pulid_id") or "").strip()
+    if pulid_id:
+        if not supports_pulid(mid):
+            return jsonify({"ok": False, "error": (
+                f"{m['name']} ne prend pas en charge PuLID. Choisissez FLUX.1 Schnell, "
+                "FLUX.1 Dev ou FLUX.1 FHDR."
+            )}), 400
+        try:
+            w = float(data.get("pulid_id_weight"))
+        except (TypeError, ValueError):
+            w = PULID["default_weight"]
+        params["pulid_id"] = pulid_id
+        params["pulid_id_weight"] = max(PULID["min_weight"], min(PULID["max_weight"], w))
+    else:
+        params["pulid_id"] = ""
+        params["pulid_id_weight"] = PULID["default_weight"]
 
     # Hires Fix (2 passes) : uniquement en génération pure (jamais avec une image de départ)
     params["hires_fix"] = bool(data.get("hires_fix")) and not images and not mask_rel_path
@@ -864,6 +1258,29 @@ def api_gpu_info():
     vram_mb, name = gpu_info.get_gpu_info()
     return jsonify({"vram_mb": vram_mb, "vram_gb": round(vram_mb/1024, 1),
                     "gpu_name": name})
+
+
+@app.route("/api/quant-recommendation")
+def api_quant_recommendation():
+    """Quant recommandé par modèle pour la VRAM détectée (ou passée en paramètre)."""
+    raw = request.args.get("vram_gb")
+    if raw:
+        try:
+            vram_gb = float(raw)
+        except ValueError:
+            vram_gb = 0
+    else:
+        vram_mb, _n = gpu_info.get_gpu_info()
+        vram_gb = round(vram_mb / 1024, 1) if vram_mb else 0
+    model = (request.args.get("model_id") or "").strip()
+    if model:
+        if model not in MODELS:
+            return jsonify({"ok": False, "error": "Modèle inconnu"}), 400
+        return jsonify({"ok": True, "vram_gb": vram_gb,
+                        "model_id": model,
+                        "quant": recommended_quant(model, vram_gb)})
+    return jsonify({"ok": True, "vram_gb": vram_gb,
+                    "recommendations": quant_recommendations(vram_gb)})
 
 
 # --------------------------------------------------------------------------- #

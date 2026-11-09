@@ -20,12 +20,18 @@ from pathlib import Path
 from urllib.request import urlopen, Request
 
 from config import (ROOT, BIN_DIR, DIFFUSION_DIR, OUTPUT_DIR, UPSCALE_DIR,
-                    ADETAILER_DIR, find_sd_cli)
+                    ADETAILER_DIR, SEEDVR2_DIR, TAESD_DIR, PREVIEW_DIR,
+                    find_sd_cli)
 from registry import (MODELS, DEPS, DEP_QUANT_PRIORITY, resolve_dep_gguf,
                       load_manifest, save_manifest, build_command, _dep_path,
                       check_images_input, UPSCALERS, ADETAILERS,
                       upscaler_path, adetailer_path, build_upscale_command,
-                      round16)
+                      build_adetailer_command, build_seedvr2_command,
+                      SEEDVR2, seedvr2_paths, seedvr2_status,
+                      TAESD, taesd_path, taesd_status, taesd_for_model,
+                      PULID, pulid_weights_path, pulid_status,
+                      portrait_embedding, supports_pulid, round16)
+import metadata as _pngmeta
 
 
 # =========================================================================== #
@@ -48,6 +54,13 @@ def load_settings():
             _SETTINGS.setdefault("hf_token", "")
             # Ouvrir le navigateur au démarrage du serveur (case dans Paramètres)
             _SETTINGS.setdefault("open_browser", True)
+            # --- Performance & Apercu (valeurs par defaut) ---
+            # sage_attn : acceleration CUDA SageAttention (ignoree si non supportee)
+            _SETTINGS.setdefault("sage_attn", False)
+            # preview : méthode d'apercu live ("none"|"proj"|"tae"|"vae")
+            _SETTINGS.setdefault("preview", "none")
+            # preview_interval : une image d'apercu toutes les N etapes
+            _SETTINGS.setdefault("preview_interval", 3)
         return _SETTINGS
 
 
@@ -271,6 +284,42 @@ def download_adetailer(detector_id, token, msg_cb=None):
     _hf_download_file(d["repo"], d["filename"], dest, token, msg_cb)
 
 
+def download_seedvr2(token, msg_cb=None):
+    """Télécharge les deux poids SeedVR2 (diffusion int8 + VAE fp16)."""
+    for key in ("diffusion", "vae"):
+        info = SEEDVR2["files"][key]
+        dest = SEEDVR2_DIR / info["filename"]
+        if dest.exists() and dest.stat().st_size > 1024 * 1024:
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if msg_cb:
+            msg_cb(f"Téléchargement SeedVR2 — {info['filename']} (~{info['size_mb']} Mo)…")
+        _hf_download_file(SEEDVR2["repo"], info["filename"], dest, token, msg_cb)
+
+
+def download_taesd(ta_id, token, msg_cb=None):
+    """Télécharge un mini-VAE TAE (~2 Mo) depuis Hugging Face."""
+    t = TAESD[ta_id]
+    dest = TAESD_DIR / t["filename"]
+    if dest.exists() and dest.stat().st_size > 50 * 1024:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if msg_cb:
+        msg_cb(f"Téléchargement du mini-VAE {t['name']} (~{t['size_mb']} Mo)…")
+    _hf_download_file(t["repo"], t.get("repo_filename", t["filename"]), dest, token, msg_cb)
+
+
+def download_pulid(token, msg_cb=None):
+    """Télécharge les poids PuLID-FLUX (guozinan/PuLID, ~1.14 Go)."""
+    dest = pulid_weights_path()
+    if dest.exists() and dest.stat().st_size > 100 * 1024 * 1024:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if msg_cb:
+        msg_cb(f"Téléchargement des poids PuLID-FLUX (~{PULID['weights_size_mb']} Mo)…")
+    _hf_download_file(PULID["weights_repo"], PULID["weights_filename"], dest, token, msg_cb)
+
+
 def download_model(model_id, quant, token, msg_cb=None):
     """Télécharge le modèle GGUF (choisi) + ses dépendances."""
     m = MODELS[model_id]
@@ -322,7 +371,7 @@ class TaskManager:
         with self._lock:
             self.state = {"busy": True, "kind": kind, "log": "", "progress": 0.0,
                           "step": 0, "total_steps": 0, "error": None,
-                          "done": False, "result": None}
+                          "done": False, "result": None, "preview_batch_id": None}
 
     def is_busy(self):
         with self._lock:
@@ -447,6 +496,62 @@ class TaskManager:
         self._thread = t
         t.start()
 
+    def start_seedvr2_download(self):
+        """Télécharge les poids SeedVR2 (restauration ×2, ~6.8 Go depuis HF)."""
+        if self.is_busy():
+            raise RuntimeError("Une tâche est déjà en cours.")
+        token = hf_token()
+        self._reset("download")
+
+        def work():
+            def msg(s):
+                self._set(log=s)
+            download_seedvr2(token, msg_cb=msg)
+            self._set(log="SeedVR2 téléchargé ✓", progress=1.0, done=True, busy=False,
+                      result={"type": "download", "seedvr2": True})
+
+        t = threading.Thread(target=self._safe_aux_run, args=(work,), daemon=True)
+        self._thread = t
+        t.start()
+
+    def start_taesd_download(self, ta_id):
+        """Télécharge un mini-VAE TAE (~2 Mo, quasi instantané)."""
+        if ta_id not in TAESD:
+            raise RuntimeError("Mini-VAE inconnu.")
+        if self.is_busy():
+            raise RuntimeError("Une tâche est déjà en cours.")
+        token = hf_token()
+        self._reset("download")
+
+        def work():
+            def msg(s):
+                self._set(log=s)
+            download_taesd(ta_id, token, msg_cb=msg)
+            self._set(log="Mini-VAE téléchargé ✓", progress=1.0, done=True, busy=False,
+                      result={"type": "download", "taesd_id": ta_id})
+
+        t = threading.Thread(target=self._safe_aux_run, args=(work,), daemon=True)
+        self._thread = t
+        t.start()
+
+    def start_pulid_download(self):
+        """Télécharge les poids PuLID-FLUX (~1.14 Go depuis HF)."""
+        if self.is_busy():
+            raise RuntimeError("Une tâche est déjà en cours.")
+        token = hf_token()
+        self._reset("download")
+
+        def work():
+            def msg(s):
+                self._set(log=s)
+            download_pulid(token, msg_cb=msg)
+            self._set(log="Poids PuLID téléchargés ✓", progress=1.0, done=True, busy=False,
+                      result={"type": "download", "pulid": True})
+
+        t = threading.Thread(target=self._safe_aux_run, args=(work,), daemon=True)
+        self._thread = t
+        t.start()
+
     def _safe_aux_run(self, work):
         try:
             work()
@@ -492,6 +597,39 @@ class TaskManager:
                     "model_name": f"🔍 {u.get('name', params.get('upscaler_id', '?'))}",
                     "quant": f"×{u.get('scale', 4)}",
                     "prompt": f"Agrandissement de {src_name}",
+                    "batch": 1,
+                    "width": 0,
+                    "height": 0,
+                },
+                "created_at": time.time(),
+            }
+        if params.get("task_kind") == "repair":
+            d = ADETAILERS.get(params.get("detector_id", ""), {})
+            src_name = Path(params.get("source_image") or "?").name
+            return {
+                "queue_id": uuid.uuid4().hex[:8],
+                "params": dict(params),
+                "summary": {
+                    "model_id": f"repair:{params.get('detector_id', '')}",
+                    "model_name": f"🙂 {d.get('name', params.get('detector_id', '?'))}",
+                    "quant": "",
+                    "prompt": f"Réparation visages/mains de {src_name}",
+                    "batch": 1,
+                    "width": 0,
+                    "height": 0,
+                },
+                "created_at": time.time(),
+            }
+        if params.get("task_kind") == "restore_x2":
+            src_name = Path(params.get("source_image") or "?").name
+            return {
+                "queue_id": uuid.uuid4().hex[:8],
+                "params": dict(params),
+                "summary": {
+                    "model_id": "seedvr2",
+                    "model_name": "🩹 SeedVR2 (Restauration ×2)",
+                    "quant": "×2",
+                    "prompt": f"Restauration de {src_name}",
                     "batch": 1,
                     "width": 0,
                     "height": 0,
@@ -544,7 +682,10 @@ class TaskManager:
 
     @staticmethod
     def _kind_of(params):
-        return "upscale" if params.get("task_kind") == "upscale" else "generate"
+        tk = params.get("task_kind")
+        if tk in ("upscale", "repair", "restore_x2"):
+            return tk
+        return "generate"
 
     def start_generate(self, params):
         if self.is_busy():
@@ -558,8 +699,13 @@ class TaskManager:
     def _run_generate_loop(self, first_params):
         current_params = first_params
         while current_params is not None:
-            if current_params.get("task_kind") == "upscale":
+            tk = current_params.get("task_kind")
+            if tk == "upscale":
                 self._run_upscale(current_params)
+            elif tk == "repair":
+                self._run_repair(current_params)
+            elif tk == "restore_x2":
+                self._run_seedvr2(current_params)
             else:
                 self._run_generate(current_params)
             with self._lock:
@@ -701,6 +847,74 @@ class TaskManager:
                     )
                 adetailer_path_resolved = str(cand)
 
+            # --- Performance : mini-VAE TAE (decodage accélère, modeles Qwen-Image) ---
+            taesd_file = None
+            ta_id = p.get("taesd_id") or ""
+            if ta_id:
+                if ta_id == "auto":
+                    ta_id = taesd_for_model(model_id) or ""
+                t = TAESD.get(ta_id)
+                if t:
+                    cand = taesd_path(ta_id)
+                    if t["vae_dep"] != (m.get("vae_dep") or ("vae_qwen" if m.get("arch") == "qwen_image" else None)):
+                        # TAE incompatible avec le VAE du modele : ignore proprement
+                        t = None
+                    elif cand and cand.exists():
+                        taesd_file = str(cand)
+                    else:
+                        raise RuntimeError(
+                            f"« {t['name']} » n'est pas téléchargé. Ouvrez l'onglet Modèles "
+                            "→ section « ⚡ VAE rapide (TAE) » pour l'installer (~2 Mo).")
+
+            # --- Performance : SageAttention CUDA ---
+            sage_attn = bool(p.get("sage_attn")) or bool(load_settings().get("sage_attn"))
+
+            # --- Apercu en direct pendant l'echantillonnage ---
+            preview_method = (p.get("preview") or load_settings().get("preview") or "none").strip()
+            preview_interval = int(p.get("preview_interval") or load_settings().get("preview_interval") or 3)
+            preview_path = None
+            if preview_method not in ("", "none"):
+                if preview_method == "tae" and not taesd_file:
+                    # La methode « tae » exige un mini-VAE TAE pour ce modele : repli sur proj
+                    self._set(log="Aperçu « tae » indisponible (mini-VAE TAE absent) — repli sur « proj ».")
+                    preview_method = "proj"
+                # Nettoie les anciens aperçus pour ne pas accumuler
+                try:
+                    for _old in PREVIEW_DIR.glob("live_*.png"):
+                        try:
+                            _old.unlink()
+                        except OSError:
+                            pass
+                except Exception:
+                    pass
+                preview_path = str(PREVIEW_DIR / f"live_{batch_id}_%03d.png")
+                self._set(preview_batch_id=batch_id)
+
+            # --- PuLID-FLUX : conservation du visage depuis un portrait ---
+            pulid_w_path = None
+            pulid_emb_path = None
+            pulid_w = None
+            if p.get("pulid_id"):
+                if not supports_pulid(model_id):
+                    raise RuntimeError(
+                        f"{m['name']} ne prend pas en charge PuLID. Choisissez FLUX.1 Schnell, "
+                        "FLUX.1 Dev ou FHDR (arch FLUX) pour conserver un visage de photo.")
+                if not pulid_status()["downloaded"]:
+                    raise RuntimeError(
+                        "Les poids PuLID-FLUX ne sont pas installés (~1,14 Go). Ouvrez l'onglet "
+                        "Modèles → section « 🙂 Visage fidèle (PuLID) ».")
+                emb = portrait_embedding(p.get("pulid_id"))
+                if not emb:
+                    raise RuntimeError(
+                        "Empreinte de portrait introuvable. Créez-la avec l'extracteur "
+                        "d'identité (bouton « 🙂 Visage fidèle » de l'onglet Modèles, outil Python).")
+                pulid_w_path = str(pulid_weights_path())
+                pulid_emb_path = str(emb)
+                try:
+                    pulid_w = float(p.get("pulid_id_weight"))
+                except (TypeError, ValueError):
+                    pulid_w = PULID["default_weight"]
+
             # Hires Fix : 2e passe img2img à haute résolution (uniquement en génération
             # pure, sans image de départ, avec un modèle compatible img2img).
             hires_on = bool(p.get("hires_fix")) and not input_images and m.get("supports_img2img", False)
@@ -730,7 +944,13 @@ class TaskManager:
                 ref_max_pixels=p.get("ref_max_pixels"),
                 mask_image=(str(ROOT / p["mask_image"]) if p.get("mask_image") else None),
                 sampler=sampler, scheduler=scheduler, vae_tiling=vae_tiling,
-                slg_scale=slg_scale, **final_quality)
+                slg_scale=slg_scale,
+                taesd_path=taesd_file, sage_attn=sage_attn,
+                preview_method=preview_method, preview_path=preview_path,
+                preview_interval=preview_interval,
+                pulid_weights=pulid_w_path, pulid_id_embedding=pulid_emb_path,
+                pulid_id_weight=pulid_w,
+                **final_quality)
 
             # Vérifier qu'aucun argument n'est None
             for idx_arg, arg_val in enumerate(cmd):
@@ -844,6 +1064,12 @@ class TaskManager:
                         hires_kwargs["upscale_model"] = upscale_path
                     if adetailer_path_resolved:
                         hires_kwargs["adetailer_model"] = adetailer_path_resolved
+                    if pulid_w_path and pulid_emb_path:
+                        hires_kwargs["pulid_weights"] = pulid_w_path
+                        hires_kwargs["pulid_id_embedding"] = pulid_emb_path
+                        hires_kwargs["pulid_id_weight"] = pulid_w
+                    if sage_attn:
+                        hires_kwargs["sage_attn"] = True
                     final_files = []
                     for hf_i, fp in enumerate(produced):
                         self._set(log=(f"🔍 Hires Fix — passe 2/2 (image {hf_i + 1}/{len(produced)}) : "
@@ -884,6 +1110,22 @@ class TaskManager:
                             pass
                         final_files.append(hr_files[0])
                     produced = final_files
+
+            # ---------- Metadonnees PNG : injection pour les anciens PNG ----------
+            # Les PNG recents portent deja le chunk « parameters » ecrit par sd-cli.
+            # Pour les autres, on injecte la fiche minimale (prompt, seed, modele)
+            # a partir des reglages de cette generation — jamais d'ecrasement.
+            for i, fp in enumerate(produced):
+                try:
+                    txt = _pngmeta.build_webui_text(
+                        prompt=p["prompt"], negative=p.get("negative", ""),
+                        steps=int(p["steps"]), cfg=float(p["cfg"]),
+                        seed=seed + i,
+                        width=None, height=None, sampler=chosen_sampler,
+                        model_id=model_id)
+                    _pngmeta.embed_params(fp, txt, only_if_missing=True)
+                except Exception:
+                    pass
 
             t_end = time.time()
             total_seconds = t_end - t_start
@@ -1037,6 +1279,298 @@ class TaskManager:
         except Exception as e:
             self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
                       result={"type": "upscale", "images": [], "error": str(e),
+                              "cancelled": False})
+
+    # --- Reparation visages/mains autonome (mode -M adetailer) ---
+    def _run_repair(self, p):
+        try:
+            import db
+            did = p.get("detector_id", "")
+            d = ADETAILERS.get(did)
+            if not d:
+                raise RuntimeError("Détecteur ADetailer inconnu.")
+            det_path = adetailer_path(did)
+            if not det_path or not det_path.exists():
+                raise RuntimeError(
+                    f"Le détecteur « {d['name']} » n'est pas téléchargé. Ouvrez l'onglet "
+                    "Modèles → section « 🙂 ADetailer » pour l'installer (quelques Mo).")
+            sd = find_sd_cli()
+            if not sd:
+                raise RuntimeError("Le moteur sd-cli n'est pas installé. Allez dans l'onglet Modèles.")
+            src_rel = p.get("source_image")
+            src = (ROOT / src_rel) if src_rel else None
+            if not src or not src.exists():
+                raise RuntimeError("Image source introuvable sur le disque.")
+
+            # Modele de generation charge pour re-detailler les zones detectees :
+            # celui de la demande, sinon le meilleur modele pret disponible
+            # (ordre de preference optimise pour la retouche).
+            model_id = p.get("model_id") or ""
+            quant = p.get("quant") or ""
+            if model_id not in MODELS:
+                model_id = ""
+            if not model_id:
+                for cand in ("flux-schnell", "flux-dev", "sd3.5-medium", "sd3.5-large",
+                             "chroma", "qwen-image-2512", "flux-kontext-dev"):
+                    if cand in MODELS and model_status(cand)["ready"]:
+                        model_id = cand
+                        break
+            if not model_id:
+                raise RuntimeError(
+                    "Aucun modèle de génération prêt n'est installé pour la retouche. "
+                    "Téléchargez-en un (ex. FLUX.1 Schnell) dans l'onglet Modèles.")
+            m = MODELS[model_id]
+            if not quant or quant not in m["quants"] or not _model_present(model_id, quant):
+                quant = next((q for q in m["quants"] if _model_present(model_id, q)), None)
+            if not quant:
+                raise RuntimeError(f"Aucun poids de {m['name']} n'est téléchargé.")
+            missing = [d_ for d_ in m["deps"] if not _dep_present(d_)]
+            if missing:
+                raise RuntimeError(
+                    f"Dépendances manquantes pour {m['name']} : " + ", ".join(missing))
+
+            seed = p.get("seed") or 42
+            try:
+                seed = int(seed)
+            except (TypeError, ValueError):
+                seed = 42
+            strength = p.get("strength")
+            try:
+                strength = max(0.1, min(1.0, float(strength))) if strength not in (None, "") else 0.4
+            except (TypeError, ValueError):
+                strength = 0.4
+
+            stem = re.sub(r"[^a-zA-Z0-9_]", "_", src.stem.lower())[:40] or "image"
+            out_name = f"repair_{stem}_{uuid.uuid4().hex[:6]}.png"
+            out_path = OUTPUT_DIR / out_name
+
+            manifest = load_manifest()
+            cmd = build_adetailer_command(
+                model_id, quant, str(src), str(out_path), str(sd), manifest,
+                det_path, prompt=(p.get("prompt") or "").strip() or None,
+                seed=seed, ad_prompt=(p.get("ad_prompt") or "").strip() or None,
+                denoise=strength,
+                taesd_path=(str(taesd_path(taesd_for_model(model_id)))
+                            if p.get("taesd_id") and taesd_for_model(model_id)
+                               and taesd_path(taesd_for_model(model_id))
+                               and taesd_path(taesd_for_model(model_id)).exists() else None),
+                sage_attn=bool(p.get("sage_attn")) or bool(load_settings().get("sage_attn")),
+                lora_dir=None)
+
+            self._set(log=f"🙂 Réparation {d['name']} de « {src.name} » avec {m['name']}…",
+                      progress=0.02, step=0, total_steps=int(m["defaults"]["steps"]),
+                      error=None, done=False)
+
+            creationflags = 0
+            if os.name == "nt":
+                creationflags = subprocess.CREATE_NO_WINDOW
+            t_start = time.time()
+            self._proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace",
+                bufsize=1, creationflags=creationflags)
+
+            step_re = re.compile(r"step\s+(\d+)\s+(?:of|/)\s+(\d+)", re.I)
+            pct_re = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+            last_lines = []
+            for line in self._proc.stdout:
+                if self._cancel:
+                    break
+                line = line.rstrip()
+                if not line:
+                    continue
+                last_lines.append(line)
+                last_lines = last_lines[-400:]
+                prog = self.state.get("progress", 0.0)
+                sm = step_re.search(line)
+                if sm:
+                    s, tot = int(sm.group(1)), int(sm.group(2))
+                    self._set(step=s, total_steps=tot,
+                              progress=min(1.0, s / max(1, tot)),
+                              log=line, elapsed=time.time() - t_start)
+                else:
+                    pm = pct_re.search(line)
+                    if pm:
+                        prog = max(prog, float(pm.group(1)) / 100.0)
+                    self._set(log=line, progress=prog, elapsed=time.time() - t_start)
+
+            ret_code = self._proc.wait()
+            self._proc = None
+            total_seconds = time.time() - t_start
+
+            if self._cancel:
+                out_path.unlink(missing_ok=True)
+                self._set(log="Réparation annulée.", done=True, busy=False,
+                          result={"type": "repair", "cancelled": True, "images": []})
+                return
+
+            def _err_summary():
+                err_lines = [l for l in last_lines if any(k in l.lower() for k in (
+                    "error", "exception", "failed", "unknown", "invalid", "cannot", "abort"))]
+                if err_lines:
+                    return "\n".join(err_lines[-6:])
+                return "\n".join(last_lines[-8:]) if last_lines else "Aucun message du moteur."
+
+            if ret_code != 0:
+                raise RuntimeError(
+                    f"Le moteur sd-cli s'est arrêté avec le code d'erreur {ret_code} :\n"
+                    f"{_err_summary()}")
+            if not out_path.exists() or out_path.stat().st_size < 16 * 1024:
+                raise RuntimeError(
+                    f"Aucune image retouchée n'a été produite :\n{_err_summary()}")
+
+            # Metadonnees : injecter une fiche minimale si le PNG n'en a pas
+            try:
+                txt = _pngmeta.build_webui_text(
+                    prompt=(p.get("prompt") or "").strip(),
+                    negative="", steps=int(m["defaults"]["steps"]), cfg=float(m["defaults"]["cfg"]),
+                    seed=seed, sampler=m["defaults"].get("sampler", "euler"),
+                    model_id=model_id)
+                _pngmeta.embed_params(out_path, txt, only_if_missing=True)
+            except Exception:
+                pass
+
+            out_dims = _png_size(out_path) or (0, 0)
+            image_id = db.add_image(
+                batch_id=uuid.uuid4().hex, idx=0,
+                model_id=f"repair:{did}", model_name=f"🙂 {d['name']} · {m['name']}",
+                quant=quant, prompt=(p.get("prompt") or "").strip(),
+                negative="", seed=seed,
+                width=out_dims[0], height=out_dims[1],
+                steps=int(m["defaults"]["steps"]), cfg=float(m["defaults"]["cfg"]),
+                sampler="adetailer", filename=out_name, batch_size=1,
+                gen_time=round(total_seconds, 1), source_images=[src_rel])
+            self._set(log=f"Réparation terminée ✓ ({src.name}) en {total_seconds:.1f}s",
+                      progress=1.0, done=True, busy=False, error=None,
+                      result={"type": "repair",
+                              "images": [{"url": f"/output/{out_name}", "filename": out_name,
+                                          "seed": seed, "id": image_id,
+                                          "repaired": True}],
+                              "cancelled": False})
+        except Exception as e:
+            self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
+                      result={"type": "repair", "images": [], "error": str(e),
+                              "cancelled": False})
+
+    # --- Restauration ×2 par diffusion (mode -M vid_upscale, SeedVR2) ---
+    def _run_seedvr2(self, p):
+        try:
+            import db
+            st = seedvr2_status()
+            if not st["downloaded"]:
+                raise RuntimeError(
+                    "SeedVR2 n'est pas installé. Ouvrez l'onglet Modèles → section "
+                    "« 🩹 Restauration ×2 » (~6,8 Go).")
+            sd = find_sd_cli()
+            if not sd:
+                raise RuntimeError("Le moteur sd-cli n'est pas installé. Allez dans l'onglet Modèles.")
+            src_rel = p.get("source_image")
+            src = (ROOT / src_rel) if src_rel else None
+            if not src or not src.exists():
+                raise RuntimeError("Image source introuvable sur le disque.")
+            diff_path, vae_path = seedvr2_paths()
+
+            seed = p.get("seed") or 42
+            try:
+                seed = int(seed)
+            except (TypeError, ValueError):
+                seed = 42
+
+            stem = re.sub(r"[^a-zA-Z0-9_]", "_", src.stem.lower())[:40] or "image"
+            out_name = f"restore_x2_{stem}_{uuid.uuid4().hex[:6]}.png"
+            out_path = OUTPUT_DIR / out_name
+            cmd = build_seedvr2_command(str(sd), str(src), str(out_path),
+                                        diff_path, vae_path, upscale_factor=2, seed=seed)
+
+            self._set(log=f"🩹 Restauration ×2 de « {src.name} » avec SeedVR2 (lent, ~6.8 Go de modèle)…",
+                      progress=0.02, step=0, total_steps=0, error=None, done=False)
+
+            creationflags = 0
+            if os.name == "nt":
+                creationflags = subprocess.CREATE_NO_WINDOW
+            t_start = time.time()
+            self._proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace",
+                bufsize=1, creationflags=creationflags)
+
+            step_re = re.compile(r"step\s+(\d+)\s+(?:of|/)\s+(\d+)", re.I)
+            pct_re = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+            last_lines = []
+            for line in self._proc.stdout:
+                if self._cancel:
+                    break
+                line = line.rstrip()
+                if not line:
+                    continue
+                last_lines.append(line)
+                last_lines = last_lines[-400:]
+                prog = self.state.get("progress", 0.0)
+                sm = step_re.search(line)
+                if sm:
+                    s, tot = int(sm.group(1)), int(sm.group(2))
+                    self._set(step=s, total_steps=tot,
+                              progress=min(1.0, s / max(1, tot)),
+                              log=line, elapsed=time.time() - t_start)
+                else:
+                    pm = pct_re.search(line)
+                    if pm:
+                        prog = max(prog, float(pm.group(1)) / 100.0)
+                    self._set(log=line, progress=prog, elapsed=time.time() - t_start)
+
+            ret_code = self._proc.wait()
+            self._proc = None
+            total_seconds = time.time() - t_start
+
+            if self._cancel:
+                out_path.unlink(missing_ok=True)
+                self._set(log="Restauration annulée.", done=True, busy=False,
+                          result={"type": "restore_x2", "cancelled": True, "images": []})
+                return
+
+            def _err_summary():
+                err_lines = [l for l in last_lines if any(k in l.lower() for k in (
+                    "error", "exception", "failed", "unknown", "invalid", "cannot", "abort"))]
+                if err_lines:
+                    return "\n".join(err_lines[-6:])
+                return "\n".join(last_lines[-8:]) if last_lines else "Aucun message du moteur."
+
+            if ret_code != 0:
+                raise RuntimeError(
+                    f"Le moteur sd-cli s'est arrêté avec le code d'erreur {ret_code} :\n"
+                    f"{_err_summary()}")
+            if not out_path.exists() or out_path.stat().st_size < 16 * 1024:
+                raise RuntimeError(
+                    f"Aucune image restaurée n'a été produite :\n{_err_summary()}")
+
+            try:
+                txt = _pngmeta.build_webui_text(
+                    prompt=f"Restauration ×2 de {src.name} (SeedVR2)", negative="",
+                    steps=None, cfg=None, seed=seed, sampler="seedvr2",
+                    model_id="seedvr2-3b")
+                _pngmeta.embed_params(out_path, txt, only_if_missing=True)
+            except Exception:
+                pass
+
+            out_dims = _png_size(out_path) or (0, 0)
+            image_id = db.add_image(
+                batch_id=uuid.uuid4().hex, idx=0,
+                model_id="seedvr2", model_name="🩹 SeedVR2 (Restauration ×2)",
+                quant="×2", prompt=f"Restauration ×2 de {src.name}",
+                negative="", seed=seed,
+                width=out_dims[0], height=out_dims[1],
+                steps=0, cfg=0.0, sampler="seedvr2", filename=out_name, batch_size=1,
+                gen_time=round(total_seconds, 1), source_images=[src_rel])
+            self._set(log=f"Restauration ×2 terminée ✓ ({src.name}) en {total_seconds:.1f}s",
+                      progress=1.0, done=True, busy=False, error=None,
+                      result={"type": "restore_x2",
+                              "images": [{"url": f"/output/{out_name}", "filename": out_name,
+                                          "seed": seed, "id": image_id,
+                                          "upscaled": True, "scale": 2}],
+                              "cancelled": False})
+        except Exception as e:
+            self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
+                      result={"type": "restore_x2", "images": [], "error": str(e),
                               "cancelled": False})
 
 

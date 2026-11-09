@@ -178,13 +178,45 @@ Agrandissement » regroupe toutes les options avancées, chacune avec une **expl
 |---|---|---|
 | **🔍 Agrandissement ×4** | Super-résolution dédiée (1024→4096 px). Choix : **RealESRGAN ×4** (photo), **4× Nomos2 MoSR** (textures naturelles), **RealESRGAN Anime 6B** (illustration) | Pendant la génération (case option) **ou** après coup : bouton « 🔍 Agrandir ×4 » sur chaque résultat et dans l'historique |
 | **🏗️ Hires Fix (2 passes)** | 1ʳᵉ passe : composition à taille choisie ; 2ᵉ passe : re-détaillage doux en haute résolution (jusqu'à ×2, ≤ ~2048 px) | Génération pure, modèles compatibles img2img (SD 3.5, FLUX.1 Dev, Chroma) |
-| **🙂 ADetailer** | Détecteur YOLOv8 qui repère **visages/mains** puis les re-détaille automatiquement | Pages Générer & Édition (après installation du détecteur dans Modèles) |
+| **🙂 ADetailer** | Détecteur YOLOv8 qui repère **visages/mains** puis les re-détaille automatiquement — aussi en 1 clic après coup sur n'importe quelle image | Pages Générer & Édition (après installation du détecteur dans Modèles) |
+| **⚡ Mini-VAE (TAE)** | Décodage final Quasi instantané pour les modèles Qwen-Image (~2 Mo) | Section Qualité → ⚡ Performance |
+| **⚡ SageAttention CUDA** | Attention plus rapide et moins de VRAM sur GPU NVIDIA (SM80+, pilotes récents) — aucune installation Python | Section Qualité → ⚡ Performance |
+| **📡 Aperçu en direct** | Voyez l'image se construire pendant l'échantillonnage (proj/tae/vae, toutes les N étapes) | Section Qualité → ⚡ Performance |
+| **🎭 Visage fidèle (PuLID)** | Conserve le visage d'une photo (FLUX.1 Schnell/Dev/FHDR uniquement) | Section Qualité → 🎭 Visage fidèle — voir `docs/PULID_FR.md` |
 | **🎛️ Sampler / Scheduler** | Choix de l'échantillonneur (euler, heun, dpm++2m, euler_a, lcm) et du planificateur (karras, beta, exponential…) | Pages Générer & Édition |
 | **⚙️ VAE Tiling** | Décodage par tuiles — économise la VRAM sur grandes images | Réglages experts |
 | **⚙️ SLG (Skip Layer Guidance)** | Améliore le respect du prompt sur les modèles DiT (valeur conseillée : 3) | Réglages experts |
 
 Les modèles d'agrandissement (17–64 Mo) et les détecteurs ADetailer (6–22 Mo) se téléchargent
 en **1 clic** depuis la page **Modèles** (sections dédiées en bas de page).
+
+---
+
+## 🩹 Restauration & Réparation (images existantes)
+
+Deux outils agissent directement sur une image déjà générée (boutons sur chaque résultat et dans l'historique) :
+
+| Outil | Principe | Note |
+|---|---|---|
+| **🩹 Restauration ×2 (SeedVR2)** | Reconstruit la matière (peau, tissus, texte) et double la résolution par diffusion | ~6,8 Go à installer, ~10 Go de VRAM, lent mais bluffant sur vieilles photos |
+| **🙂 Réparation visages & mains (ADetailer)** | Le détecteur repère visages/mains et le modèle re-détaille ces zones uniquement | Quelques Mo à installer, modifie uniquement les zones détectées |
+| **🔍 Agrandissement ×4 (ESRGAN)** | Super-résolution classique | 17–64 Mo, rapide |
+
+---
+
+## 📥 Métadonnées intégrées dans chaque PNG
+
+Chaque image générée porte désormais un bloc de métadonnées (prompt, seed, modèle…).
+Concrètement vous pouvez :
+
+- **Glisser-déposer un PNG** généré n'importe où sur le panneau **Générer** ou **Édition** :
+  tous les réglages (prompt, négatif, seed, modèle, taille, sampler…) sont restaurés instantanément ;
+- utiliser **🗂️ Lot de prompts** (une image par ligne, 16 max) pour générer série après série ;
+- utiliser **⚔️ Duel de seeds** (même prompt, deux seeds consécutifs) et **🥊 Comparer deux modèles**
+  pour trancher entre variantes — les deux images atterrissent dans l'historique ;
+- profiter de l'**aperçu en direct** pendant l'échantillonnage (section ⚡ Performance) ;
+- les anciens PNG sans métadonnées sont tagués à la volée lors de la prochaine génération
+  (sans jamais réécrire vos fichiers existants).
 
 ---
 
@@ -207,6 +239,10 @@ Certains modèles nécessitent un **token Hugging Face gratuit** :
 |---|---|
 | 🖼️ **Génération** | 1 à 4 images par lot, 5 formats + proportions originales en édition |
 | ✂️ **Studio d'édition** | Onglet **Édition** : 1 canvas + jusqu'à **10 images** de référence, réordonnancement, comparaison avant/après |
+| 🗂️ **Lot de prompts** | Une ligne par prompt (16 max), générés en file d'attente |
+| ⚔️ **Duel / Comparaison** | Même prompt en 2 seeds consécutifs, ou sur 2 modèles |
+| 📡 **Aperçu en direct** | L'image se construit à l'écran pendant l'échantillonnage |
+| 📥 **Réglages dans le PNG** | Glissez-déposez n'importe quel PNG généré : prompt, seed, modèle… restaurés |
 | 🌐 **Traduction** | Traduit votre prompt (FR, ES…) vers l'anglais automatiquement |
 | ✨ **Enrichissement** | Un LLM enrichit votre prompt (style, lumière, composition…) |
 | 📊 **Statistiques** | Temps de génération par modèle, modèle le plus utilisé, etc. |
@@ -237,6 +273,7 @@ local-image-studio/
 │   ├── engine.py          ← Moteur sd-cli + téléchargements + file d'attente
 │   ├── registry.py        ← Définition des 25 modèles + upscalers ×4 + détecteurs ADetailer
 │   ├── prompt_enhancer.py ← Enrichissement & traduction (LLM)
+│   ├── metadata.py        ← Métadonnées PNG (lecture / injection des réglages)
 │   ├── gpu_info.py        ← Détection VRAM
 │   ├── db.py              ← Historique & statistiques
 │   ├── config.py          ← Configuration des chemins
@@ -273,6 +310,21 @@ En résumé : éditez `src/registry.py` → ajoutez une entrée dans le dictionn
 ---
 
 ## 🛠️ Dépannage
+
+> 💡 **Métadonnées PNG indisponibles** — les fonctions « Glisser-déposer un PNG » et
+> « Réglages restaurés » exigent **Pillow** (`pip install -r requirements.txt`, normalement
+> déjà fait par `start.bat`). Sans Pillow, tout le reste fonctionne ; seules ces deux
+> fonctionnalités sont désactivées.
+
+> 💡 **SageAttention sans effet** — l'option `--sage-attn` demande un GPU NVIDIA RTX 30/40/50
+> (ou Ampere SM80+) avec pilotes ≥ 555 (CUDA 12.8+). Sur une autre carte, sd-cli l'ignore
+> proprement sans planter.
+
+> 💡 **Aperçu en direct « tae » grisé** — la méthode d'aperçu tae requiert le mini-VAE
+> correspondant (onglet Modèles → ⚡ VAE rapide, ~2 Mo, modèles Qwen-Image uniquement).
+> Utilisez « proj » pour un aperçu sans aucun prérequis.
+
+
 
 | Problème | Solution |
 |---|---|

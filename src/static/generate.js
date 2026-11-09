@@ -318,6 +318,7 @@ async function loadModels() {
     $('#cfg').value = p.cfg || '';
     $('#seed').value = p.seed || '';
   }
+  populateCompareSelect();
   saveGenDraft();
 }
 
@@ -382,6 +383,7 @@ function buildRatios() {
     d.innerHTML = `<i style="width:${iconWidth}px;height:${iconHeight}px"></i>${id === 'original' ? '<span>Original</span>' : ''}`;
 
     const selectRatio = () => {
+      pendingRestoreSize = null;   // on repart sur les formats proposés
       if (id === 'original') {
         if (currentRatio !== 'original') ratioBeforeOriginal = currentRatio;
       } else {
@@ -702,6 +704,8 @@ $('#reset-gen-draft-btn')?.addEventListener('click', () => {
     buildRatiosApply();
     lastGeneratedImages = [];
     activeGenSourceUrl = null;
+    pendingRestoreSize = null;
+    if ($('#original-ratio-info')) $('#original-ratio-info').hidden = true;
     if ($('#results')) $('#results').innerHTML = '';
     if ($('#stats-box')) $('#stats-box').hidden = true;
     if ($('#gen-error')) { $('#gen-error').hidden = true; $('#gen-error').textContent = ''; }
@@ -797,16 +801,11 @@ $('#queue-clear-btn')?.addEventListener('click', async () => {
   if (j.ok) renderGenQueue([]);
 });
 
-// ---------- generation ----------
-$('#generate-btn').addEventListener('click', async () => {
-  const model_id = $('#model').value;
+// ---------- construction du payload (partagé : Générer / Lot / Duel / Compare) ----------
+let pendingRestoreSize = null;  // {width, height} restauré depuis un PNG
+function finalizeGenerationPayload(model_id) {
   const m = MODELS[model_id];
-  if (!m.status.ready) {
-    $('#gen-error').hidden = false;
-    $('#gen-error').textContent = `Le modele << ${m.name} >> n'est pas pret. Telechargez-le dans l'onglet Modeles.`;
-    return;
-  }
-
+  if (!m) return null;
   // Sauvegarder le preset sélectionné
   const presetSelect = $('#preset');
   const presetValue = presetSelect ? presetSelect.value : 'default';
@@ -815,17 +814,10 @@ $('#generate-btn').addEventListener('click', async () => {
   // Construction du prompt final (combine prompt principal + syntaxe LoRA si présente)
   let finalPrompt = $('#prompt').value.trim();
   const loraPrompt = $('#lora-prompt').value.trim();
-
-  // Si le prompt LoRA est défini, l'ajouter au prompt principal (tous modèles)
   if (loraPrompt) {
-    if (finalPrompt) {
-      finalPrompt = finalPrompt + ' ' + loraPrompt;
-    } else {
-      finalPrompt = loraPrompt;
-    }
+    finalPrompt = finalPrompt ? finalPrompt + ' ' + loraPrompt : loraPrompt;
   }
 
-  // Récupérer le strength pour les modeles img2img
   const canInit = (m.input_modes || []).includes('init');
   const strengthVal = canInit ? ($('#strength') ? $('#strength').value || null : null) : null;
 
@@ -845,14 +837,31 @@ $('#generate-btn').addEventListener('click', async () => {
     strength: strengthVal ? parseFloat(strengthVal) : null,
     allow_queue: true,
   };
-  // Options Qualité/Détails/Agrandissement (section ✨) : sampler, scheduler,
-  // hires_fix, upscale ×4, ADetailer, VAE tiling, SLG…
   if (window.LisQuality) Object.assign(body, LisQuality.collect());
-  if (currentRatio === 'original' && sourceImageSize) {
+  if (pendingRestoreSize) {
+    body.width = pendingRestoreSize.width;
+    body.height = pendingRestoreSize.height;
+    delete body.ratio;
+  } else if (currentRatio === 'original' && sourceImageSize) {
     const outputSize = getOriginalOutputSize();
     body.width = outputSize.width;
     body.height = outputSize.height;
   }
+  return body;
+}
+
+// ---------- generation ----------
+$('#generate-btn').addEventListener('click', async () => {
+  const model_id = $('#model').value;
+  const m = MODELS[model_id];
+  const canInit = Boolean(m && (m.input_modes || []).includes('init'));
+  if (!m.status.ready) {
+    $('#gen-error').hidden = false;
+    $('#gen-error').textContent = `Le modele << ${m.name} >> n'est pas pret. Telechargez-le dans l'onglet Modeles.`;
+    return;
+  }
+
+  const body = finalizeGenerationPayload(model_id);
 
   const r = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const j = await r.json();
@@ -902,6 +911,46 @@ function fmtTime(s) {
   return m + 'min ' + r + 's';
 }
 
+// ---------- aperçu en direct (pendant l'échantillonnage) ----------
+let livePreviewTimer = null;
+let livePreviewShown = false;
+function updateLivePreview(j) {
+  const wrap = $('#live-preview-wrap');
+  if (!wrap) return;
+  const wants = j && j.busy && j.kind === 'generate' && !!j.preview_batch_id;
+  if (wants) {
+    wrap.hidden = false;
+    livePreviewShown = true;
+    if (!livePreviewTimer) {
+      const tick = async () => {
+        try {
+          const r = await fetch('/api/preview');
+          if (!r.ok) return;
+          const p = await r.json();
+          if (p.ok && p.url) {
+            const img = $('#live-preview-img');
+            if (img) img.src = p.url + '?t=' + Math.floor((p.mtime || 0) * 1000);
+          }
+        } catch (e) { /* aperçu indisponible tant que le moteur ne produit rien */ }
+      };
+      tick();
+      livePreviewTimer = setInterval(tick, 1500);
+    }
+  } else if (livePreviewShown) {
+    // fin de génération : on masque l'aperçu (les résultats prennent le relais)
+    clearInterval(livePreviewTimer);
+    livePreviewTimer = null;
+    livePreviewShown = false;
+    wrap.hidden = true;
+    const img = $('#live-preview-img');
+    if (img) img.removeAttribute('src');
+  } else {
+    clearInterval(livePreviewTimer);
+    livePreviewTimer = null;
+    wrap.hidden = true;
+  }
+}
+
 // ---------- suivi live (FIX 3 : chrono + stats) ----------
 function pollStatus() {
   if (pollTimer) clearInterval(pollTimer);
@@ -936,15 +985,20 @@ function pollStatus() {
     if (j.log) $('#log').textContent = j.log + ($('#log').textContent ? '\n' + $('#log').textContent : '');
 
     renderGenQueue(j.queue || []);
+    updateLivePreview(j);
 
-    // Agrandissement ×4 terminé (même si d'autres tâches suivent dans la file)
-    if (j.kind === 'upscale' && j.busy) window.__upscaleDonePending = true;
-    if (window.__upscaleDonePending && !j.busy) {
-      window.__upscaleDonePending = false;
-      if (j.result && j.result.type === 'upscale' && window.LisQuality) {
-        LisQuality._done(j.result.error || j.result.cancelled ? [] : (j.result.images || []));
+    // Op terminée : agrandissement ×4, réparation ou restauration ×2
+    const AUX_KINDS = ['upscale', 'repair', 'restore_x2'];
+    if (AUX_KINDS.includes(j.kind) && j.busy) window.__auxDonePending = j.kind;
+    if (window.__auxDonePending && !j.busy) {
+      const auxKind = window.__auxDonePending;
+      window.__auxDonePending = false;
+      if (j.result && j.result.type === auxKind && window.LisQuality) {
+        LisQuality._done(j.result.error || j.result.cancelled ? [] : (j.result.images || []), auxKind);
       }
     }
+    // Compatibilité avec l'ancien nom utilisé par le bouton « Agrandir ×4 »
+    if (window.__upscaleDonePending) window.__upscaleDonePending = false;
 
     // affichage des images au fur et a mesure
     if (j.kind === 'generate' && j.result && j.result.images && j.result.images.length > 0) {
@@ -1056,9 +1110,15 @@ function showResults(images) {
       }
     });
     d.appendChild(sendToEdit);
-    // Bouton 1-clic « 🔍 Agrandir ×4 » (super-résolution ESRGAN/MoSR, enregistré en historique)
+    // Boutons 1-clic « 🔍 Agrandir ×4 » et « 🙂 Réparer visages & mains »
     if (window.LisQuality && typeof LisQuality.makeUpscaleButton === 'function') {
       d.appendChild(LisQuality.makeUpscaleButton({ imageId: img.id }));
+    }
+    if (window.LisQuality && typeof LisQuality.makeRepairButton === 'function') {
+      d.appendChild(LisQuality.makeRepairButton({ imageId: img.id }));
+    }
+    if (window.LisQuality && typeof LisQuality.makeRestoreX2Button === 'function') {
+      d.appendChild(LisQuality.makeRestoreX2Button({ imageId: img.id }));
     }
     box.appendChild(d);
   });
@@ -1066,27 +1126,35 @@ function showResults(images) {
 }
 
 // ---------- Agrandissement ×4 : affichage du résultat dans la grille ----------
+function auxResultBadge(img) {
+  if (img.repaired) return { text: '🙂 RÉPARÉE', title: 'Visages & mains re-détaillés (ADetailer), enregistrée dans l\'historique', label: 'Image réparée' };
+  if ((img.scale || 4) === 2 && /restore/.test(img.filename || '')) return { text: '🩹 RESTAURÉE ×2', title: 'Restaurée ×2 par diffusion (SeedVR2), enregistrée dans l\'historique', label: 'Image restaurée ×2' };
+  const sc = img.scale || 4;
+  return { text: `🔍 AGRANDIE ×${sc}`, title: `Version agrandie ×${sc}, enregistrée dans l'historique`, label: `Version agrandie ×${sc}` };
+}
+
 function appendUpscaledResults(images) {
   const box = $('#results');
   if (!box || !Array.isArray(images)) return;
   images.forEach(img => {
     const displayUrl = `${img.url}?u=${Date.now()}`;
+    const badge = auxResultBadge(img);
     const d = document.createElement('div');
     d.className = 'result result-upscaled';
     d.innerHTML = `
-      <span class="upscaled-badge" title="Version agrandie ×${img.scale || 4} et renforcée en netteté, enregistrée dans l'historique">🔍 AGRANDIE ×${img.scale || 4}</span>
+      <span class="upscaled-badge" title="${badge.title}">${badge.text}</span>
       <img src="${displayUrl}" alt="">
       <div class="rbar">
-        <span>haute résolution</span>
+        <span>${badge.label}</span>
         <a class="link" href="${img.url}" download>telecharger</a>
       </div>`;
     d.querySelector('img').addEventListener('click', () => {
       openLightbox([{
         src: displayUrl,
         downloadUrl: img.url,
-        label: `Version agrandie ×${img.scale || 4}`,
+        label: badge.label,
         role: 'result',
-        badge: `🔍 AGRANDIE ×${img.scale || 4}`,
+        badge: badge.text,
       }], 0);
     });
     const sendToEdit = document.createElement('button');
@@ -1117,7 +1185,9 @@ function appendUpscaledResults(images) {
     });
     d.appendChild(sendToEdit);
     if (window.LisQuality) {
-      d.appendChild(LisQuality.makeUpscaleButton({ imageId: img.id }));
+      if (LisQuality.makeUpscaleButton) d.appendChild(LisQuality.makeUpscaleButton({ imageId: img.id }));
+      if (LisQuality.makeRepairButton) d.appendChild(LisQuality.makeRepairButton({ imageId: img.id }));
+      if (LisQuality.makeRestoreX2Button) d.appendChild(LisQuality.makeRestoreX2Button({ imageId: img.id }));
     }
     box.appendChild(d);
   });
@@ -1289,3 +1359,255 @@ loadDefaultNegative();
 if (window.LisQuality) {
   LisQuality.initSection({ container: '#quality-section', withHires: true });
 }
+
+// ===== Lot de prompts (une image par ligne) =====
+function buildBatchPayload(model_id) {
+  const body = finalizeGenerationPayload(model_id);
+  if (body) delete body.prompt;
+  return body;
+}
+
+$('#batch-run-btn')?.addEventListener('click', async () => {
+  const model_id = $('#model').value;
+  const m = MODELS[model_id];
+  if (!m || !m.status.ready) {
+    if (window.showToast) window.showToast('❌ Le modèle sélectionné n’est pas installé.');
+    return;
+  }
+  const ta = $('#batch-prompts');
+  const lines = (ta?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+  if (!lines.length) {
+    if (window.showToast) window.showToast('⚠️ Écrivez au moins un prompt (une ligne par image).');
+    return;
+  }
+  const status = $('#batch-status');
+  if (status) status.textContent = 'envoi…';
+  const body = buildBatchPayload(model_id) || {};
+  body.prompts = lines.join('\n');
+  try {
+    const r = await fetch('/api/batch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!j.ok && !(j.queued > 0)) {
+      const msg = (j.errors && j.errors[0] && j.errors[0].error) || j.error || 'Lot refusé.';
+      if (status) status.textContent = '';
+      if (window.showToast) window.showToast('❌ ' + msg);
+      return;
+    }
+    if (status) status.textContent = `${j.queued} job(s) en file`;
+    if (window.showToast) {
+      window.showToast(j.errors && j.errors.length
+        ? `🗂️ ${j.queued} génération(s) en file — ${j.errors.length} ligne(s) ignorée(s).`
+        : `🗂️ Lot de ${j.queued} génération(s) ajouté à la file d'attente.`);
+    }
+    pollStatus();
+  } catch (e) {
+    if (status) status.textContent = '';
+    if (window.showToast) window.showToast('❌ Connexion au serveur impossible.');
+  }
+});
+
+// ===== Duel de seeds & comparaison de modèles =====
+function randomSeed32() {
+  return Math.floor(Math.random() * 2147483647);
+}
+
+async function postGenerate(body) {
+  const r = await fetch('/api/generate', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+
+$('#duel-seeds-btn')?.addEventListener('click', async () => {
+  const model_id = $('#model').value;
+  const m = MODELS[model_id];
+  if (!m || !m.status.ready) {
+    if (window.showToast) window.showToast('❌ Le modèle sélectionné n’est pas installé.');
+    return;
+  }
+  const body = finalizeGenerationPayload(model_id);
+  if (!body || !body.prompt) {
+    if (window.showToast) window.showToast('⚠️ Le prompt est vide.');
+    return;
+  }
+  const s1 = randomSeed32();
+  const s2 = s1 + 1;
+  const j1 = await postGenerate({ ...body, seed: s1 });
+  const j2 = await postGenerate({ ...body, seed: s2 });
+  const okCount = [j1, j2].filter(j => j && j.ok).length;
+  if (window.showToast) {
+    window.showToast(okCount
+      ? `⚔️ Duel lancé avec les seeds ${s1} et ${s2} — les deux images iront dans l'historique.`
+      : '❌ Duel refusé par le moteur.');
+  }
+  if (okCount) pollStatus();
+});
+
+function populateCompareSelect() {
+  const sel = $('#compare-model');
+  if (!sel || !Object.keys(MODELS).length) return;
+  const current = $('#model')?.value;
+  sel.innerHTML = '';
+  for (const [id, m] of Object.entries(MODELS)) {
+    if (id === current) continue;
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = m.name + (m.status && m.status.ready ? ' ✓' : '  (à télécharger)');
+    if (!m.status || !m.status.ready) opt.style.color = '#9aa0ad';
+    sel.appendChild(opt);
+  }
+}
+
+$('#model')?.addEventListener('change', populateCompareSelect);
+$('#compare-models-btn')?.addEventListener('click', async () => {
+  const model_id = $('#model').value;
+  const other_id = $('#compare-model')?.value;
+  const m = MODELS[model_id];
+  const other = MODELS[other_id];
+  if (!m || !m.status.ready) {
+    if (window.showToast) window.showToast('❌ Le modèle courant n’est pas installé.');
+    return;
+  }
+  if (!other) {
+    if (window.showToast) window.showToast('⚠️ Choisissez un second modèle à comparer.');
+    return;
+  }
+  if (!other.status.ready) {
+    if (window.showToast) window.showToast(`❌ « ${other.name} » n'est pas installé (onglet Modèles).`);
+    return;
+  }
+  const body = finalizeGenerationPayload(model_id);
+  if (!body || !body.prompt) {
+    if (window.showToast) window.showToast('⚠️ Le prompt est vide.');
+    return;
+  }
+  const seed = randomSeed32();
+  const j1 = await postGenerate({ ...body, seed });
+  const j2 = await postGenerate({ ...body, model_id: other_id, quant: other.default_quant, seed });
+  const msgs = [];
+  if (j1 && j1.ok) msgs.push(m.name);
+  if (j2 && j2.ok) msgs.push(other.name);
+  const err = (!j1 || !j1.ok) && j2 && j2.error ? j2.error : (!j2 || !j2.ok) && j1 && j1.error ? j1.error : null;
+  if (window.showToast) {
+    window.showToast(msgs.length
+      ? `🥊 Comparaison lancée (seed ${seed}) : ${msgs.join(' vs ')} — résultats dans l'historique.`
+      : '❌ Comparaison refusée : ' + (err || 'erreur inconnue'));
+  }
+  if (msgs.length) pollStatus();
+});
+
+// ===== Restaurer les réglages depuis un PNG généré =====
+async function restoreFromPngFile(file) {
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('image', file, file.name || 'capture.png');
+  let j;
+  try {
+    const r = await fetch('/api/image-meta', { method: 'POST', body: fd });
+    j = await r.json();
+  } catch (e) {
+    if (window.showToast) window.showToast('❌ Lecture du PNG impossible (connexion serveur).');
+    return;
+  }
+  if (!j.ok) {
+    if (window.showToast) window.showToast('❌ ' + (j.error || 'Aucune métadonnée lisible.'));
+    return;
+  }
+  applyFormSettings(j.form || {});
+}
+
+function applyFormSettings(form) {
+  const setVal = (id, v) => { const el = $(id); if (el && v !== undefined && v !== null) el.value = v; };
+  if (form.model && MODELS[form.model]) {
+    $('#model').value = form.model;
+    onModelChange();
+  }
+  setVal('#prompt', form.prompt || '');
+  setVal('#negative', form.negative || '');
+  if (form.steps) setVal('#steps', form.steps);
+  if (form.cfg !== undefined) setVal('#cfg', form.cfg);
+  if (form.seed !== undefined) setVal('#seed', form.seed);
+  // taille : on garde les pixels exacts via pendingRestoreSize
+  const w = parseInt(form.width, 10), h = parseInt(form.height, 10);
+  if (Number.isFinite(w) && Number.isFinite(h) && w >= 64 && h >= 64) {
+    const clamp16 = v => Math.max(256, Math.min(2112, Math.round(v / 16) * 16));
+    pendingRestoreSize = { width: clamp16(w), height: clamp16(h) };
+    const info = $('#original-ratio-info');
+    if (info) {
+      info.hidden = false;
+      info.textContent = `Taille restaurée depuis le PNG : ${pendingRestoreSize.width}×${pendingRestoreSize.height}`;
+    }
+  }
+  // Sampler / scheduler de la section Qualité si présents
+  if (form.sampler) {
+    const sel = $('#q-sampler');
+    if (sel) {
+      const opt = sel.querySelector(`option[value="${CSS.escape(String(form.sampler))}"]`);
+      if (opt) sel.value = form.sampler;
+    }
+  }
+  if (form.scheduler) {
+    const sel = $('#q-scheduler');
+    if (sel) {
+      const opt = sel.querySelector(`option[value="${CSS.escape(String(form.scheduler))}"]`);
+      if (opt) sel.value = form.scheduler;
+    }
+  }
+  if (window.showToast) {
+    window.showToast('📥 Réglages restaurés depuis le PNG (prompt, seed, modèle…).');
+  }
+  saveGenDraft();
+}
+
+$('#restore-png-btn')?.addEventListener('click', () => $('#restore-png-input')?.click());
+$('#restore-png-input')?.addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if (f) restoreFromPngFile(f);
+  e.target.value = '';
+});
+
+// Drag-drop d'un PNG n'importe où sur le panneau de réglages
+(() => {
+  const panel = document.querySelector('.form-panel');
+  if (!panel) return;
+  let dragDepth = 0;
+  const hasPng = e => {
+    const items = e.dataTransfer && e.dataTransfer.items ? [...e.dataTransfer.items] : [];
+    return items.some(it => it.kind === 'file' && (it.type === 'image/png' || it.type === ''));
+  };
+  panel.addEventListener('dragenter', e => {
+    if (e.target.closest('#file-upload-area, #img2img-box')) return;
+    if (hasPng(e)) { dragDepth++; panel.classList.add('drop-restore-active'); e.preventDefault(); }
+  });
+  panel.addEventListener('dragover', e => {
+    if (e.target.closest('#file-upload-area, #img2img-box')) return;
+    if (hasPng(e)) e.preventDefault();
+  });
+  panel.addEventListener('dragleave', () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) panel.classList.remove('drop-restore-active');
+  });
+  panel.addEventListener('drop', e => {
+    const files = e.dataTransfer && e.dataTransfer.files ? [...e.dataTransfer.files] : [];
+    const png = files.find(f => /\.png$/i.test(f.name || '') || f.type === 'image/png');
+    panel.classList.remove('drop-restore-active');
+    dragDepth = 0;
+    // Ne pas voler les drops destinés à la zone img2img (ou à un champ de saisie)
+    if (e.target.closest('#file-upload-area, #img2img-box, input, textarea, select')) {
+      return;
+    }
+    if (png) {
+      e.preventDefault();
+      e.stopPropagation();
+      restoreFromPngFile(png);
+    }
+    // sinon : on laisse le handler img2img habituel prendre le relais
+  }, true);
+})();
+
+// Peupler le comparateur au chargement (après loadModels)
+setTimeout(populateCompareSelect, 1200);

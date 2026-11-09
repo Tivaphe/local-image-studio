@@ -8,10 +8,17 @@
   <section class="panel form-panel">
     <div class="panel-title-row">
       <h2>Nouvelle image</h2>
-      <button type="button" id="reset-gen-draft-btn" class="btn ghost small"
-              title="Réinitialiser le formulaire et vider le brouillon sauvegardé">
-        🧹 Nouveau / Vider le brouillon
-      </button>
+      <div class="row" style="gap:8px;">
+        <button type="button" id="restore-png-btn" class="btn ghost small"
+                title="Glissez-déposez un PNG précédemment généré, ou cliquez pour en choisir un : prompt, seed, modèle, format et qualité sont restaurés">
+          📥 Restaurer depuis un PNG
+        </button>
+        <button type="button" id="reset-gen-draft-btn" class="btn ghost small"
+                title="Réinitialiser le formulaire et vider le brouillon sauvegardé">
+          🧹 Nouveau / Vider le brouillon
+        </button>
+        <input type="file" id="restore-png-input" accept="image/png" hidden>
+      </div>
     </div>
 
     <div class="field preprompts-field">
@@ -127,6 +134,41 @@
       </div>
     </details>
 
+    <!-- Lot de prompts : une image par ligne -->
+    <details class="advanced" id="batch-prompts-box">
+      <summary>🗂️ Lot de prompts — une image par ligne</summary>
+      <label class="field">
+        <span>Prompts (un par ligne, 16 max)</span>
+        <textarea id="batch-prompts" rows="5" placeholder="a lighthouse at dawn, watercolor&#10;a lighthouse in a storm, oil painting&#10;a lighthouse on a cliff, pixel art"></textarea>
+      </label>
+      <div class="row" style="align-items:center;gap:10px;">
+        <button type="button" id="batch-run-btn" class="btn small primary">🗂️ Générer le lot (file d'attente)</button>
+        <span class="muted small" id="batch-status"></span>
+      </div>
+      <small class="muted">
+        Chaque ligne est générée comme une image indépendante avec les réglages actuels du formulaire
+        (modèle, format, qualité, seed aléatoire). Tout est mis dans la file d'attente — vous pouvez
+        continuer à utiliser l'interface pendant ce temps.
+      </small>
+    </details>
+
+    <!-- Duel / comparaison -->
+    <details class="advanced" id="compare-box">
+      <summary>⚔️ Duel &amp; comparaison</summary>
+      <div class="row" style="align-items:center;gap:10px;flex-wrap:wrap;">
+        <button type="button" id="duel-seeds-btn" class="btn small">⚔️ Duel de seeds (×2)</button>
+        <span class="muted small">Même prompt, même réglages, 2 seeds consécutifs — 2 jobs dans la file.</span>
+      </div>
+      <div class="row" style="align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;">
+        <label class="field grow" style="margin:0;">
+          <span>Comparer avec le modèle…</span>
+          <select id="compare-model"></select>
+        </label>
+        <button type="button" id="compare-models-btn" class="btn small">🥊 Lancer la comparaison</button>
+      </div>
+      <small class="muted">Les deux images atterrissent dans l'historique côte à côte (même prompt, même seed de départ).</small>
+    </details>
+
     <!-- Section Qualité / Détails / Agrandissement (rendue par quality.js) -->
     <div id="quality-section"></div>
 
@@ -167,6 +209,11 @@
     <div class="progress-wrap" id="progress-wrap" hidden>
       <div class="progress-bar"><div id="progress-fill"></div></div>
       <div class="progress-meta"><span id="progress-text">en cours…</span></div>
+    </div>
+
+    <div class="live-preview-wrap" id="live-preview-wrap" hidden>
+      <img id="live-preview-img" alt="Aperçu en direct de la génération">
+      <span class="live-preview-badge">LIVE</span>
     </div>
 
     <div class="queue-box" id="queue-box" hidden>

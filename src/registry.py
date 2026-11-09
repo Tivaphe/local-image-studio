@@ -10,7 +10,8 @@ import re
 from pathlib import Path
 
 from config import (DIFFUSION_DIR, VAE_DIR, TEXTENC_DIR, LLM_DIR, UPSCALE_DIR,
-                    ADETAILER_DIR, MANIFEST_PATH)
+                    ADETAILER_DIR, SEEDVR2_DIR, TAESD_DIR, PULID_DIR,
+                    PORTRAITS_DIR, MANIFEST_PATH)
 
 
 # --------------------------------------------------------------------------- #
@@ -134,6 +135,231 @@ def adetailer_status(detector_id: str) -> dict:
     p = ADETAILER_DIR / d["filename"]
     ok = p.exists() and p.is_file() and p.stat().st_size > 16 * 1024
     return {"downloaded": ok, "path": str(p) if ok else None}
+
+
+# --------------------------------------------------------------------------- #
+#  Restauration SeedVR2 (super-resolution par diffusion, mode -M vid_upscale)
+#  Poids officiels Comfy-Org/SeedVR2 ; operation autonome sur une image (x2).
+#  Experimental : resultats plus « naturels » qu'ESRGAN sur les photos vieilles
+#  ou degradees, mais beaucoup plus lourd (plusieurs Go, modele DiT 3B).
+# --------------------------------------------------------------------------- #
+SEEDVR2 = {
+    "id": "seedvr2-3b",
+    "name": "SeedVR2 3B (Restauration ×2)",
+    "short_label": "🩹 SeedVR2 ×2 (restauration photo)",
+    "scale": 2,
+    "size_gb": 6.8,
+    "desc": (
+        "Modèle de restauration par diffusion (ByteDance SeedVR2, ~6.8 Go) : agrandit ×2 "
+        "en reconstruisant de la matière crédible — visages, grain de peau, tissus — là où "
+        "un ESRGAN classique se contente de « lisser ». Idéal pour sauver les vieilles photos "
+        "et les images très compressées. Expérimental : plus lent et plus lourd qu'un ×4 classique."
+    ),
+    "repo": "Comfy-Org/SeedVR2",
+    "hf_url": "https://huggingface.co/Comfy-Org/SeedVR2",
+    "needs_token": False,
+    "files": {
+        "diffusion": {"filename": "seedvr2_3b_int8_convrot.safetensors", "size_mb": 4000},
+        "vae":       {"filename": "seedvr2_ema_vae_fp16.safetensors",   "size_mb": 300},
+    },
+}
+
+
+def seedvr2_paths() -> list[Path]:
+    """Chemins attendus [diffusion, vae] des poids SeedVR2 (telecharges ou non)."""
+    return [SEEDVR2_DIR / SEEDVR2["files"]["diffusion"]["filename"],
+            SEEDVR2_DIR / SEEDVR2["files"]["vae"]["filename"]]
+
+
+def seedvr2_status() -> dict:
+    diff_p, vae_p = seedvr2_paths()
+    diff_ok = diff_p.exists() and diff_p.stat().st_size > 1024 * 1024
+    vae_ok = vae_p.exists() and vae_p.stat().st_size > 1024 * 1024
+    return {"downloaded": diff_ok and vae_ok,
+            "diffusion": diff_ok,
+            "vae": vae_ok,
+            "paths": [str(p) for p in (diff_p, vae_p)] if (diff_ok and vae_ok) else None}
+
+
+# --------------------------------------------------------------------------- #
+#  Mini-VAE TAE (decodage ultra-rapide + apercu en direct)
+#  taew2_1  : Qwen-Image / Qwen-Image 2512 / Wan 2.1 (decode rapide en fin
+#             de generation ; baisse tres legerement la finesse)
+#  taeqi2_1 : Qwen-Image 2.1 (VAE 64 canaux) — decode rapide + apercu.
+#  Repo HF : madebyollin/taehv (taew2_1) et madebyollin/taeqi2_1 (taeqi2_1).
+# --------------------------------------------------------------------------- #
+TAESD = {
+    "taew2_1": {
+        "id": "taew2_1",
+        "name": "TAE Wan 2.1 (mini-VAE rapide pour Qwen-Image 2512)",
+        "short_label": "⚡ Qwen-Image 2512 (TAE Wan)",
+        "filename": "taew2_1.safetensors",
+        "repo": "madebyollin/taehv",
+        "repo_filename": "safetensors/taew2_1.safetensors",
+        "size_mb": 2,
+        "vae_dep": "vae_qwen",
+        "desc": (
+            "Mini-VAE (~2 Mo) qui remplace le décodage complet du VAE : la génération "
+            "se termine presque instantanément au prix d'un très léger adoucissement. "
+            "Compatible Qwen-Image 2512 (VAE Wan 2.1)."
+        ),
+    },
+    "taeqi2_1": {
+        "id": "taeqi2_1",
+        "name": "TAE Qwen-Image 2.1 (mini-VAE rapide)",
+        "short_label": "⚡ Qwen-Image 2.1 (TAE QI2.1)",
+        "filename": "taeqi2_1.safetensors",
+        "repo": "madebyollin/taeqi2_1",
+        "repo_filename": "taeqi2_1.safetensors",
+        "size_mb": 2,
+        "vae_dep": "vae_qwen_21",
+        "desc": (
+            "Mini-VAE pour les modèles Qwen-Image 2.1 (VAE 64 canaux) : décodage final "
+            "quasi instantané et aperçu en direct plus fluide. Léger adoucissement possible."
+        ),
+    },
+}
+
+
+def taesd_path(ta_id: str) -> Path | None:
+    t = TAESD.get(ta_id)
+    if not t:
+        return None
+    return TAESD_DIR / t["filename"]
+
+
+def taesd_status(ta_id: str) -> dict:
+    t = TAESD.get(ta_id)
+    if not t:
+        return {"downloaded": False, "path": None}
+    p = TAESD_DIR / t["filename"]
+    ok = p.exists() and p.is_file() and p.stat().st_size > 50 * 1024
+    return {"downloaded": ok, "path": str(p) if ok else None}
+
+
+def taesd_for_model(model_id: str) -> str | None:
+    """Retourne l'id TAE compatible avec un modele, ou None."""
+    m = MODELS.get(model_id)
+    if not m:
+        return None
+    vae_dep = m.get("vae_dep")
+    if m.get("arch") == "qwen_image":
+        vae_dep = vae_dep or "vae_qwen"
+    for ta_id, t in TAESD.items():
+        if t["vae_dep"] == vae_dep:
+            return ta_id
+    return None
+
+
+# --------------------------------------------------------------------------- #
+#  PuLID-FLUX (conservation du visage a partir d'une photo de reference)
+#  Poids : guozinan/PuLID/pulid_flux_v0.9.1.safetensors (~1.14 Go), usage avec
+#  les modeles arch « flux ». L'empreinte d'identite (.pulidembd) est extraite
+#  une fois par portrait avec le script outils/pulid_extract_id.py (stack
+#  PyTorch externe, voir docs/pulid.md de stable-diffusion.cpp).
+# --------------------------------------------------------------------------- #
+PULID = {
+    "weights_filename": "pulid_flux_v0.9.1.safetensors",
+    "weights_repo": "guozinan/PuLID",
+    "weights_url": "https://huggingface.co/guozinan/PuLID",
+    "weights_size_mb": 1140,
+    "compatible_arches": ("flux", "flux_kontext"),
+    "compatible_models": ("flux-schnell", "flux-dev", "fhdr"),
+    "default_weight": 1.0,
+    "min_weight": 0.0,
+    "max_weight": 2.0,
+}
+
+
+def pulid_weights_path() -> Path:
+    return PULID_DIR / PULID["weights_filename"]
+
+
+def pulid_status() -> dict:
+    p = pulid_weights_path()
+    ok = p.exists() and p.is_file() and p.stat().st_size > 100 * 1024 * 1024
+    return {"downloaded": ok, "path": str(p) if ok else None,
+            "size_gb": round(PULID["weights_size_mb"] / 1024, 2),
+            "url": PULID["weights_url"]}
+
+
+def list_portraits() -> list[dict]:
+    """Portraits disponibles (empreinte extraite) dans portraits/."""
+    out = []
+    if PORTRAITS_DIR.exists():
+        for emb in sorted(PORTRAITS_DIR.glob("*.pulidembd")):
+            img = None
+            for ext in (".png", ".jpg", ".jpeg", ".webp"):
+                cand = emb.with_suffix(ext)
+                if cand.exists():
+                    img = cand.name
+                    break
+            ok = emb.stat().st_size > 50 * 1024
+            out.append({
+                "id": emb.stem,
+                "name": emb.stem,
+                "embedding": emb.name,
+                "size_kb": max(1, round(emb.stat().st_size / 1024)),
+                "size_mb": round(emb.stat().st_size / (1024 * 1024), 2),
+                "url": f"/portraits/{img}" if img else None,
+                "has_image": bool(img),
+                "valid": ok,
+            })
+    return out
+
+
+def portrait_embedding(portrait_id: str) -> Path | None:
+    """Chemin d'une empreinte .pulidembd (nom nettoye, jamais hors portraits/)."""
+    safe = re.sub(r"[^a-zA-Z0-9_\-]", "_", str(portrait_id or "").strip())
+    if not safe:
+        return None
+    p = PORTRAITS_DIR / f"{safe}.pulidembd"
+    return p if p.exists() and p.stat().st_size > 50 * 1024 else None
+
+
+def supports_pulid(model_id: str) -> bool:
+    """Indique si le modele peut recevoir une empreinte PuLID (arch FLUX)."""
+    m = MODELS.get(model_id, {})
+    return m.get("arch") in PULID["compatible_arches"]
+
+
+# --------------------------------------------------------------------------- #
+#  Detection VRAM : recommandation de quant par modele
+# --------------------------------------------------------------------------- #
+def recommended_quant(model_id: str, vram_gb: float) -> str | None:
+    """
+    Choisit le meilleur quant qui « tient » dans la VRAM detectee.
+    Heuristique simple : poids du modele x1.2 (marge d'execution) +
+    1.5 Go de contexte (VAE, encodeurs, activation) <= VRAM disponible.
+    Si rien ne rentre, le plus leger est propose (l'offload CPU finira le travail).
+    """
+    m = MODELS.get(model_id)
+    if not m:
+        return None
+    sizes = [(q, s) for q, s in ((q, m.get("size_gb", {}).get(q)) for q in m.get("quants", []))
+             if isinstance(s, (int, float))]
+    if not sizes:
+        return m.get("default_quant")
+    if not vram_gb:
+        return m.get("default_quant")
+    budget = float(vram_gb) - 1.5  # marge VAE + encodeurs
+    best_light = None
+    chosen = None
+    for q, s in sorted(sizes, key=lambda x: -x[1]):
+        if best_light is None:
+            best_light = q
+        if s * 1.2 <= budget:
+            chosen = q
+            break
+        best_light = q
+    return chosen or best_light
+
+
+def quant_recommendations(vram_gb: float) -> dict:
+    """Recommandation par modele installe (None si VRAM inconnue)."""
+    if not vram_gb:
+        return {}
+    return {mid: recommended_quant(mid, vram_gb) for mid in MODELS}
 
 
 SAMPLERS_INFO = [
@@ -2006,7 +2232,9 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
                   ref_images=None, input_mode=None, ref_max_pixels=None,
                   mask_image=None, sampler=None, scheduler=None,
                   vae_tiling=False, slg_scale=None, upscale_model=None,
-                  adetailer_model=None):
+                  adetailer_model=None, taesd_path=None, sage_attn=False,
+                  preview_method=None, preview_path=None, preview_interval=None,
+                  pulid_weights=None, pulid_id_embedding=None, pulid_id_weight=None):
     m = MODELS[model_id]
     arch = m["arch"]
     args = [sd_cli]
@@ -2216,6 +2444,37 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     if adetailer_model:
         args += ["--ad-model", str(adetailer_model)]
 
+    # --- Performance : mini-VAE rapide (decodage final + apercu en direct) ---
+    if taesd_path:
+        args += ["--taesd", str(taesd_path)]
+
+    # --- Performance : SageAttention CUDA (attention plus rapide, moins de VRAM) ---
+    # Silencieusement ignore par le moteur si la carte/toolkit ne le permet pas.
+    if sage_attn:
+        args += ["--sage-attn"]
+
+    # --- Apercu en direct pendant l'echantillonnage (none|proj|tae|vae) ---
+    if preview_method and preview_method != "none":
+        args += ["--preview", str(preview_method)]
+        if preview_path:
+            args += ["--preview-path", str(preview_path)]
+        if preview_interval:
+            try:
+                args += ["--preview-interval", str(int(preview_interval))]
+            except (TypeError, ValueError):
+                pass
+
+    # --- PuLID-FLUX : injection d'une empreinte d'identite (seulement arch flux) ---
+    if pulid_weights and pulid_id_embedding and supports_pulid(model_id):
+        args += ["--pulid-weights", str(pulid_weights),
+                 "--pulid-id-embedding", str(pulid_id_embedding)]
+        try:
+            w = float(pulid_id_weight)
+        except (TypeError, ValueError):
+            w = PULID["default_weight"]
+        w = max(PULID["min_weight"], min(PULID["max_weight"], w))
+        args += ["--pulid-id-weight", f"{w}"]
+
     # LoRA : --lora-model-dir (option officielle sd-cli, pas --lora-dir)
     if lora_dir:
         lora_p = Path(lora_dir)
@@ -2226,7 +2485,8 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
     return args
 
 
-def build_upscale_command(sd_cli, input_path, output_path, upscale_model_path, tile_size=256):
+def build_upscale_command(sd_cli, input_path, output_path, upscale_model_path, tile_size=256,
+                          seed=42):
     """
     Construit la commande sd-cli pour agrandir une image existante en mode autonome (-M upscale).
     """
@@ -2237,8 +2497,185 @@ def build_upscale_command(sd_cli, input_path, output_path, upscale_model_path, t
         "-o", str(output_path),
         "--upscale-model", str(upscale_model_path),
         "--upscale-tile-size", str(int(tile_size)),
+        "-s", str(int(seed) if seed not in (None, "") else 42),
         "-v",
     ]
+
+
+def build_seedvr2_command(sd_cli, input_path, output_path, diffusion_path, vae_path,
+                          upscale_factor=2, seed=42):
+    """
+    Restauration ×2 par diffusion (mode -M vid_upscale de sd-cli, docs/seedvr2.md) :
+    reconstruit la matiere (grain de peau, tissus) plutot que de simplement lisser.
+    """
+    return [
+        str(sd_cli),
+        "-M", "vid_upscale",
+        "--diffusion-model", str(diffusion_path),
+        "--vae", str(vae_path),
+        "-i", str(input_path),
+        "--upscale-factor", str(int(upscale_factor)),
+        "-s", str(int(seed) if seed not in (None, "") else 42),
+        "-o", str(output_path),
+        "-v",
+    ]
+
+
+def build_adetailer_command(model_id, quant, input_path, output_path, sd_cli,
+                            manifest, detector_path, prompt=None, seed=42,
+                            ad_prompt=None, confidence=0.3, denoise=0.4,
+                            inpaint_padding=32, mask_blur=4, slg_scale=None,
+                            taesd_path=None, sage_attn=False, lora_dir=None):
+    """
+    Reparation de visages/mains sur une image EXISTANTE (mode -M adetailer) :
+    le detecteur YOLOv8 repere les zones, puis le modele de generation les re-detaille.
+    La composition n'est pas touchee hors des zones detectees.
+    """
+    m = MODELS[model_id]
+    arch = m["arch"]
+    args = [str(sd_cli), "-M", "adetailer"]
+
+    diff_file = _diffusion_path(model_id, quant)
+    args += ["--diffusion-model", diff_file]
+
+    # VAE : meme branchement que la generation
+    if m.get("needs_vae", True):
+        if arch == "sd3":
+            vae_key = "vae_sd3"
+        elif arch in ("ernie", "ideogram", "flux2", "flux3", "fibo2", "moss_image"):
+            vae_key = "vae_flux2"
+        elif arch == "krea2":
+            vae_key = "vae_wan21"
+        elif arch == "qwen_image":
+            vae_key = m.get("vae_dep", "vae_qwen")
+        else:
+            vae_key = "vae_flux"
+        vpath = _dep_path(manifest, vae_key)
+        if vpath:
+            args += ["--vae", str(vpath)]
+
+    # Encodeurs de texte : miroir compact de build_command
+    if arch in ("flux", "flux_kontext"):
+        cl, t5 = _dep_path(manifest, "clip_l"), _dep_path(manifest, "t5xxl")
+        if cl:
+            args += ["--clip_l", str(cl)]
+        if t5:
+            args += ["--t5xxl", str(t5)]
+        args += ["--clip-on-cpu"]
+    elif arch in ("chroma", "chroma_radiance"):
+        t5 = _dep_path(manifest, "t5xxl")
+        if t5:
+            args += ["--t5xxl", str(t5)]
+        args += ["--clip-on-cpu"]
+    elif arch == "longcat":
+        llm = _dep_path(manifest, m.get("llm_dep", "qwen25vl_7b"))
+        if llm:
+            args += ["--llm", str(llm)]
+    elif arch == "sd3":
+        cl, cg = _dep_path(manifest, "clip_l"), _dep_path(manifest, "clip_g")
+        t5 = _dep_path(manifest, "t5xxl")
+        if cl:
+            args += ["--clip_l", str(cl)]
+        if cg:
+            args += ["--clip_g", str(cg)]
+        if t5:
+            args += ["--t5xxl", str(t5)]
+        args += ["--clip-on-cpu"]
+    elif arch in ("flux2", "flux3"):
+        llm = _dep_path(manifest, "qwen3_4b" if model_id == "flux2-klein-4b"
+                        else m.get("llm_dep", "qwen3_8b"))
+        if llm:
+            args += ["--llm", str(llm)]
+    elif arch == "fibo2":
+        llm = _dep_path(manifest, m.get("llm_dep", "qwen3vl_4b"))
+        if llm:
+            args += ["--llm", str(llm)]
+        mmproj = _dep_path(manifest, m.get("mmproj_dep", "mmproj_qwen3vl_4b"))
+        if mmproj:
+            args += ["--llm_vision", str(mmproj)]
+    elif arch == "moss_image":
+        llm = _dep_path(manifest, m.get("llm_dep", "qwen35_9b"))
+        if llm:
+            args += ["--llm", str(llm)]
+        tok = _dep_path(manifest, m.get("tokenizer_dep", "moss_tokenizer"))
+        if tok:
+            args += ["--tokenizer", str(tok)]
+    elif arch == "krea2":
+        llm = _dep_path(manifest, m.get("llm_dep", "qwen3vl_4b"))
+        if llm:
+            args += ["--llm", str(llm)]
+    elif arch == "zimage":
+        llm = _dep_path(manifest, "qwen3_4b")
+        if llm:
+            args += ["--llm", str(llm)]
+    elif arch == "ernie":
+        llm = _dep_path(manifest, "ministral_3b")
+        if llm:
+            args += ["--llm", str(llm)]
+    elif arch == "ideogram":
+        llm = _dep_path(manifest, "qwen3vl_8b")
+        if llm:
+            args += ["--llm", str(llm)]
+    elif arch == "iris":
+        llm = _dep_path(manifest, "qwen3vl_4b")
+        if llm:
+            args += ["--llm", str(llm)]
+    elif arch == "qwen_image":
+        llm = _dep_path(manifest, m.get("llm_dep", "qwen25vl_7b"))
+        if llm:
+            args += ["--llm", str(llm)]
+
+    # Prompt : par defaut un prompt de reparation generique, jaune du prompt d'origine
+    # quand il est fourni (aide le modele a garder la coherence de la scene).
+    fix_prompt = (ad_prompt or "").strip() or (prompt or "").strip()
+    if not fix_prompt:
+        fix_prompt = ("highly detailed, sharp focus, natural skin texture, "
+                      "detailed eyes and hands, photorealistic")
+    args += ["-p", fix_prompt]
+
+    # Parametres de retouche : force moderee (respecter la zone), CFG/leger,
+    # et en nombre d'etapes fixe (la passe est locale, pas besoin de beaucoup).
+    cfg = float(m.get("defaults", {}).get("cfg", 1.0) or 1.0)
+    steps = int(m.get("defaults", {}).get("steps", 20) or 20)
+    steps = max(8, min(30, steps))
+    args += ["--cfg-scale", f"{cfg}",
+             "--steps", f"{steps}",
+             "--sampling-method", (m.get("defaults", {}).get("sampler") or "euler"),
+             "--seed", str(int(seed) if seed not in (None, "") else 42),
+             "--rng", "cuda",
+             "-i", str(input_path),
+             "-o", str(output_path),
+             "-v",
+             "--offload-to-cpu"]
+
+    # Detecteur + reglages de masque (docs/adetailer.md)
+    args += ["--ad-model", str(detector_path),
+             "--extra-ad-args",
+             f"confidence={float(confidence):g},denoising_strength={float(denoise):g},"
+             f"inpaint_padding={int(inpaint_padding)},mask_blur={int(mask_blur)}"]
+
+    if slg_scale:
+        try:
+            sv = float(slg_scale)
+            if sv > 0:
+                args += ["--slg-scale", f"{sv:g}"]
+        except (TypeError, ValueError):
+            pass
+    if taesd_path:
+        args += ["--taesd", str(taesd_path)]
+    if sage_attn:
+        args += ["--sage-attn"]
+    if lora_dir:
+        args += ["--lora-model-dir", str(lora_dir)]
+
+    if m.get("sigmas"):
+        args += ["--sigmas", m["sigmas"]]
+    if arch == "chroma":
+        args += ["--model-args", "chroma_use_dit_mask=false"]
+    if m.get("diffusion_fa", True):
+        args += ["--diffusion-fa"]
+
+    return args
 
 
 # --------------------------------------------------------------------------- #

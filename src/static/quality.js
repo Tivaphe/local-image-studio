@@ -124,6 +124,68 @@
         </div>
 
         <div class="q-block">
+          <div class="q-head"><span class="q-title">⚡ Performance — mini-VAE, SageAttention &amp; aperçu en direct</span></div>
+          <label class="q-toggle">
+            <input type="checkbox" id="q-taesd">
+            <span>Mini-VAE rapide (TAE) <em>— décodage final quasi instantané</em></span>
+          </label>
+          <p class="hint">
+            Utilise un décodeur allégé (~2 Mo, onglet Modèles → « ⚡ VAE rapide ») pour les modèles
+            Qwen-Image (VAE Wan 2.1 / Qwen 2.1) : la toute fin de la génération passe de plusieurs
+            secondes à une fraction de seconde. Très léger adoucissement possible. Sans effet sur les
+            autres modèles.
+          </p>
+          <label class="q-toggle">
+            <input type="checkbox" id="q-sage-attn">
+            <span>SageAttention CUDA <em>— attention plus rapide, moins de VRAM</em></span>
+          </label>
+          <p class="hint">
+            Active le noyau d'attention SageAttention via CUDA (aucune installation Python requise).
+            Accélère l'échantillonnage et économise un peu de mémoire. Nécessite une carte
+            <b>NVIDIA RTX 30/40/50 (ou Ampere SM80+)</b> avec des pilotes récents ; sinon sd-cli
+            ignore l'option sans planter.
+          </p>
+          <label class="field">
+            <span>Aperçu en direct pendant l'échantillonnage</span>
+            <select id="q-preview">
+              <option value="none">Désactivé</option>
+              <option value="proj">Provisoire rapide (proj) — aucun modèle requis</option>
+              <option value="tae">Mini-VAE (tae) — aperçu très propre (nécessite le TAE)</option>
+              <option value="vae">VAE complet (vae) — meilleur aperçu, plus lent</option>
+            </select>
+          </label>
+          <label class="field" id="q-preview-interval-field">
+            <span>Une image d'aperçu toutes les <b id="q-preview-interval-val">3</b> étapes</span>
+            <input type="range" id="q-preview-interval" min="1" max="10" step="1" value="3">
+          </label>
+          <p class="hint">
+            Affiche la génération en direct dans une petite fenêtre de résultat. « proj » projette
+            l'état latent en image instantanément ; « tae » utilise le mini-VAE ci-dessus ; « vae »
+            décode avec le vrai VAE (plus net mais plus coûteux).
+          </p>
+        </div>
+
+        <div class="q-block" id="q-pulid-block">
+          <div class="q-head"><span class="q-title">🎭 Visage fidèle (PuLID) — arch FLUX uniquement</span></div>
+          <label class="field">
+            <span>Portrait de référence</span>
+            <select id="q-pulid-id"><option value="">— Aucun (génération libre) —</option></select>
+          </label>
+          <label class="field" id="q-pulid-weight-field">
+            <span>Force de l'empreinte : <b id="q-pulid-weight-val">1,00</b></span>
+            <input type="range" id="q-pulid-weight" min="0" max="2" step="0.05" value="1.0">
+          </label>
+          <p class="hint" id="q-pulid-hint">
+            Conserve le visage d'une photo dans les images générées (FLUX.1 Schnell, Dev, FHDR).
+            Téléchargez les poids PuLID (~1,14 Go) et créez une empreinte de portrait dans
+            l'onglet <a href="/models">Modèles</a>, section « 🎭 Visage fidèle (PuLID) ».
+          </p>
+          <p class="hint warn" id="q-pulid-unsupported" hidden>
+            ⚠️ Ce modèle ne prend pas en charge PuLID (il faut une architecture FLUX) : option désactivée.
+          </p>
+        </div>
+
+        <div class="q-block">
           <div class="q-head"><span class="q-title">🎛️ Échantillonneur &amp; planificateur</span></div>
           <div class="row">
             <label class="field grow">
@@ -178,6 +240,26 @@
     if ($("#q-slg")) $("#q-slg").value = prefs.slg_scale ?? 0;
     if ($("#q-hires-on")) $("#q-hires-on").checked = !!prefs.hires_fix;
     if ($("#q-hires-strength")) $("#q-hires-strength").value = prefs.hires_strength ?? 0.35;
+    if ($("#q-taesd")) $("#q-taesd").checked = !!prefs.taesd;
+    if ($("#q-sage-attn")) $("#q-sage-attn").checked = !!prefs.sage_attn;
+    setVal("q-preview", prefs.preview || "none");
+    if ($("#q-preview-interval")) $("#q-preview-interval").value = prefs.preview_interval ?? 3;
+    // PuLID : peuple la liste des empreintes de portraits depuis /api/quality-info
+    const pulidSel = $("#q-pulid-id");
+    if (pulidSel) {
+      const portraits = (info.pulid && info.pulid.portraits) || [];
+      portraits.forEach(pt => {
+        const o = document.createElement("option");
+        o.value = pt.id;
+        o.textContent = pt.name || pt.id;
+        if (pt.size_mb) o.textContent += ` (${pt.size_mb} Mo)`;
+        pulidSel.appendChild(o);
+      });
+      setVal("q-pulid-id", prefs.pulid_id || "");
+    }
+    if ($("#q-pulid-weight")) $("#q-pulid-weight").value = prefs.pulid_id_weight ?? 1.0;
+    const pulidWeightLab = $("#q-pulid-weight-val");
+    if (pulidWeightLab) pulidWeightLab.textContent = String(prefs.pulid_id_weight ?? 1.0).replace(".", ",");
 
     Q._sectionEls = { withHires };
     updateDesc();
@@ -219,6 +301,13 @@
       const hVal = parseFloat($("#q-hires-strength")?.value || "0.35");
       const hLab = $("#q-hires-strength-val");
       if (hLab) hLab.textContent = String(hVal).replace(".", ",");
+      const piLab = $("#q-preview-interval-val");
+      if (piLab) piLab.textContent = String($("#q-preview-interval")?.value || 3);
+      const piField = $("#q-preview-interval-field");
+      if (piField) piField.style.display = ($("#q-preview")?.value || "none") === "none" ? "none" : "";
+      const pwVal = parseFloat($("#q-pulid-weight")?.value || "1");
+      const pwLab = $("#q-pulid-weight-val");
+      if (pwLab) pwLab.textContent = pwVal.toFixed(2).replace(".", ",");
     }
 
     function updateFootNote() {
@@ -237,15 +326,30 @@
   };
 
   // Active/grise le Hires Fix selon le modèle choisi (img2img requis).
+  // Grise aussi PuLID pour les architectures non-FLUX.
   Q.setModelCapabilities = function (model) {
     const block = $("#q-hires-block");
-    if (!block) return;
-    const can = !!(model && (model.input_modes || []).includes("init"));
-    const chk = $("#q-hires-on");
-    const warn = $("#q-hires-unsupported");
-    if (chk) chk.disabled = !can;
-    if (warn) warn.hidden = can;
-    block.classList.toggle("q-disabled", !can);
+    if (block) {
+      const can = !!(model && (model.input_modes || []).includes("init"));
+      const chk = $("#q-hires-on");
+      const warn = $("#q-hires-unsupported");
+      if (chk) chk.disabled = !can;
+      if (warn) warn.hidden = can;
+      block.classList.toggle("q-disabled", !can);
+    }
+    const pulidBlock = $("#q-pulid-block");
+    if (pulidBlock) {
+      const arch = model && model.arch;
+      const canPulid = arch === "flux" || arch === "flux_kontext";
+      const warn = $("#q-pulid-unsupported");
+      if (warn) warn.hidden = canPulid;
+      pulidBlock.classList.toggle("q-disabled", !canPulid);
+      const sel = $("#q-pulid-id");
+      const w = $("#q-pulid-weight");
+      if (sel) sel.disabled = !canPulid;
+      if (w) w.disabled = !canPulid;
+      if (!canPulid && sel) sel.value = "";
+    }
   };
 
   // Quand une image de départ est fournie (img2img), le Hires Fix ne s'applique pas.
@@ -281,6 +385,16 @@
     if (up) out.upscale_id = up;
     const ad = $("#q-ad-model")?.value || "";
     if (ad) out.adetailer_id = ad;
+    if ($("#q-taesd")?.checked) out.taesd_id = "auto";
+    if ($("#q-sage-attn")?.checked) out.sage_attn = true;
+    const preview = $("#q-preview")?.value || "none";
+    out.preview = preview;
+    if (preview !== "none") out.preview_interval = parseInt($("#q-preview-interval")?.value || "3", 10);
+    const pulidSel = $("#q-pulid-id");
+    if (pulidSel && !pulidSel.disabled && pulidSel.value) {
+      out.pulid_id = pulidSel.value;
+      out.pulid_id_weight = parseFloat($("#q-pulid-weight")?.value || "1");
+    }
     const hires = $("#q-hires-on");
     if (hires && hires.checked && !hires.disabled) {
       out.hires_fix = true;
@@ -297,6 +411,13 @@
     return first ? first.id : null;
   };
   Q.anyUpscalerDownloaded = () => downloadedUpscalers().length > 0;
+  Q.chosenAdetailer = function () {
+    const v = $("#q-ad-model")?.value || "";
+    if (v) return v;
+    const first = downloadedAdetailers()[0];
+    return first ? first.id : null;
+  };
+  Q.anyAdetailerDownloaded = () => downloadedAdetailers().length > 0;
 
   // ------------------------------------------------------------------ //
   //  Agrandissement ×4 d'une image existante (POST /api/upscale)
@@ -335,6 +456,129 @@
     return true;
   };
 
+  // ------------------------------------------------------------------ //
+  //  Réparation visages/mains d'une image existante (POST /api/repair)
+  // ------------------------------------------------------------------ //
+  Q.startRepair = async function ({ imageId = null, path = null } = {}) {
+    const body = {};
+    if (imageId != null) body.image_id = imageId;
+    if (path) body.path = path;
+    const chosen = Q.chosenAdetailer();
+    if (chosen) body.detector_id = chosen;
+    // Reprend le mini-VAE / SageAttention si la section Qualité en cours les active
+    const perf = Q.collect();
+    if (perf.sage_attn) body.sage_attn = true;
+    if (perf.taesd_id) body.taesd_id = perf.taesd_id;
+    let j;
+    try {
+      const r = await fetch("/api/repair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      j = await r.json();
+    } catch (e) {
+      if (window.showToast) window.showToast("❌ Connexion au serveur impossible : " + e.message);
+      return false;
+    }
+    if (!j.ok) {
+      if (window.showToast) window.showToast("❌ " + (j.error || "Réparation impossible."));
+      return false;
+    }
+    if (j.queued) {
+      if (window.showToast) window.showToast(`⏳ Réparation ajoutée à la file d'attente (position #${j.position}).`);
+    } else if (window.showToast) {
+      const nm = (Q.info?.adetailers || []).find(d => d.id === j.detector_id)?.name || "ADetailer";
+      window.showToast(`🙂 Réparation en cours avec ${nm}…`);
+    }
+    ensurePolling();
+    return true;
+  };
+
+  // Fabrique un bouton « 🙂 Réparer visages & mains » pour une carte image.
+  Q.makeRepairButton = function ({ imageId = null, path = null } = {}) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn small repair-mini";
+    btn.textContent = "🙂 Réparer visages & mains";
+    btn.title =
+      "Détecte et re-détaille automatiquement les visages et mains de cette image. " +
+      "Le détecteur utilisé est celui de la section Qualité, ou le premier installé. " +
+      "La version réparée est enregistrée dans l'historique.";
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "🙂 réparation…";
+      Q._doneCbs.push(() => {
+        btn.disabled = false;
+        btn.textContent = "🙂 Réparer visages & mains";
+      });
+      const ok = await Q.startRepair({ imageId, path });
+      if (!ok) {
+        Q._doneCbs.pop();
+        btn.disabled = false;
+        btn.textContent = "🙂 Réparer visages & mains";
+      }
+    });
+    return btn;
+  };
+
+  // ------------------------------------------------------------------ //
+  //  Restauration ×2 par diffusion (POST /api/restore-x2, SeedVR2)
+  // ------------------------------------------------------------------ //
+  Q.startRestoreX2 = async function ({ imageId = null, path = null } = {}) {
+    const body = {};
+    if (imageId != null) body.image_id = imageId;
+    if (path) body.path = path;
+    let j;
+    try {
+      const r = await fetch("/api/restore-x2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      j = await r.json();
+    } catch (e) {
+      if (window.showToast) window.showToast("❌ Connexion au serveur impossible : " + e.message);
+      return false;
+    }
+    if (!j.ok) {
+      if (window.showToast) window.showToast("❌ " + (j.error || "Restauration impossible."));
+      return false;
+    }
+    if (j.queued) {
+      if (window.showToast) window.showToast(`⏳ Restauration ajoutée à la file d'attente (position #${j.position}).`);
+    } else if (window.showToast) {
+      window.showToast("🩹 Restauration ×2 en cours (SeedVR2, peut prendre plusieurs minutes)…");
+    }
+    ensurePolling();
+    return true;
+  };
+
+  Q.makeRestoreX2Button = function ({ imageId = null, path = null } = {}) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn small restore-mini";
+    btn.textContent = "🩹 Restaurer ×2";
+    btn.title =
+      "Reconstruit la matière (peau, tissus) et double la résolution avec SeedVR2 (nécessite " +
+      "les poids SeedVR2, ~6,8 Go, onglet Modèles). La version restaurée est enregistrée dans l'historique.";
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "🩹 restauration…";
+      Q._doneCbs.push(() => {
+        btn.disabled = false;
+        btn.textContent = "🩹 Restaurer ×2";
+      });
+      const ok = await Q.startRestoreX2({ imageId, path });
+      if (!ok) {
+        Q._doneCbs.pop();
+        btn.disabled = false;
+        btn.textContent = "🩹 Restaurer ×2";
+      }
+    });
+    return btn;
+  };
+
   // Fabrique un bouton « 🔍 Agrandir ×4 » prêt à poser sur une carte image.
   Q.makeUpscaleButton = function ({ imageId = null, path = null } = {}) {
     const btn = document.createElement("button");
@@ -362,8 +606,8 @@
     return btn;
   };
 
-  // Réactive les boutons et prévient la page que l'agrandissement est terminé.
-  Q._done = function (images) {
+  // Réactive les boutons et prévient la page que l'op est terminée.
+  Q._done = function (images, kind) {
     const cbs = Q._doneCbs;
     Q._doneCbs = [];
     cbs.forEach(cb => { try { cb(); } catch (e) {} });
@@ -371,9 +615,15 @@
       try { window.__lisOnUpscaleDone(images || []); } catch (e) {}
     }
     if (images && images.length && window.showToast) {
-      const sc = images[0].scale || 4;
-      const w = images[0].width ? ` (${images[0].width}×${images[0].height || "?"})` : "";
-      window.showToast(`🔍 Agrandissement ×${sc} terminé ✓ — enregistré dans l'historique.`);
+      if (kind === "repair") {
+        window.showToast("🙂 Visages & mains réparés ✓ — enregistré dans l'historique.");
+      } else if (kind === "restore_x2") {
+        window.showToast("🩹 Restauration ×2 terminée ✓ — enregistré dans l'historique.");
+      } else {
+        const sc = images[0].scale || 4;
+        const w = images[0].width ? ` (${images[0].width}×${images[0].height || "?"})` : "";
+        window.showToast(`🔍 Agrandissement ×${sc} terminé ✓ — enregistré dans l'historique.`);
+      }
     }
   };
 
@@ -392,18 +642,19 @@
         if (j.busy) return;
         clearInterval(Q._poll);
         Q._poll = null;
-        if (j.result && j.result.type === "upscale") {
-          if (j.result.error) {
-            Q._done([]);
+        const type = j.result && j.result.type;
+        if (j.result && ["upscale", "repair", "restore_x2"].includes(type)) {
+          if (j.result.error || !(j.result.images || []).length) {
+            Q._done([], type);
             return;
           }
-          if (j.result.images && j.result.images.length && !j.result.cancelled) {
-            Q._done(j.result.images);
+          if (j.result.images.length && !j.result.cancelled) {
+            Q._done(j.result.images, type);
           } else {
-            Q._done([]);
+            Q._done([], type);
           }
         } else {
-          Q._done([]);
+          Q._done([], type);
         }
       } catch (e) { /* on réessaie au prochain cycle */ }
     }, 1200);

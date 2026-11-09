@@ -8,10 +8,17 @@
   <section class="panel form-panel edit-panel">
     <div class="panel-title-row">
       <h2>✂️ Studio d'édition</h2>
-      <button type="button" id="reset-edit-draft-btn" class="btn ghost small"
-              title="Réinitialiser tout le Studio d'édition et vider le brouillon sauvegardé">
-        🧹 Nouveau / Vider le brouillon
-      </button>
+      <div class="row" style="gap:8px;">
+        <button type="button" id="restore-png-btn" class="btn ghost small"
+                title="Glissez-déposez un PNG précédemment généré, ou cliquez pour en choisir un : prompt, seed, modèle, étapes, CFG sont restaurés">
+          📥 Restaurer depuis un PNG
+        </button>
+        <button type="button" id="reset-edit-draft-btn" class="btn ghost small"
+                title="Réinitialiser tout le Studio d'édition et vider le brouillon sauvegardé">
+          🧹 Nouveau / Vider le brouillon
+        </button>
+        <input type="file" id="restore-png-input" accept="image/png" hidden>
+      </div>
     </div>
     <p class="muted small">
       Une image à modifier (le <strong>canvas</strong>) + jusqu'à

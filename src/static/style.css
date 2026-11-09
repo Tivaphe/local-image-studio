@@ -493,6 +493,10 @@ small{color:var(--muted)}
 /* Bouton « 🔍 Agrandir ×4 » sur les cartes résultat */
 .upscale-mini{margin-top:6px;width:100%;text-align:center}
 .upscale-mini:disabled{opacity:.6}
+.repair-mini{margin-top:6px;width:100%;text-align:center}
+.repair-mini:disabled{opacity:.6}
+.restore-mini{margin-top:6px;width:100%;text-align:center}
+.restore-mini:disabled{opacity:.6}
 
 /* Carte résultat agrandie (version ×4) */
 .result-upscaled{position:relative;outline:1px solid #7c5cff55;border-radius:10px}
@@ -509,3 +513,33 @@ small{color:var(--muted)}
 .aux-header{margin-top:34px;margin-bottom:4px}
 .aux-header h2{margin:0 0 6px;font-size:18px}
 .aux-header .muted{margin:0;font-size:13px;line-height:1.55}
+
+/* ===== Aperçu en direct (génération) ===== */
+.live-preview-wrap{
+  position:relative;margin:0 0 14px;border:1px solid var(--border);border-radius:var(--radius);
+  overflow:hidden;background:#000;text-align:center;
+}
+.live-preview-wrap img{max-width:100%;max-height:340px;object-fit:contain;display:block;margin:0 auto}
+.live-preview-badge{
+  position:absolute;top:10px;left:10px;background:var(--danger);color:#fff;
+  font-size:11px;font-weight:800;letter-spacing:1.5px;padding:4px 11px;border-radius:999px;
+  animation:lis-blink 1.15s ease-in-out infinite;
+}
+@keyframes lis-blink{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ===== Restauration des réglages par glisser-déposer d'un PNG ===== */
+.form-panel.drop-restore-active{outline:2px dashed var(--accent);outline-offset:-8px}
+
+/* ===== Page Modèles — recommandations & PuLID ===== */
+.mc-quant-rec{margin:6px 0 0;font-size:12.5px;color:var(--accent2)}
+.pulid-portraits{margin-top:14px;border-top:1px solid var(--border);padding-top:12px}
+.pulid-portraits h4{margin:0 0 8px;font-size:13.5px}
+.pulid-portrait-list{list-style:none;margin:0 0 10px;padding:0;display:flex;flex-direction:column;gap:6px}
+.pulid-portrait-list li{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:6px 10px}
+.pulid-thumb{width:38px;height:38px;object-fit:cover;border-radius:8px;border:1px solid var(--border)}
+.pulid-steps{margin:8px 0;padding-left:20px}
+.pulid-steps li{margin:4px 0}
+.pulid-steps code{display:inline-block;word-break:break-all}
+.pulid-extract summary{cursor:pointer;font-weight:600;margin:6px 0}
+.copy-extract-cmd{margin-top:6px}
+.mc-hf-link code{word-break:break-all}

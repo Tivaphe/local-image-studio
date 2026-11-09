@@ -2579,12 +2579,14 @@ function pollStatus() {
 
     renderEditQueue(j.queue || []);
 
-    // Agrandissement ×4 terminé (même si d'autres tâches suivent dans la file)
-    if (j.kind === 'upscale' && j.busy) window.__upscaleDonePending = true;
-    if (window.__upscaleDonePending && !j.busy) {
-      window.__upscaleDonePending = false;
-      if (j.result && j.result.type === 'upscale' && window.LisQuality) {
-        LisQuality._done(j.result.error || j.result.cancelled ? [] : (j.result.images || []));
+    // Op terminée : agrandissement ×4, réparation visages/mains ou restauration ×2
+    const AUX_KINDS = ['upscale', 'repair', 'restore_x2'];
+    if (AUX_KINDS.includes(j.kind) && j.busy) window.__auxDonePending = j.kind;
+    if (window.__auxDonePending && !j.busy) {
+      const auxKind = window.__auxDonePending;
+      window.__auxDonePending = false;
+      if (j.result && j.result.type === auxKind && window.LisQuality) {
+        LisQuality._done(j.result.error || j.result.cancelled ? [] : (j.result.images || []), auxKind);
       }
     }
 
@@ -2704,9 +2706,15 @@ function showResults(images) {
       }
     });
     d.appendChild(useAsSource);
-    // Bouton 1-clic « 🔍 Agrandir ×4 » (super-résolution, enregistré en historique)
+    // Boutons 1-clic « 🔍 Agrandir ×4 », « 🙂 Réparer » et « 🩹 Restaurer ×2 »
     if (window.LisQuality && typeof LisQuality.makeUpscaleButton === 'function') {
       d.appendChild(LisQuality.makeUpscaleButton({ imageId: img.id }));
+    }
+    if (window.LisQuality && typeof LisQuality.makeRepairButton === 'function') {
+      d.appendChild(LisQuality.makeRepairButton({ imageId: img.id }));
+    }
+    if (window.LisQuality && typeof LisQuality.makeRestoreX2Button === 'function') {
+      d.appendChild(LisQuality.makeRestoreX2Button({ imageId: img.id }));
     }
     box.appendChild(d);
   });
@@ -2783,23 +2791,31 @@ async function applyReusePayload() {
 }
 
 // ---------- Agrandissement ×4 : affichage du résultat dans la grille ----------
+function auxResultBadge(img) {
+  if (img.repaired) return { text: '🙂 RÉPARÉE', title: "Visages & mains re-détaillés (ADetailer), enregistrée dans l'historique", label: 'Image réparée' };
+  if ((img.scale || 4) === 2 && /restore/.test(img.filename || '')) return { text: '🩹 RESTAURÉE ×2', title: "Restaurée ×2 par diffusion (SeedVR2), enregistrée dans l'historique", label: 'Image restaurée ×2' };
+  const sc = img.scale || 4;
+  return { text: `🔍 AGRANDIE ×${sc}`, title: `Version agrandie ×${sc}, enregistrée dans l'historique`, label: `Version agrandie ×${sc}` };
+}
+
 function appendUpscaledResults(images) {
   const box = $('#results');
   if (!box || !Array.isArray(images)) return;
   images.forEach(img => {
     const displayUrl = `${img.url}?u=${Date.now()}`;
+    const badge = auxResultBadge(img);
     const d = document.createElement('div');
     d.className = 'result result-upscaled';
     d.innerHTML = `
-      <span class="upscaled-badge" title="Version agrandie ×${img.scale || 4} et renforcée en netteté, enregistrée dans l'historique">🔍 AGRANDIE ×${img.scale || 4}</span>
+      <span class="upscaled-badge" title="${badge.title}">${badge.text}</span>
       <img src="${displayUrl}" alt="">
-      <div class="rbar"><span>haute résolution</span>
+      <div class="rbar"><span>${badge.label}</span>
         <a class="link" href="${img.url}" download>télécharger</a></div>`;
     d.querySelector('img').addEventListener('click', () => {
       openLightbox([{
         src: displayUrl, downloadUrl: img.url,
-        label: `Version agrandie ×${img.scale || 4}`,
-        role: 'result', badge: `🔍 AGRANDIE ×${img.scale || 4}`,
+        label: badge.label,
+        role: 'result', badge: badge.text,
       }], 0);
     });
     const useAsSource = document.createElement('button');
@@ -2828,7 +2844,11 @@ function appendUpscaledResults(images) {
       }
     });
     d.appendChild(useAsSource);
-    if (window.LisQuality) d.appendChild(LisQuality.makeUpscaleButton({ imageId: img.id }));
+    if (window.LisQuality) {
+      if (LisQuality.makeUpscaleButton) d.appendChild(LisQuality.makeUpscaleButton({ imageId: img.id }));
+      if (LisQuality.makeRepairButton) d.appendChild(LisQuality.makeRepairButton({ imageId: img.id }));
+      if (LisQuality.makeRestoreX2Button) d.appendChild(LisQuality.makeRestoreX2Button({ imageId: img.id }));
+    }
     box.appendChild(d);
   });
 }
@@ -2842,3 +2862,97 @@ loadGpu();
 if (window.LisQuality) {
   LisQuality.initSection({ container: '#quality-section', withHires: false });
 }
+
+// ===== Restaurer les réglages depuis un PNG généré =====
+async function restoreFromPngFile(file) {
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('image', file, file.name || 'capture.png');
+  let j;
+  try {
+    const r = await fetch('/api/image-meta', { method: 'POST', body: fd });
+    j = await r.json();
+  } catch (e) {
+    showGenError('Lecture du PNG impossible (connexion serveur).');
+    return;
+  }
+  if (!j.ok) {
+    showGenError(j.error || 'Aucune métadonnée lisible dans ce PNG.');
+    return;
+  }
+  applyFormSettings(j.form || {});
+}
+
+function applyFormSettings(form) {
+  const setVal = (id, v) => { const el = $(id); if (el && v !== undefined && v !== null) el.value = v; };
+  if (form.model && editModels[form.model]) {
+    const sel = $('#model');
+    if (sel) { sel.value = form.model; onModelChange(); }
+  }
+  setVal('#prompt', form.prompt || '');
+  setVal('#negative', form.negative || '');
+  if (form.steps) setVal('#steps', form.steps);
+  if (form.cfg !== undefined) setVal('#cfg', form.cfg);
+  if (form.seed !== undefined) setVal('#seed', form.seed);
+  if (form.sampler) {
+    const sel = $('#q-sampler');
+    if (sel) {
+      const opt = sel.querySelector(`option[value="${CSS.escape(String(form.sampler))}"]`);
+      if (opt) sel.value = form.sampler;
+    }
+  }
+  if (form.scheduler) {
+    const sel = $('#q-scheduler');
+    if (sel) {
+      const opt = sel.querySelector(`option[value="${CSS.escape(String(form.scheduler))}"]`);
+      if (opt) sel.value = form.scheduler;
+    }
+  }
+  if (window.showToast) {
+    window.showToast('📥 Réglages restaurés depuis le PNG (prompt, seed, modèle…).');
+  }
+  saveEditDraft();
+}
+
+$('#restore-png-btn')?.addEventListener('click', () => $('#restore-png-input')?.click());
+$('#restore-png-input')?.addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if (f) restoreFromPngFile(f);
+  e.target.value = '';
+});
+
+// Glisser-déposer d'un PNG sur le panneau (sans voler la zone canvas / les refs)
+(() => {
+  const panel = document.querySelector('.form-panel');
+  if (!panel) return;
+  let dragDepth = 0;
+  const hasPng = e => {
+    const items = e.dataTransfer && e.dataTransfer.items ? [...e.dataTransfer.items] : [];
+    return items.some(it => it.kind === 'file' && (it.type === 'image/png' || it.type === ''));
+  };
+  const inCanvas = t => t && t.closest && t.closest('#canvas-drop, #refs-drop, .dropzone, input, textarea, select');
+  panel.addEventListener('dragenter', e => {
+    if (inCanvas(e.target)) return;
+    if (hasPng(e)) { dragDepth++; panel.classList.add('drop-restore-active'); e.preventDefault(); }
+  });
+  panel.addEventListener('dragover', e => {
+    if (inCanvas(e.target)) return;
+    if (hasPng(e)) e.preventDefault();
+  });
+  panel.addEventListener('dragleave', () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) panel.classList.remove('drop-restore-active');
+  });
+  panel.addEventListener('drop', e => {
+    const files = e.dataTransfer && e.dataTransfer.files ? [...e.dataTransfer.files] : [];
+    const png = files.find(f => /\.png$/i.test(f.name || '') || f.type === 'image/png');
+    panel.classList.remove('drop-restore-active');
+    dragDepth = 0;
+    if (inCanvas(e.target)) return;  // le drop canvas gère ses propres fichiers
+    if (png) {
+      e.preventDefault();
+      e.stopPropagation();
+      restoreFromPngFile(png);
+    }
+  }, true);
+})();

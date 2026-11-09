@@ -23,11 +23,11 @@
             id="history-fav-filter" title="Afficher uniquement vos images favorites ⭐">
       ⭐ Favoris uniquement
     </button>
-    {% if upscaler_ready %}
-    <span class="muted small upscale-hint" title="Cliquez « 🔍 ×4 » sur une image pour l'agrandir en haute résolution (super-résolution ESRGAN/MoSR). La grande version est ajoutée à l'historique.">🔍 ×4 prêt — bouton sur chaque image</span>
+    {% if repair_ready %}
+    <span class="muted small upscale-hint" title="Cliquez « 🙂 Réparer » sur une image pour re-détailler automatiquement visages et mains. La version réparée est ajoutée à l'historique.">🙂 réparation prête</span>
     {% else %}
     <a class="muted small upscale-hint" href="{{ url_for('models_page') }}"
-       title="Installez un modèle d'agrandissement (35–64 Mo) pour activer le bouton « 🔍 ×4 » sur chaque image">💡 Installer un modèle d'agrandissement ×4 →</a>
+       title="Installez un détecteur ADetailer (quelques Mo) pour activer le bouton « 🙂 Réparer » sur chaque image">💡 Installer le détecteur de visages/mains →</a>
     {% endif %}
     <span class="muted small" id="history-visible-count"></span>
   </div>
@@ -79,6 +79,14 @@
           {% if upscaler_ready %}
           <button type="button" class="link upscale-link" data-id="{{ im.id }}"
                   title="🔍 Agrandir cette image ×4 (super-résolution) — la grande version est ajoutée à l'historique">🔍 ×4</button>
+          {% endif %}
+          {% if repair_ready %}
+          <button type="button" class="link repair-link" data-id="{{ im.id }}"
+                  title="🙂 Re-détailler automatiquement les visages et les mains de cette image — la version réparée est ajoutée à l'historique">🙂 Réparer</button>
+          {% endif %}
+          {% if seedvr2_ready %}
+          <button type="button" class="link restore-link" data-id="{{ im.id }}"
+                  title="🩹 Restaurer ×2 par diffusion (SeedVR2, lent, ~10 Go de VRAM) — la version restaurée est ajoutée à l'historique">🩹 ×2</button>
           {% endif %}
           <button class="link danger del {% if im.favorite %}locked{% endif %}"
                   data-id="{{ im.id }}"
@@ -329,8 +337,8 @@ document.querySelectorAll('.reuse').forEach(b => {
   });
 });
 
-// --- 🔍 Agrandissement ×4 en 1 clic (super-résolution, ajouté à l'historique) ---
-// Une fois la tâche terminée, on recharge la page pour faire apparaître la grande version.
+// --- 🔍 Agrandissement ×4 / 🙂 Réparation / 🩹 Restauration ×2 en 1 clic ---
+// Une fois la tâche auxiliaire terminée, on recharge la page pour montrer le résultat.
 window.__lisOnUpscaleDone = imgs => {
   if (imgs && imgs.length) setTimeout(() => location.reload(), 1600);
 };
@@ -347,6 +355,38 @@ document.querySelectorAll('.upscale-link').forEach(b => {
       b.textContent = orig;
     } else {
       b.textContent = '🔍 en cours…';
+    }
+  });
+});
+document.querySelectorAll('.repair-link').forEach(b => {
+  b.addEventListener('click', async () => {
+    b.disabled = true;
+    const orig = b.textContent;
+    b.textContent = '🙂 …';
+    const ok = window.LisQuality
+      ? await LisQuality.startRepair({ imageId: parseInt(b.dataset.id, 10) })
+      : false;
+    if (!ok) {
+      b.disabled = false;
+      b.textContent = orig;
+    } else {
+      b.textContent = '🙂 en cours…';
+    }
+  });
+});
+document.querySelectorAll('.restore-link').forEach(b => {
+  b.addEventListener('click', async () => {
+    b.disabled = true;
+    const orig = b.textContent;
+    b.textContent = '🩹 …';
+    const ok = window.LisQuality
+      ? await LisQuality.startRestoreX2({ imageId: parseInt(b.dataset.id, 10) })
+      : false;
+    if (!ok) {
+      b.disabled = false;
+      b.textContent = orig;
+    } else {
+      b.textContent = '🩹 en cours…';
     }
   });
 });
