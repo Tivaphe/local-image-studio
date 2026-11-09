@@ -18,7 +18,7 @@ Supported architectures: `flux`, `flux2`, `flux3`, `sd3`, `zimage`, `ernie`, `id
 
 ---
 
-## Step 2: Open `registry.py`
+## Step 2: Open `src/registry.py`
 
 Find the `MODELS` dictionary (around line 70). Add a new entry by copying
 an existing model that has the **same architecture**.
@@ -78,7 +78,7 @@ an existing model that has the **same architecture**.
 ## Step 4: Reuse existing dependencies
 
 VAE and text encoders are **shared** between models. Check the `DEPS` dictionary
-in `registry.py`. If your model uses an existing encoder (e.g. `clip_l`, `t5xxl`...),
+in `src/registry.py`. If your model uses an existing encoder (e.g. `clip_l`, `t5xxl`...),
 just reference it in `"deps": [...]`. It will only be downloaded once.
 
 To add a **new** encoder, add it to `DEPS`:
@@ -132,7 +132,7 @@ architecture.
 | `ref` | `-r` / `--ref-image` | **Repeatable, once per image** (documented as “can be used multiple times”). This is the mode of semantic editing models: the image is not “denoised”, it is context. |
 | `init` | `-i` / `--init-img` | A **single** starting image + `--strength` (classic img2img). |
 
-A model declares what it accepts in `registry.py`:
+A model declares what it accepts in `src/registry.py`:
 
 ```python
 "my-edit-model": {

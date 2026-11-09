@@ -18,7 +18,7 @@ Les architectures actuellement supportées : `flux`, `flux2`, `flux3`, `sd3`, `z
 
 ---
 
-## Étape 2 : Ouvrir `registry.py`
+## Étape 2 : Ouvrir `src/registry.py`
 
 Cherchez le dictionnaire `MODELS` (vers la ligne 70). Ajoutez une nouvelle entrée
 en copiant le modèle d'un modèle existant qui a la **même architecture**.
@@ -78,7 +78,7 @@ en copiant le modèle d'un modèle existant qui a la **même architecture**.
 ## Étape 4 : Réutiliser les dépendances existantes
 
 Les VAE et encodeurs de texte sont **partagés** entre modèles. Regardez le
-dictionnaire `DEPS` dans `registry.py`. Si votre modèle utilise un encodeur
+dictionnaire `DEPS` dans `src/registry.py`. Si votre modèle utilise un encodeur
 déjà présent (ex: `clip_l`, `t5xxl`, `qwen3_4b`...), référencez-le simplement
 dans `"deps": [...]`. Il ne sera téléchargé qu'une fois.
 
@@ -133,7 +133,7 @@ connaissent pas l'architecture.
 | `ref` | `-r` / `--ref-image` | **Répétable une fois par image** (documenté comme « can be used multiple times »). C'est le mode des modèles d'édition sémantique : l'image n'est pas « débruitée », elle sert de contexte. |
 | `init` | `-i` / `--init-img` | Image de départ **unique** + `--strength` (img2img classique). |
 
-Un modèle déclare ce qu'il accepte dans `registry.py` :
+Un modèle déclare ce qu'il accepte dans `src/registry.py` :
 
 ```python
 "mon-modele-edit": {

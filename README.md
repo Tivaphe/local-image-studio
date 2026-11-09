@@ -55,9 +55,9 @@ Interface web simple pour générer des images avec les modèles d'IA les plus r
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-python app.py                 # ouvre Chrome automatiquement sur le bon port
-python app.py --no-browser    # ...ou pas de navigateur du tout
-python app.py --port 7861     # ...ou un autre port
+python src/app.py              # ouvre Chrome automatiquement sur le bon port
+python src/app.py --no-browser # ...ou pas de navigateur du tout
+python src/app.py --port 7861  # ...ou un autre port
 ```
 
 ---
@@ -220,27 +220,42 @@ Certains modèles nécessitent un **token Hugging Face gratuit** :
 
 ## 📁 Structure du projet
 
+**Après décompression du ZIP, vous ne touchez qu'à `start.bat`** (double-clic) — tout le reste
+est rangé dans des sous-dossiers :
+
 ```
 local-image-studio/
-├── start.bat              ← Double-clic pour lancer
-├── app.py                 ← Serveur web (Flask) + options de démarrage
-├── browser_launch.py      ← Ouvrir Chrome automatiquement au démarrage
-├── engine.py              ← Moteur sd-cli + téléchargements
-├── registry.py            ← Définition des 25 modèles + upscalers ×4 + détecteurs ADetailer
-├── prompt_enhancer.py     ← Enrichissement & traduction (LLM)
-├── gpu_info.py            ← Détection VRAM
-├── db.py                  ← Historique & statistiques
-├── config.py              ← Configuration des chemins
+├── start.bat              ← ⭐ Double-cliquez ici pour lancer (Windows)
+├── README.md              ← Ce document (FR)
+├── README_EN.md           ← English documentation
 ├── requirements.txt       ← Dépendances Python
-├── templates/             ← Pages HTML (generate.html, edit.html, …)
-├── static/                ← CSS + JavaScript (generate.js, edit.js, …)
+├── LICENSE
+│
+├── src/                   ← Code de l'application (rien à toucher ici)
+│   ├── app.py             ← Serveur web (Flask) + options de démarrage
+│   ├── browser_launch.py  ← Ouvrir Chrome automatiquement au démarrage
+│   ├── engine.py          ← Moteur sd-cli + téléchargements + file d'attente
+│   ├── registry.py        ← Définition des 25 modèles + upscalers ×4 + détecteurs ADetailer
+│   ├── prompt_enhancer.py ← Enrichissement & traduction (LLM)
+│   ├── gpu_info.py        ← Détection VRAM
+│   ├── db.py              ← Historique & statistiques
+│   ├── config.py          ← Configuration des chemins
+│   ├── templates/         ← Pages HTML (generate.html, edit.html, …)
+│   └── static/            ← CSS + JavaScript (generate.js, edit.js, quality.js, …)
+│
 ├── docs/                  ← Documentation
 │   ├── ADD_MODEL_FR.md    ← Comment ajouter un modèle (FR)
 │   └── ADD_MODEL_EN.md    ← How to add a model (EN)
+├── tests/                 ← Tests unitaires (python -m unittest discover -s tests)
 │
-├── bin/                   ← sd-cli.exe (téléchargé auto)
-├── models/                ← GGUF/safetensors + VAE + encodeurs (téléchargés auto)
-└── output/                ← Vos images générées
+└── (créés automatiquement au premier lancement)
+    ├── .venv/             ← Environnement Python isolé (créé par start.bat)
+    ├── bin/               ← sd-cli.exe (téléchargé auto)
+    ├── models/            ← GGUF/safetensors + VAE + encodeurs + upscalers (téléchargés auto)
+    ├── source_images/     ← Vos images de départ (img2img / édition)
+    ├── output/            ← Vos images générées
+    ├── history.db         ← Historique (base SQLite)
+    └── settings.json      ← Vos réglages
 ```
 
 ---
@@ -253,7 +268,7 @@ formats acceptés par le moteur, comme les safetensors d'Iris-3B.
 
 📖 **Voir le guide complet : [docs/ADD_MODEL_FR.md](./docs/ADD_MODEL_FR.md)**
 
-En résumé : éditez `registry.py` → ajoutez une entrée dans le dictionnaire `MODELS` → redémarrez.
+En résumé : éditez `src/registry.py` → ajoutez une entrée dans le dictionnaire `MODELS` → redémarrez.
 
 ---
 
@@ -269,9 +284,9 @@ En résumé : éditez `registry.py` → ajoutez une entrée dans le dictionnaire
 | **Enrichissement indisponible** | Installez les [C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) Microsoft, puis relancez `start.bat` |
 | **VRAM insuffisante** | Descendez en Q4_K_M, réduisez la résolution |
 | **Python introuvable** | Réinstallez Python 3.11 en cochant "Add to PATH" |
-| **Le navigateur ne s'ouvre pas** | Chrome est-il installé ? Sinon c'est le navigateur par défaut qui s'ouvre. Vérifiez aussi la case **Paramètres → Ouvrir Chrome au démarrage**, ou lancez `python app.py --no-browser` pour désactiver complètement |
+| **Le navigateur ne s'ouvre pas** | Chrome est-il installé ? Sinon c'est le navigateur par défaut qui s'ouvre. Vérifiez aussi la case **Paramètres → Ouvrir Chrome au démarrage**, ou lancez `python src/app.py --no-browser` pour désactiver complètement |
 | **L'onglet s'ouvre avant que le serveur soit prêt** | Rien à faire : la page se charge dès que le port écoute (l'ouverture attend le serveur) |
-| **Port 7860 déjà utilisé** | Lancez `python app.py --port 7861` (l'onglet s'ouvrira sur le bon port) |
+| **Port 7860 déjà utilisé** | Lancez `python src/app.py --port 7861` (l'onglet s'ouvrira sur le bon port) |
 
 ---
 

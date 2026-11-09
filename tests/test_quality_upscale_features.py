@@ -3,10 +3,13 @@
 Tests des fonctionnalités Qualité / Détails / Upscaling ×4 / ADetailer
 et des 5 nouveaux modèles GGUF (FLUX Dev, FLUX Kontext, Chroma, Chroma-Radiance, LongCat).
 """
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import app
 import config

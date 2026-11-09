@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 """Tests des modèles GGUF ajoutés : Fibo 2.0 (Dev / Edit Turbo), MOSS-Image (Base / SFT), Krea 2 Turbo."""
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import registry
 from registry import (MODELS, DEPS, build_command, resolve_dep_gguf,

@@ -7,8 +7,10 @@ import os
 import platform
 from pathlib import Path
 
-# Racine du projet = dossier contenant ce fichier
-ROOT = Path(__file__).resolve().parent
+# Racine du projet = dossier parent de src/ (là où se trouvent start.bat, README.md…).
+# Les données (modèles, images, historique) vivent à la racine du projet, hors du code.
+ROOT = Path(__file__).resolve().parent.parent
+SRC_DIR = Path(__file__).resolve().parent
 
 # --- Dossiers ---
 BIN_DIR        = ROOT / "bin"            # exécutable sd-cli.exe + DLLs

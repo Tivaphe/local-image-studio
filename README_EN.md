@@ -55,9 +55,9 @@ A simple web interface to generate images with the latest AI models (FLUX, Qwen-
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-python app.py                 # opens Chrome automatically on the right port
-python app.py --no-browser    # ...or no browser at all
-python app.py --port 7861     # ...or another port
+python src/app.py              # opens Chrome automatically on the right port
+python src/app.py --no-browser # ...or no browser at all
+python src/app.py --port 7861  # ...or another port
 ```
 
 ---
@@ -224,25 +224,37 @@ Some models require a **free Hugging Face token**:
 
 ```
 local-image-studio/
-├── start.bat              ← Double-click to launch
-├── app.py                 ← Web server (Flask) + startup options
-├── browser_launch.py      ← Opens Chrome automatically at startup
-├── engine.py              ← sd-cli engine + downloads
-├── registry.py            ← 25 model definitions + ×4 upscalers + ADetailer detectors
-├── prompt_enhancer.py     ← Enrichment & translation (LLM)
-├── gpu_info.py            ← VRAM detection
-├── db.py                  ← History & statistics
-├── config.py              ← Path configuration
+├── start.bat              ← ⭐ Double-click to launch (Windows)
+├── README.md              ← Documentation principale (FR)
+├── README_EN.md           ← This document (EN)
 ├── requirements.txt       ← Python dependencies
-├── templates/             ← HTML pages (generate.html, edit.html, …)
-├── static/                ← CSS + JavaScript (generate.js, edit.js, …)
-├── docs/                  ← Documentation
-│   ├── ADD_MODEL_FR.md    ← How to add a model (FR)
-│   └── ADD_MODEL_EN.md    ← How to add a model (EN)
+├── LICENSE
 │
-├── bin/                   ← sd-cli.exe (auto-downloaded)
-├── models/                ← GGUF/safetensors + VAE + encoders (auto-downloaded)
-└── output/                ← Your generated images
+├── src/                   ← Application code (nothing to touch here)
+│   ├── app.py             ← Web server (Flask) + startup options
+│   ├── browser_launch.py  ← Open Chrome automatically on startup
+│   ├── engine.py          ← sd-cli engine + downloads + task queue
+│   ├── registry.py        ← 25 model definitions + ×4 upscalers + ADetailer detectors
+│   ├── prompt_enhancer.py ← Prompt boost & translation (LLM)
+│   ├── gpu_info.py        ← VRAM detection
+│   ├── db.py              ← History & statistics
+│   ├── config.py          ← Path configuration
+│   ├── templates/         ← HTML pages (generate.html, edit.html, …)
+│   └── static/            ← CSS + JavaScript (generate.js, edit.js, quality.js, …)
+│
+├── docs/                  ← Documentation
+│   ├── ADD_MODEL_FR.md    ← Comment ajouter un modèle (FR)
+│   └── ADD_MODEL_EN.md    ← How to add a model (EN)
+├── tests/                 ← Unit tests (python -m unittest discover -s tests)
+│
+└── (created automatically on first launch)
+    ├── .venv/             ← Isolated Python environment (created by start.bat)
+    ├── bin/               ← sd-cli.exe (auto-downloaded)
+    ├── models/            ← GGUF/safetensors + VAE + encoders + upscalers (auto-downloaded)
+    ├── source_images/     ← Your input images (img2img / editing)
+    ├── output/            ← Your generated images
+    ├── history.db         ← History (SQLite database)
+    └── settings.json      ← Your settings
 ```
 
 ---
@@ -255,7 +267,7 @@ such as Iris-3B's safetensors checkpoint.
 
 📖 **Full guide: [docs/ADD_MODEL_EN.md](./docs/ADD_MODEL_EN.md)**
 
-In short: edit `registry.py` → add an entry to the `MODELS` dictionary → restart.
+In short: edit `src/registry.py` → add an entry to the `MODELS` dictionary → restart.
 
 ---
 
@@ -271,9 +283,9 @@ In short: edit `registry.py` → add an entry to the `MODELS` dictionary → res
 | **Enrichment unavailable** | Install Microsoft [C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/), then rerun `start.bat` |
 | **Low VRAM** | Use Q4_K_M, reduce resolution |
 | **Python not found** | Reinstall Python 3.11 checking "Add to PATH" |
-| **The browser does not open** | Is Chrome installed? Otherwise your default browser opens. Also check **Settings → Open Chrome at startup**, or run `python app.py --no-browser` to disable it entirely |
+| **The browser does not open** | Is Chrome installed? Otherwise your default browser opens. Also check **Settings → Open Chrome at startup**, or run `python src/app.py --no-browser` to disable it entirely |
 | **The tab opens before the server is ready** | Nothing to do: the page loads as soon as the port is listening (opening waits for the server) |
-| **Port 7860 already in use** | Run `python app.py --port 7861` (the tab opens on the right port) |
+| **Port 7860 already in use** | Run `python src/app.py --port 7861` (the tab opens on the right port) |
 
 ---
 
