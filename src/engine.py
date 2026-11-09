@@ -701,6 +701,26 @@ class TaskManager:
                 },
                 "created_at": time.time(),
             }
+        if params.get("task_kind") == "vary":
+            mode = (params.get("vary_mode") or "subtle").lower()
+            strength = float(params.get("strength") or (0.35 if mode == "subtle" else 0.75))
+            strength_label = f"{strength:.2f}".replace(".", ",")
+            src_name = Path(params.get("source_image") or "?").name
+            label = "Variation subtile" if mode == "subtle" else "Variation forte"
+            return {
+                "queue_id": uuid.uuid4().hex[:8],
+                "params": dict(params),
+                "summary": {
+                    "model_id": f"vary:{model_id}",
+                    "model_name": f"🔀 {label} (img2img, force {strength_label})",
+                    "quant": params.get("quant", ""),
+                    "prompt": (params.get("prompt") or "")[:90],
+                    "batch": 1,
+                    "width": int(params.get("width") or 1024),
+                    "height": int(params.get("height") or 1024),
+                },
+                "created_at": time.time(),
+            }
         if params.get("task_kind") == "pid":
             bb = (params.get("backbone") or "").strip() or "auto"
             bb_label = (PID.get("backbones", {}).get(bb, {}) or {}).get("label", bb)
@@ -771,7 +791,7 @@ class TaskManager:
     @staticmethod
     def _kind_of(params):
         tk = params.get("task_kind")
-        if tk in ("upscale", "repair", "restore_x2", "pid"):
+        if tk in ("upscale", "repair", "restore_x2", "pid", "vary"):
             return tk
         return "generate"
 
@@ -830,6 +850,7 @@ class TaskManager:
                 pass
 
     def _run_generate(self, p):
+        result_type = "vary" if p.get("task_kind") == "vary" else "generate"
         try:
             import db
             from registry import MODELS as _MODELS
@@ -1141,7 +1162,7 @@ class TaskManager:
 
             if self._cancel:
                 self._set(log="Génération annulée.", done=True, busy=False,
-                          result={"type": "generate", "cancelled": True, "images": []})
+                          result={"type": result_type, "cancelled": True, "images": []})
                 return
 
             # Vérification du code de retour du processus
@@ -1210,7 +1231,7 @@ class TaskManager:
                             last_step_seen += last_step_hr
                         if self._cancel:
                             self._set(log="Génération annulée.", done=True, busy=False,
-                                      result={"type": "generate", "cancelled": True, "images": []})
+                                      result={"type": result_type, "cancelled": True, "images": []})
                             return
                         hr_files = sorted(OUTPUT_DIR.glob(f"{output_prefix}_hires_{hf_i:03d}_*.png"))
                         if ret_hr != 0 or not hr_files:
@@ -1262,8 +1283,12 @@ class TaskManager:
                     sampler=chosen_sampler, filename=rel, batch_size=batch,
                     gen_time=round(total_seconds / max(1, len(produced)), 1),
                     source_images=input_images)
-                images.append({"url": f"/output/{rel}", "filename": rel,
-                               "seed": seed + i, "id": image_id})
+                img_entry = {"url": f"/output/{rel}", "filename": rel,
+                             "seed": seed + i, "id": image_id}
+                if result_type == "vary":
+                    img_entry["vary"] = True
+                    img_entry["vary_mode"] = p.get("vary_mode") or "subtle"
+                images.append(img_entry)
 
             stats = {
                 "total_seconds": round(total_seconds, 1),
@@ -1276,12 +1301,12 @@ class TaskManager:
             }
             self._set(log=f"Génération terminée ✓ ({len(images)} image(s) en {total_seconds:.1f}s)",
                       progress=1.0, done=True, busy=False, error=None,
-                      result={"type": "generate", "images": images,
+                      result={"type": result_type, "images": images,
                               "batch_id": batch_id, "cancelled": False,
                               "stats": stats})
         except Exception as e:
             self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
-                      result={"type": "generate", "images": [], "error": str(e), "cancelled": False})
+                      result={"type": result_type, "images": [], "error": str(e), "cancelled": False})
 
     # --- Agrandissement ×4 autonome (mode -M upscale de sd-cli) ---
     def _run_upscale(self, p):

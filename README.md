@@ -191,6 +191,7 @@ Agrandissement » regroupe toutes les options avancées, chacune avec une **expl
 | **📡 Aperçu en direct** | Fenêtre « LIVE » : voyez l'image se débruiter pas à pas (**activé par défaut, mode « Auto »** : mini-VAE si installé, sinon projection des latents) | Section Qualité → ⚡ Performance |
 | **🎭 Visage fidèle (PuLID)** | Conserve le visage d'une photo (FLUX.1 Schnell/Dev/FHDR uniquement) | Section Qualité → 🎭 Visage fidèle — voir `docs/PULID_FR.md` |
 | **⬆️ PiD ×4** | Super-résolution **générative** ×4 (1024→4096 en 4 étapes), conditionnée par le prompt de l'image — reconstruit la matière là où ESRGAN lisse | Bouton « ⬆️ PiD ×4 » sur chaque résultat / dans l'historique (voir `docs/PID_FR.md`, licence NSCLv1) |
+| **🔀 Varier (subtil / fort)** | Variation façon Midjourney : re-génère l'image en img2img avec une **nouvelle graine** — subtil = force 0,35 (léger), fort = force 0,75 (franc) ; le prompt et les réglages sont repris de l'image | Boutons « 🔀 Varier » sur chaque résultat / dans l'historique (modèles img2img uniquement : SD 3.5, FLUX.1 Dev, Chroma) |
 | **🎛️ Sampler / Scheduler** | Choix de l'échantillonneur (euler, heun, dpm++2m, euler_a, lcm) et du planificateur (karras, beta, exponential…) | Pages Générer & Édition |
 | **⚙️ VAE Tiling** | Décodage par tuiles — économise la VRAM sur grandes images | Réglages experts |
 | **⚙️ SLG (Skip Layer Guidance)** | Améliore le respect du prompt sur les modèles DiT (valeur conseillée : 3) | Réglages experts |
@@ -270,7 +271,7 @@ Certains modèles nécessitent un **token Hugging Face gratuit** :
 
 | Fonction | Description |
 |---|---|
-| 🖼️ **Génération** | 1 à 4 images par lot, 5 formats + proportions originales en édition |
+| 🖼️ **Génération** | 1 à 4 images par lot, 9 formats (1:1, 3:4, 4:3, 9:16, 16:9, 2:3, 4:5, 21:9, 9:21) + proportions originales en édition |
 | ✂️ **Studio d'édition** | Onglet **Édition** : 1 canvas + jusqu'à **10 images** de référence, réordonnancement, comparaison avant/après |
 | 🗂️ **Lot de prompts** | Une ligne par prompt (16 max), générés en file d'attente |
 | ⚔️ **Duel / Comparaison** | Même prompt en 2 seeds consécutifs, ou sur 2 modèles |

@@ -2631,7 +2631,7 @@ function pollStatus() {
     renderEditQueue(j.queue || []);
 
     // Op terminée : agrandissement ×4, réparation visages/mains ou restauration ×2
-    const AUX_KINDS = ['upscale', 'repair', 'restore_x2', 'pid'];
+    const AUX_KINDS = ['upscale', 'repair', 'restore_x2', 'pid', 'vary'];
     if (AUX_KINDS.includes(j.kind) && j.busy) window.__auxDonePending = j.kind;
     if (window.__auxDonePending && !j.busy) {
       const auxKind = window.__auxDonePending;
@@ -2773,6 +2773,9 @@ function showResults(images) {
     if (window.LisQuality && typeof LisQuality.makePidButton === 'function') {
       d.appendChild(LisQuality.makePidButton({ imageId: img.id }));
     }
+    if (window.LisQuality && typeof LisQuality.makeVaryButtons === 'function') {
+      d.appendChild(LisQuality.makeVaryButtons({ imageId: img.id }));
+    }
     box.appendChild(d);
   });
   if (comparisonSource && lastGeneratedResults.length) {
@@ -2906,6 +2909,7 @@ function appendUpscaledResults(images) {
       if (LisQuality.makeUpscaleButton) d.appendChild(LisQuality.makeUpscaleButton({ imageId: img.id }));
       if (LisQuality.makeRepairButton) d.appendChild(LisQuality.makeRepairButton({ imageId: img.id }));
       if (LisQuality.makeRestoreX2Button) d.appendChild(LisQuality.makeRestoreX2Button({ imageId: img.id }));
+      if (LisQuality.makeVaryButtons) d.appendChild(LisQuality.makeVaryButtons({ imageId: img.id }));
     }
     box.appendChild(d);
   });

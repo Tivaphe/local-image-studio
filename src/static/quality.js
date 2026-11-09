@@ -656,6 +656,80 @@
     return btn;
   };
 
+  // ------------------------------------------------------------------ //
+  //  🔀 Variation façon Midjourney (POST /api/vary) : img2img + nouvelle graine
+  // ------------------------------------------------------------------ //
+  Q.startVary = async function ({ imageId = null, mode = "subtle" } = {}) {
+    const body = { mode: mode === "strong" ? "strong" : "subtle" };
+    if (imageId != null) body.image_id = imageId;
+    let j;
+    try {
+      const r = await fetch("/api/vary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      j = await r.json();
+    } catch (e) {
+      if (window.showToast) window.showToast("❌ Connexion au serveur impossible : " + e.message);
+      return false;
+    }
+    if (!j.ok) {
+      if (window.showToast) window.showToast("❌ " + (j.error || "Variation impossible."));
+      return false;
+    }
+    window.__lisAwaitToken = j.task_token || null;
+    if (j.queued) {
+      if (window.showToast) window.showToast(`⏳ Variation ajoutée à la file d'attente (position #${j.position}).`);
+    } else if (window.showToast) {
+      window.showToast(mode === "strong"
+        ? "🔀 Variation forte en cours (img2img, force 0,75)…"
+        : "🔀 Variation subtile en cours (img2img, force 0,35)…");
+    }
+    ensurePolling();
+    return true;
+  };
+
+  // Fabrique les deux boutons « Varier · subtil / · fort » pour une carte image.
+  Q.makeVaryButtons = function ({ imageId = null } = {}) {
+    const frag = document.createDocumentFragment();
+    const mk = (mode, text, title) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn small vary-mini vary-" + mode;
+      btn.textContent = text;
+      btn.title = title;
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        btn.textContent = "🔀 …";
+        Q._doneCbs.push(() => {
+          btn.disabled = false;
+          btn.textContent = text;
+        });
+        const ok = await Q.startVary({ imageId, mode });
+        if (!ok) {
+          Q._doneCbs.pop();
+          btn.disabled = false;
+          btn.textContent = text;
+        }
+      });
+      return btn;
+    };
+    frag.appendChild(mk(
+      "subtle",
+      "🔀 Varier · subtil",
+      "Re-génère cette image avec une variation légère (img2img, force 0,35, nouvelle graine). " +
+      "Nécessite un modèle img2img (SD 3.5, FLUX.1 Dev, Chroma). La variante est enregistrée dans l'historique."
+    ));
+    frag.appendChild(mk(
+      "strong",
+      "🔀 Varier · fort",
+      "Re-génère cette image avec une variation franche (img2img, force 0,75, nouvelle graine). " +
+      "Nécessite un modèle img2img (SD 3.5, FLUX.1 Dev, Chroma). La variante est enregistrée dans l'historique."
+    ));
+    return frag;
+  };
+
   // Fabrique un bouton « 🔍 Agrandir ×4 » prêt à poser sur une carte image.
   Q.makeUpscaleButton = function ({ imageId = null, path = null } = {}) {
     const btn = document.createElement("button");
@@ -698,6 +772,8 @@
         window.showToast("🩹 Restauration ×2 terminée ✓ — enregistré dans l'historique.");
       } else if (kind === "pid") {
         window.showToast("⬆️ PiD ×4 terminée ✓ — enregistré dans l'historique.");
+      } else if (kind === "vary") {
+        window.showToast("🔀 Variation terminée ✓ — enregistrée dans l'historique.");
       } else {
         const sc = images[0].scale || 4;
         const w = images[0].width ? ` (${images[0].width}×${images[0].height || "?"})` : "";

@@ -99,13 +99,17 @@ def history():
     repair_ready = any(adetailer_status(did)["downloaded"] for did in ADETAILERS)
     seedvr2_ready = seedvr2_status()["downloaded"]
     pid_ready = pid_status()["downloaded"]
+    # Modèles capables d'img2img (pour « Varier » sur la carte)
+    vary_models = {mid for mid, mm in MODELS.items()
+                   if "init" in (mm.get("input_modes") or [])}
     return render_template("history.html", images=images, models=MODELS,
                            model_filter=model_filter, search_query=search_query,
                            fav_only=fav_only, count=db.count_images(),
                            upscaler_ready=upscaler_ready,
                            repair_ready=repair_ready,
                            seedvr2_ready=seedvr2_ready,
-                           pid_ready=pid_ready)
+                           pid_ready=pid_ready,
+                           vary_models=vary_models)
 
 
 @app.route("/models")
@@ -472,6 +476,95 @@ def api_upscale():
     try:
         q_info = tasks.enqueue_generate(params)
         return jsonify({"ok": True, "upscaler_id": uid, **q_info})
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 409
+
+
+@app.route("/api/vary", methods=["POST"])
+def api_vary():
+    """🔀 Variation façon Midjourney : re-génère l'image en img2img avec une nouvelle graine.
+
+    Deux modes : « subtle » (force 0,35, variation légère) et « strong » (force 0,75, libre).
+    Nécessite un modèle capable d'img2img (SD 3.5, FLUX.1 Dev, Chroma…).
+    """
+    data = request.get_json(force=True)
+    mode = (data.get("mode") or "subtle").strip().lower()
+    if mode not in ("subtle", "strong"):
+        return jsonify({"ok": False, "error": "Mode invalide (subtle ou strong)."}), 400
+    strength = 0.35 if mode == "subtle" else 0.75
+    if data.get("image_id") is None:
+        return jsonify({"ok": False,
+                        "error": "« Varier » nécessite une image de l'historique (image_id)."}), 400
+    try:
+        img = db.get_image(int(data["image_id"]))
+    except Exception:
+        img = None
+    if not img:
+        return jsonify({"ok": False, "error": "Image introuvable dans l'historique."}), 404
+    fn = img["filename"]
+    if not (config.OUTPUT_DIR / fn).exists():
+        return jsonify({"ok": False, "error": "Le fichier image n'existe plus sur le disque."}), 404
+    src_rel = str(Path("output") / fn)
+    mid = img.get("model") or ""
+    if mid not in MODELS:
+        return jsonify({"ok": False, "error": (
+            "Cette image provient d'une opération auxiliaire (agrandissement, réparation…) : "
+            "« Varier » re-génère depuis le prompt d'origine — appliquez-la sur une image "
+            "générée normalement.")}), 400
+    m = MODELS[mid]
+    src_w = int(img.get("width") or 0)
+    src_h = int(img.get("height") or 0)
+    if max(src_w, src_h) > 1536:
+        return jsonify({"ok": False, "error": (
+            f"Image trop grande pour la variation img2img ({src_w}×{src_h} — max 1536 px de côté). "
+            "Réduisez-la d'abord (ou variez une image non agrandie).")}), 400
+    # Le modèle doit accepter une image de départ (img2img « init »).
+    _imgs, input_mode, err = check_images_input(mid, [src_rel], "init")
+    if err:
+        return jsonify({"ok": False, "error": (
+            f"{m['name']} ne sait pas re-générer à partir d'une image. "
+            "Seuls les modèles compatibles img2img le permettent : SD 3.5 Medium/Large/Turbo, "
+            "FLUX.1 Dev (Haute Finesse), Chroma Unlocked.")}), 400
+    quants = m.get("quants") or []
+    quant = img.get("quant") if img.get("quant") in quants else m.get("default_quant")
+    defaults = m.get("defaults", {})
+    try:
+        steps = int(img.get("steps") or 0)
+    except (TypeError, ValueError):
+        steps = 0
+    try:
+        cfg = float(img.get("cfg") or 0)
+    except (TypeError, ValueError):
+        cfg = 0.0
+    if steps <= 0:
+        steps = int(defaults.get("steps", 20))
+    if cfg <= 0:
+        cfg = float(defaults.get("cfg", 4.0))
+    valid_samplers = {s["id"] for s in SAMPLERS_INFO} | {defaults.get("sampler", "")}
+    sampler = img.get("sampler") if img.get("sampler") in valid_samplers else "default"
+    params = {
+        "task_kind": "vary",
+        "vary_mode": mode,
+        "model_id": mid,
+        "quant": quant,
+        "prompt": img.get("prompt") or "",
+        "negative": img.get("negative") or "",
+        "width": src_w or int(defaults.get("width", 1024) or 1024),
+        "height": src_h or int(defaults.get("height", 1024) or 1024),
+        "steps": steps,
+        "cfg": cfg,
+        "seed": None,  # nouvelle graine aléatoire à chaque variation
+        "batch": 1,
+        "ref_images": [],
+        "input_mode": "init",
+        "source_image": src_rel,
+        "strength": strength,
+        "sampler": sampler,
+        "scheduler": "default",
+    }
+    try:
+        q_info = tasks.enqueue_generate(params)
+        return jsonify({"ok": True, "mode": mode, "strength": strength, **q_info})
     except RuntimeError as e:
         return jsonify({"ok": False, "error": str(e)}), 409
 

@@ -193,6 +193,7 @@ section with a clear explanation for every option:
 | **🎭 Faithful Face (PuLID)** | Keeps a reference person's face (FLUX.1 Schnell/Dev/FHDR only) — see `docs/PULID_FR.md` (French) | Quality → 🎭 Faithful face |
 | **🩹 Restore ×2 (SeedVR2)** | Diffusion-based detail reconstruction + 2× resolution for existing images (~6.8 GB weights, ~10 GB VRAM) | One-click on every result and in History |
 | **⬆️ PiD ×4** | **Generative** super-resolution ×4 (1024→4096, 4 steps), prompt-conditioned — rebuilds plausible detail instead of smoothing | One-click "⬆️ PiD ×4" on every result and in History — see `docs/PID_FR.md` (French). **NSCLv1 non-commercial license** |
+| **🔀 Vary (subtle / strong)** | Midjourney-style variation: re-generates the image via img2img with a **new seed** — subtle = strength 0.35 (light touch), strong = strength 0.75 (bold); prompt and settings are copied from the source image | « 🔀 Vary » buttons on every result / in History (img2img-capable models only: SD 3.5, FLUX.1 Dev, Chroma) |
 | **🎛️ Sampler / Scheduler** | Choose the sampler (euler, heun, dpm++2m, euler_a, lcm) and scheduler (karras, beta, exponential…) | Generate & Edit pages |
 | **⚙️ VAE Tiling** | Tiled VAE decode — saves VRAM on large images | Expert settings |
 | **⚙️ SLG (Skip Layer Guidance)** | Better prompt adherence on DiT models (recommended: 3) | Expert settings |

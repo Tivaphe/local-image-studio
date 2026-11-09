@@ -103,6 +103,12 @@
           <button type="button" class="link pid-link" data-id="{{ im.id }}"
                   title="⬆️ Super-résolution générative PiD (NVIDIA Pixel Diffusion, 4 étapes, sortie 4096×4096, prompt repris de l'image) — la grande version est ajoutée à l'historique">⬆️ PiD</button>
           {% endif %}
+          {% if im.model in vary_models and (im.width or 0) <= 1536 and (im.height or 0) <= 1536 %}
+          <button type="button" class="link vary-link" data-id="{{ im.id }}" data-mode="subtle"
+                  title="🔀 Variation subtile façon Midjourney : re-génère l'image (img2img, force 0,35, nouvelle graine) — la variante est ajoutée à l'historique">🔀 Subtil</button>
+          <button type="button" class="link vary-link" data-id="{{ im.id }}" data-mode="strong"
+                  title="🔀 Variation forte façon Midjourney : re-génère l'image (img2img, force 0,75, nouvelle graine) — la variante est ajoutée à l'historique">🔀 Fort</button>
+          {% endif %}
           <button class="link danger del {% if im.favorite %}locked{% endif %}"
                   data-id="{{ im.id }}"
                   title="{{ 'Image protégée en Favori ⭐ — cliquez sur l’étoile pour déverrouiller' if im.favorite else 'Supprimer (double clic de sécurité)' }}">
@@ -141,6 +147,7 @@ const AUX_META = {
   repair:     { icon: '🙂', label: 'Réparation visages & mains' },
   restore_x2: { icon: '🩹', label: 'Restauration ×2 (SeedVR2)' },
   pid:        { icon: '⬆️', label: 'PiD ×4 (super-résolution générative)' },
+  vary:       { icon: '🔀', label: 'Variation (img2img)' },
 };
 const auxBanner  = document.getElementById('aux-banner');
 const auxTitle   = document.getElementById('aux-title');
@@ -629,6 +636,22 @@ document.querySelectorAll('.pid-link').forEach(b => {
       b.textContent = orig;
     } else {
       b.textContent = '⬆️ en cours…';
+    }
+  });
+});
+document.querySelectorAll('.vary-link').forEach(b => {
+  b.addEventListener('click', async () => {
+    b.disabled = true;
+    const orig = b.textContent;
+    b.textContent = '🔀 …';
+    const ok = window.LisQuality
+      ? await LisQuality.startVary({ imageId: parseInt(b.dataset.id, 10), mode: b.dataset.mode })
+      : false;
+    if (!ok) {
+      b.disabled = false;
+      b.textContent = orig;
+    } else {
+      b.textContent = '🔀 en cours…';
     }
   });
 });

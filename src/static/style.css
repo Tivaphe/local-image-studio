@@ -504,6 +504,10 @@ small{color:var(--muted)}
 /* Bouton « 🔍 Agrandir ×4 » sur les cartes résultat */
 .upscale-mini{margin-top:6px;width:100%;text-align:center}
 .upscale-mini:disabled{opacity:.6}
+.pid-mini{margin-top:6px;width:100%;text-align:center}
+.pid-mini:disabled{opacity:.6}
+.vary-mini{margin-top:6px;display:inline-block;width:calc(50% - 2px);text-align:center;font-size:11.5px;padding:7px 6px}
+.vary-mini:disabled{opacity:.6}
 .repair-mini{margin-top:6px;width:100%;text-align:center}
 .repair-mini:disabled{opacity:.6}
 .restore-mini{margin-top:6px;width:100%;text-align:center}
