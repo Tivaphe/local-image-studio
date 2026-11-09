@@ -588,3 +588,33 @@ class FeatureApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLivePreviewWiring(unittest.TestCase):
+    """L'aperçu en direct doit être câblé sur Générer ET Édition (markup + JS)."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def test_generate_template_has_live_preview_wrap(self):
+        html = (self.ROOT / "src/templates/generate.html").read_text(encoding="utf-8")
+        self.assertIn('id="live-preview-wrap"', html)
+        self.assertIn('id="live-preview-waiting"', html)
+
+    def test_edit_template_has_live_preview_wrap(self):
+        html = (self.ROOT / "src/templates/edit.html").read_text(encoding="utf-8")
+        self.assertIn('id="live-preview-wrap"', html)
+        self.assertIn('id="live-preview-waiting"', html)
+
+    def test_edit_js_polls_preview_endpoint(self):
+        js = (self.ROOT / "src/static/edit.js").read_text(encoding="utf-8")
+        self.assertIn("updateLivePreview", js)
+        self.assertIn("'/api/preview'", js)
+        self.assertIn("preview_batch_id", js)
+
+    def test_generate_js_polls_preview_endpoint(self):
+        js = (self.ROOT / "src/static/generate.js").read_text(encoding="utf-8")
+        self.assertIn("'/api/preview'", js)
+        self.assertIn("preview_batch_id", js)
+
+    def test_api_preview_route_registered(self):
+        self.assertTrue(any(r.rule == "/api/preview" for r in app.app.url_map.iter_rules()))

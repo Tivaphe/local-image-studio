@@ -159,9 +159,10 @@
             <input type="range" id="q-preview-interval" min="1" max="10" step="1" value="3">
           </label>
           <p class="hint">
-            Affiche la génération en direct dans une petite fenêtre de résultat. « proj » projette
-            l'état latent en image instantanément ; « tae » utilise le mini-VAE ci-dessus ; « vae »
-            décode avec le vrai VAE (plus net mais plus coûteux).
+            Pendant l'échantillonnage, une fenêtre « LIVE » apparaît au-dessus des résultats avec
+            l'image qui se construit (pages Générer et Édition, batch ×1, sd-cli requis). « proj »
+            décode instantanément l'état latent ; « tae » utilise le mini-VAE ci-dessus ;
+            « vae » décode avec le vrai VAE (plus net, plus coûteux).
           </p>
         </div>
 

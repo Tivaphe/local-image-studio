@@ -922,6 +922,10 @@ function updateLivePreview(j) {
     wrap.hidden = false;
     livePreviewShown = true;
     if (!livePreviewTimer) {
+      const waiting = $('#live-preview-waiting');
+      const imgEl = $('#live-preview-img');
+      if (waiting) waiting.hidden = false;
+      if (imgEl) { imgEl.hidden = true; imgEl.removeAttribute('src'); }
       const tick = async () => {
         try {
           const r = await fetch('/api/preview');
@@ -929,7 +933,12 @@ function updateLivePreview(j) {
           const p = await r.json();
           if (p.ok && p.url) {
             const img = $('#live-preview-img');
-            if (img) img.src = p.url + '?t=' + Math.floor((p.mtime || 0) * 1000);
+            const wEl = $('#live-preview-waiting');
+            if (img) {
+              img.src = p.url + '?t=' + Math.floor((p.mtime || 0) * 1000);
+              img.hidden = false;
+            }
+            if (wEl) wEl.hidden = true;
           }
         } catch (e) { /* aperçu indisponible tant que le moteur ne produit rien */ }
       };
@@ -943,7 +952,9 @@ function updateLivePreview(j) {
     livePreviewShown = false;
     wrap.hidden = true;
     const img = $('#live-preview-img');
-    if (img) img.removeAttribute('src');
+    if (img) { img.removeAttribute('src'); img.hidden = true; }
+    const wEl = $('#live-preview-waiting');
+    if (wEl) wEl.hidden = false;
   } else {
     clearInterval(livePreviewTimer);
     livePreviewTimer = null;

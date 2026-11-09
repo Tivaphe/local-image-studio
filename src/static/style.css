@@ -531,6 +531,8 @@ small{color:var(--muted)}
   overflow:hidden;background:#000;text-align:center;
 }
 .live-preview-wrap img{max-width:100%;max-height:340px;object-fit:contain;display:block;margin:0 auto}
+.live-preview-waiting{color:var(--muted);font-size:13px;padding:46px 20px;text-align:center}
+.live-preview-img[hidden]{display:none}
 .live-preview-badge{
   position:absolute;top:10px;left:10px;background:var(--danger);color:#fff;
   font-size:11px;font-weight:800;letter-spacing:1.5px;padding:4px 11px;border-radius:999px;

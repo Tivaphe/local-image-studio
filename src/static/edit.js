@@ -2503,6 +2503,7 @@ $('#generate-btn').addEventListener('click', async () => {
 
   if (j.queued) {
     renderEditQueue(j.queue || []);
+    updateLivePreview(j);
     if (window.showToast) {
       window.showToast(`⏳ Édition ajoutée à la file d'attente (position #${j.position})`);
     }
@@ -2554,6 +2555,56 @@ function fmtTime(s) {
   if (s < 60) return s.toFixed(1) + 's';
   const m = Math.floor(s / 60), r = Math.round(s % 60);
   return m + 'min ' + r + 's';
+}
+
+// ---------- aperçu en direct (pendant l'échantillonnage) ----------
+let livePreviewTimer = null;
+let livePreviewShown = false;
+function updateLivePreview(j) {
+  const wrap = $('#live-preview-wrap');
+  if (!wrap) return;
+  const wants = j && j.busy && j.kind === 'generate' && !!j.preview_batch_id;
+  if (wants) {
+    wrap.hidden = false;
+    livePreviewShown = true;
+    if (!livePreviewTimer) {
+      const waiting = $('#live-preview-waiting');
+      const imgEl = $('#live-preview-img');
+      if (waiting) waiting.hidden = false;
+      if (imgEl) { imgEl.hidden = true; imgEl.removeAttribute('src'); }
+      const tick = async () => {
+        try {
+          const r = await fetch('/api/preview');
+          if (!r.ok) return;
+          const p = await r.json();
+          if (p.ok && p.url) {
+            const img = $('#live-preview-img');
+            const wEl = $('#live-preview-waiting');
+            if (img) {
+              img.src = p.url + '?t=' + Math.floor((p.mtime || 0) * 1000);
+              img.hidden = false;
+            }
+            if (wEl) wEl.hidden = true;
+          }
+        } catch (e) { /* aperçu indisponible tant que le moteur ne produit rien */ }
+      };
+      tick();
+      livePreviewTimer = setInterval(tick, 1500);
+    }
+  } else if (livePreviewShown) {
+    clearInterval(livePreviewTimer);
+    livePreviewTimer = null;
+    livePreviewShown = false;
+    wrap.hidden = true;
+    const img = $('#live-preview-img');
+    if (img) { img.removeAttribute('src'); img.hidden = true; }
+    const wEl = $('#live-preview-waiting');
+    if (wEl) wEl.hidden = false;
+  } else {
+    clearInterval(livePreviewTimer);
+    livePreviewTimer = null;
+    wrap.hidden = true;
+  }
 }
 
 function pollStatus() {
