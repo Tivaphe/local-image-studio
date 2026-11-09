@@ -41,10 +41,23 @@
     <div class="banner-text"><span id="banner-text">…</span></div>
   </div>
 
-  <div class="model-grid">
+  <div class="models-toolbar">
+    <label class="history-sort-wrap" title="Filtre les cartes par état de disponibilité">
+      <span class="sr-only">Filtrer</span>
+      <select id="models-filter" class="history-sort" aria-label="Filtrer les modèles">
+        <option value="all">🗂️ Tous les modèles</option>
+        <option value="ready">✅ Prêts à l'emploi</option>
+        <option value="missing">⬇️ À télécharger</option>
+        <option value="token">🔑 Token requis</option>
+      </select>
+    </label>
+    <span class="muted small" id="models-visible-count"></span>
+  </div>
+
+  <div class="model-grid" id="model-grid-main">
     {% for mid, m in models.items() %}
     {% set st = statuses[mid] %}
-    <div class="model-card" data-id="{{ mid }}">
+    <div class="model-card" data-id="{{ mid }}" data-ready="{{ '1' if st.ready else '0' }}" data-token="{{ '1' if m.needs_token else '0' }}">
       <div class="mc-head">
         <h3>{{ m.name }}{% if m.supports_ref_images %}<span class="edit-badge" title="Édition par références multiples (jusqu'à {{ m.max_ref_images }} images)">✂️ ×{{ m.max_ref_images }}</span>{% endif %}</h3>
         {% if m.needs_token %}<span class="tag tag-warn">token requis</span>{% endif %}
@@ -336,6 +349,27 @@
 <script>
 window.PAGE = "models";
 {% if token_set %}window.TOKEN_SET = true;{% endif %}
+</script>
+<script>
+// --- Filtre des cartes modèles (principal) ---
+const modelsFilter = document.getElementById('models-filter');
+const modelsGrid = document.getElementById('model-grid-main');
+const modelsCount = document.getElementById('models-visible-count');
+modelsFilter?.addEventListener('change', () => {
+  if (!modelsGrid) return;
+  const mode = modelsFilter.value;
+  const cards = [...modelsGrid.querySelectorAll('.model-card')];
+  let visible = 0;
+  cards.forEach(card => {
+    const ok = mode === 'all'
+      || (mode === 'ready'   && card.dataset.ready === '1')
+      || (mode === 'missing' && card.dataset.ready !== '1')
+      || (mode === 'token'   && card.dataset.token === '1');
+    card.hidden = !ok;
+    if (ok) visible++;
+  });
+  if (modelsCount) modelsCount.textContent = mode === 'all' ? '' : `${visible} / ${cards.length} modèle(s)`;
+});
 </script>
 <script src="{{ url_for('static', filename='models.js') }}"></script>
 {% endblock %}

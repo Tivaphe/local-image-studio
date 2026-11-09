@@ -23,6 +23,16 @@
             id="history-fav-filter" title="Afficher uniquement vos images favorites ⭐">
       ⭐ Favoris uniquement
     </button>
+    <label class="history-sort-wrap" title="Réordonne les cartes affichées (sans recharger la page)">
+      <span class="sr-only">Trier</span>
+      <select id="history-sort" class="history-sort" aria-label="Trier l'historique">
+        <option value="recent">🕐 Les plus récentes</option>
+        <option value="oldest">🕰️ Les plus anciennes</option>
+        <option value="model">🏷️ Modèle (A → Z)</option>
+        <option value="seed">🎲 Seed croissant</option>
+        <option value="pixels">📐 Dimensions croissantes</option>
+      </select>
+    </label>
     {% if repair_ready %}
     <span class="muted small upscale-hint" title="Cliquez « 🙂 Réparer » sur une image pour re-détailler automatiquement visages et mains. La version réparée est ajoutée à l'historique.">🙂 réparation prête</span>
     {% else %}
@@ -57,6 +67,9 @@
          data-id="{{ im.id }}"
          data-favorite="{{ '1' if im.favorite else '0' }}"
          data-search="{{ (im.prompt ~ ' ' ~ im.model_name ~ ' ' ~ im.quant ~ ' ' ~ im.seed ~ ' ' ~ im.width ~ 'x' ~ im.height)|lower|e }}"
+         data-model="{{ im.model_name|lower|e }}"
+         data-seed="{{ im.seed if im.seed is not none else 0 }}"
+         data-pixels="{{ (im.width or 0) * (im.height or 0) }}"
          data-output-url="{{ url_for('serve_output', filename=im.filename) }}"
          data-label="{{ im.model_name }} · seed {{ im.seed }}"
          data-sources='{{ sources | tojson }}'>
@@ -378,6 +391,26 @@ function applyHistoryFilter() {
       : '';
   }
 }
+
+// --- Tri de la galerie ---
+const sortSelect = document.getElementById('history-sort');
+const galleryEl = document.getElementById('history-gallery');
+const originalCardOrder = galleryEl ? [...galleryEl.querySelectorAll('.card')] : [];
+sortSelect?.addEventListener('change', () => {
+  if (!galleryEl) return;
+  const mode = sortSelect.value;
+  const cards = [...galleryEl.querySelectorAll('.card')];
+  const byNum = (k) => (a, b) => (parseFloat(a.dataset[k]) || 0) - (parseFloat(b.dataset[k]) || 0);
+  let sorted;
+  if (mode === 'recent')   sorted = originalCardOrder;
+  else if (mode === 'oldest') sorted = [...originalCardOrder].reverse();
+  else if (mode === 'model')  sorted = [...cards].sort((a, b) => (a.dataset.model || '').localeCompare(b.dataset.model || '', 'fr'));
+  else if (mode === 'seed')   sorted = [...cards].sort(byNum('seed'));
+  else if (mode === 'pixels') sorted = [...cards].sort(byNum('pixels'));
+  else sorted = cards;
+  sorted.forEach(card => galleryEl.appendChild(card));
+  applyHistoryFilter();
+});
 
 searchInput?.addEventListener('input', applyHistoryFilter);
 favFilterBtn?.addEventListener('click', () => {

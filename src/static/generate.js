@@ -31,6 +31,165 @@ let lastGeneratedImages = [];
 let uploadedImageServerUrl = null;
 let uploadedImageName = '';
 
+// ===== Style Midjourney (approximations expliquées) =====
+// Styles rapides : chaque chip bascule un suffixe visible dans le prompt.
+const MJ_STYLE_CHIPS = [
+  { id: 'cine',    label: '🎬 Cinéma',      suffix: 'cinematic still, dramatic lighting, film grain' },
+  { id: 'photo',   label: '📷 Photo',       suffix: 'photograph, 85mm lens, natural light, high detail' },
+  { id: 'oil',     label: '🖼️ Huile',       suffix: 'oil painting, rich brushstrokes, gallery piece' },
+  { id: 'water',   label: '🎨 Aquarelle',   suffix: 'watercolor painting, soft washes, paper texture' },
+  { id: 'anime',   label: '⛩️ Anime',       suffix: 'anime style, cel shading, vibrant colors' },
+  { id: 'pixel',   label: '👾 Pixel art',   suffix: 'pixel art, 16-bit, retro game sprite' },
+  { id: 'lowpoly', label: '🔺 Low-poly',    suffix: 'low-poly render, geometric facets, flat shading' },
+  { id: 'cyber',   label: '🌆 Cyberpunk',   suffix: 'cyberpunk, neon lights, rainy street, dystopian city' },
+  { id: 'steam',   label: '⚙️ Steampunk',   suffix: 'steampunk, brass gears, steam and goggles' },
+  { id: 'mini',    label: '⬜ Minimaliste', suffix: 'minimalist composition, clean negative space, muted palette' },
+  { id: 'neon',    label: '💡 Néon',        suffix: 'neon glow, vibrant saturated colors, dark background' },
+  { id: 'noir',    label: '🕶️ Noir',        suffix: 'film noir, high contrast black and white, hard shadows' },
+];
+let mjActiveChips = new Set();
+
+function mjPromptAddSuffix(suffix) {
+  const ta = $('#prompt');
+  if (!ta) return;
+  const cur = ta.value.trim();
+  ta.value = cur ? cur.replace(/[,\s]+$/, '') + ', ' + suffix : suffix;
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function mjPromptRemoveSuffix(suffix) {
+  const ta = $('#prompt');
+  if (!ta) return;
+  const cur = ta.value;
+  const candidates = [', ' + suffix, suffix + ', ', suffix];
+  for (const cand of candidates) {
+    const idx = cur.indexOf(cand);
+    if (idx !== -1) {
+      ta.value = (cur.slice(0, idx) + cur.slice(idx + cand.length)).replace(/[,\s]{2,}/g, ', ').replace(/^[,\s]+|[,\s]+$/g, '');
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+  }
+}
+
+function mjToggleChip(chip) {
+  const ta = $('#prompt');
+  if (mjActiveChips.has(chip.id)) {
+    mjActiveChips.delete(chip.id);
+    mjPromptRemoveSuffix(chip.suffix);
+  } else {
+    mjActiveChips.add(chip.id);
+    mjPromptAddSuffix(chip.suffix);
+  }
+  $$('.mj-chip').forEach(b => b.classList.toggle('active', mjActiveChips.has(b.dataset.chip)));
+}
+
+function mjInitChips() {
+  const box = $('#mj-style-chips');
+  if (!box) return;
+  box.innerHTML = MJ_STYLE_CHIPS.map(chip =>
+    `<button type="button" class="mj-chip" data-chip="${chip.id}" title="Ajoute au prompt : ${chip.suffix}">${chip.label}</button>`
+  ).join('');
+  box.querySelectorAll('.mj-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const chip = MJ_STYLE_CHIPS.find(c => c.id === btn.dataset.chip);
+      if (chip) mjToggleChip(chip);
+    });
+  });
+  // Ré-hydrate l'état visuel des chips depuis le prompt restauré
+  const promptText = $('#prompt')?.value || '';
+  for (const chip of MJ_STYLE_CHIPS) {
+    if (promptText.includes(chip.suffix)) mjActiveChips.add(chip.id);
+  }
+  box.querySelectorAll('.mj-chip').forEach(b => b.classList.toggle('active', mjActiveChips.has(b.dataset.chip)));
+}
+
+// Stylisation : 0-1000, 100 = présélection inchangée (≈ "stylize" MJ).
+let stylizeBase = null;      // { steps, cfg } capturés à la dernière présélection / édition manuelle
+let stylizeApplying = false; // évite de recapturer pendant l'écriture par le slider
+
+function captureStylizeBase() {
+  const s = parseFloat($('#steps')?.value);
+  const c = parseFloat($('#cfg')?.value);
+  if (!isNaN(s) || !isNaN(c)) {
+    stylizeBase = {
+      steps: isNaN(s) ? (stylizeBase ? stylizeBase.steps : 20) : s,
+      cfg: isNaN(c) ? (stylizeBase ? stylizeBase.cfg : 4) : c,
+    };
+  }
+  const slider = $('#mj-stylize');
+  if (slider) { slider.value = 100; const v = $('#mj-stylize-val'); if (v) v.textContent = '100'; }
+}
+
+function mjClamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+function mjInitStylize() {
+  const slider = $('#mj-stylize');
+  if (!slider) return;
+  slider.addEventListener('input', () => {
+    const v = parseInt(slider.value, 10) || 0;
+    const val = $('#mj-stylize-val'); if (val) val.textContent = String(v);
+    const base = stylizeBase || {
+      steps: parseFloat($('#steps')?.value) || 20,
+      cfg: parseFloat($('#cfg')?.value) || 4,
+    };
+    const delta = (v - 100) / 100;   // 0 au neutre
+    const steps = mjClamp(Math.round(base.steps * (1 + delta * 0.30)), 1, 50);
+    const cfg = mjClamp(base.cfg * (1 + delta * 0.30), 0.5, 15);
+    stylizeApplying = true;
+    if ($('#steps')) $('#steps').value = steps;
+    if ($('#cfg')) $('#cfg').value = (Math.round(cfg * 10) / 10).toFixed(1);
+    stylizeApplying = false;
+    if (typeof saveGenDraft === 'function') saveGenDraft();
+  });
+  ['#steps', '#cfg'].forEach(sel => {
+    $(sel)?.addEventListener('input', () => { if (!stylizeApplying) captureStylizeBase(); });
+  });
+}
+
+// Weirdness : 0-3000, règle échantillonneur + planificateur de la section Qualité (≈ "weird" MJ).
+let weirdApplying = false;
+const MJ_WEIRD_BANDS = [
+  { max: 0,    sampler: null,       scheduler: null,          label: 'réglages Qualité inchangés (reprise tels quels)' },
+  { max: 999,  sampler: 'euler_a',  scheduler: 'karras',      label: "Euler A + Karras — grain organique créatif" },
+  { max: 1999, sampler: 'dpm++2m',  scheduler: 'beta',        label: 'DPM++ 2M + Beta — matières denses' },
+  { max: 3000, sampler: 'lcm',      scheduler: 'sgm_uniform', label: 'LCM + SGM Uniform — ultra-courts, très chaotique' },
+];
+
+function mjInitWeird() {
+  const slider = $('#mj-weird');
+  if (!slider) return;
+  const apply = v => {
+    const band = MJ_WEIRD_BANDS.find(b => v <= b.max) || MJ_WEIRD_BANDS[MJ_WEIRD_BANDS.length - 1];
+    weirdApplying = true;
+    const s = $('#q-sampler'); if (s && band.sampler) s.value = band.sampler;
+    const sc = $('#q-scheduler'); if (sc && band.scheduler) sc.value = band.scheduler;
+    weirdApplying = false;
+    const d = $('#mj-weird-desc'); if (d) d.textContent = band.label;
+    const val = $('#mj-weird-val'); if (val) val.textContent = String(v);
+  };
+  slider.addEventListener('input', () => {
+    apply(parseInt(slider.value, 10) || 0);
+    if (typeof saveGenDraft === 'function') saveGenDraft();
+  });
+  ['#q-sampler', '#q-scheduler'].forEach(sel => {
+    $(sel)?.addEventListener('change', () => {
+      if (weirdApplying) return;
+      slider.value = 0; apply(0); // l'utilisateur a repris la main : on repasse le slider à 0
+    });
+  });
+}
+
+// Chaos : 0-100, graines indépendantes dans le lot (≈ "chaos" MJ).
+function mjInitChaos() {
+  const slider = $('#mj-chaos');
+  if (!slider) return;
+  slider.addEventListener('input', () => {
+    const val = $('#mj-chaos-val'); if (val) val.textContent = slider.value;
+    if (typeof saveGenDraft === 'function') saveGenDraft();
+  });
+}
+
 function saveGenDraft() {
   if (isRestoringGenDraft) return;
   try {
@@ -49,6 +208,7 @@ function saveGenDraft() {
       strength: $('#strength')?.value || '0.75',
       currentRatio,
       ratioBeforeOriginal,
+      chaos: $('#mj-chaos')?.value || '0',
       sourceImage: uploadedImagePath ? {
         path: uploadedImagePath,
         url: uploadedImageServerUrl || `/source-images/${uploadedImagePath.split('/').pop()}`,
@@ -96,6 +256,12 @@ async function restoreGenDraft() {
     if (typeof draft.negative === 'string' && draft.negative) $('#negative').value = draft.negative;
     if (draft.steps && !(m && m.fixed_steps != null)) $('#steps').value = draft.steps;
     if (draft.cfg && !(m && m.fixed_cfg != null)) $('#cfg').value = draft.cfg;
+    // Les sliders Stylisation/Weirdness ne sont pas persistés tels quels : les contrôles
+    // sous-jacents (étapes/CFG/échantillonneur/planificateur) le sont déjà. On les ramène
+    // à leur état neutre et captureStylizeBase() réajuste la base relative à la présélection.
+    if ($('#mj-stylize')) { $('#mj-stylize').value = 100; const v = $('#mj-stylize-val'); if (v) v.textContent = '100'; }
+    if ($('#mj-weird')) { $('#mj-weird').value = 0; const v = $('#mj-weird-val'); if (v) v.textContent = '0'; const d = $('#mj-weird-desc'); if (d) d.textContent = 'réglages Qualité inchangés (reprise tels quels)'; }
+    if (draft.chaos && $('#mj-chaos')) { $('#mj-chaos').value = draft.chaos; const v = $('#mj-chaos-val'); if (v) v.textContent = draft.chaos; }
     if (draft.seed !== undefined && draft.seed !== null) $('#seed').value = draft.seed;
     if (draft.batch && $('#batch')) {
       $('#batch').value = draft.batch;
@@ -287,6 +453,7 @@ async function loadModels() {
         $('#steps').value = m.defaults.steps;
         $('#cfg').value = m.defaults.cfg;
         if (quantSelect) quantSelect.value = m.default_quant;
+        if (typeof captureStylizeBase === 'function') captureStylizeBase();
         savePrefs({ model: modelId, preset: 'default', quant: quantSelect ? quantSelect.value : null });
       } else if (m.presets && m.presets[key]) {
         applyPreset(m.presets[key]);
@@ -304,6 +471,11 @@ async function loadModels() {
   buildRatiosApply();
   onModelChange();
   await restoreGenDraft();
+  mjInitChips();
+  mjInitStylize();
+  mjInitWeird();
+  mjInitChaos();
+  captureStylizeBase();
 
   // reuse depuis l'historique
   const reuse = sessionStorage.getItem('reuse');
@@ -458,6 +630,7 @@ function onModelChange() {
     // Valeurs par défaut
     $('#steps').value = m.defaults.steps;
     $('#cfg').value = m.defaults.cfg;
+    if (typeof captureStylizeBase === 'function') captureStylizeBase();
     if (prefs.quant && m.quants.includes(prefs.quant) && prefs.model === modelId) {
       q.value = prefs.quant;
     }
@@ -519,6 +692,7 @@ function applyPreset(preset) {
   if (!preset) return;
   if (preset.steps !== undefined) $('#steps').value = preset.steps;
   if (preset.cfg !== undefined) $('#cfg').value = preset.cfg;
+  if (typeof captureStylizeBase === 'function') captureStylizeBase();
   if (preset.quant) {
     const q = $('#quant');
     if (q) {
@@ -535,7 +709,7 @@ $('#batch').addEventListener('input', e => {
   $('#batch-val').textContent = v + ' image' + (v > 1 ? 's' : '');
   saveGenDraft();
 });
-['#prompt', '#negative', '#steps', '#cfg', '#seed', '#lora-dir', '#lora-prompt', '#strength', '#quant', '#preset', '#model'].forEach(sel => {
+['#prompt', '#negative', '#steps', '#cfg', '#seed', '#lora-dir', '#lora-prompt', '#strength', '#quant', '#preset', '#model', '#q-sampler', '#q-scheduler'].forEach(sel => {
   $(sel)?.addEventListener('input', saveGenDraft);
   $(sel)?.addEventListener('change', saveGenDraft);
 });
@@ -831,6 +1005,7 @@ function finalizeGenerationPayload(model_id) {
     cfg: $('#cfg').value,
     seed: $('#seed').value || null,
     batch: $('#batch').value,
+    chaos: $('#mj-chaos') ? (parseInt($('#mj-chaos').value, 10) || 0) : 0,
     input_mode: canInit ? 'init' : null,
     ref_images: uploadedImagePath ? [uploadedImagePath] : [],
     lora_dir: $('#lora-dir').value || null,

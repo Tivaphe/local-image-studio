@@ -9,6 +9,7 @@ Moteur d'exécution :
 import io
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -899,6 +900,15 @@ class TaskManager:
             batch = max(1, min(4, int(p["batch"])))
             batch_id = uuid.uuid4().hex  # identifiant unique, même pour deux lancements rapprochés
             seed = int(p["seed"]) if p.get("seed") not in (None, "") else int(time.time()) % 1000000
+            # Chaos (approximation « Midjourney ») : >0 → graines indépendantes par image,
+            # graine fixe ignorée. 0 → comportement historique (graines consécutives seed+i).
+            try:
+                chaos = max(0, min(100, int(p.get("chaos") or 0)))
+            except (TypeError, ValueError):
+                chaos = 0
+            img_seeds = [seed + i for i in range(batch)]
+            if chaos > 0:
+                img_seeds = [random.getrandbits(31) for _ in range(batch)]
 
             # Générer des noms de fichiers intelligents et sûrs
             # Format: model_motsprompt_001.png (dans output/ directement)
@@ -1067,29 +1077,39 @@ class TaskManager:
                 if adetailer_path_resolved:
                     final_quality["adetailer_model"] = adetailer_path_resolved
 
-            cmd = build_command(
-                model_id, quant, p["prompt"], p.get("negative", ""),
-                int(p["width"]), int(p["height"]), int(p["steps"]), float(p["cfg"]),
-                seed, batch, out_tmpl, str(sd), manifest,
-                source_image=(input_images[0] if (input_mode == "init" and input_images) else None),
-                lora_dir=p.get("lora_dir"),
-                strength=p.get("strength"),
-                ref_images=input_images if has_refs else None,
-                input_mode=input_mode,
-                ref_max_pixels=p.get("ref_max_pixels"),
-                mask_image=(str(ROOT / p["mask_image"]) if p.get("mask_image") else None),
-                sampler=sampler, scheduler=scheduler, vae_tiling=vae_tiling,
-                slg_scale=slg_scale,
-                taesd_path=taesd_file, sage_attn=sage_attn,
-                preview_method=preview_method, preview_path=preview_path,
-                preview_interval=preview_interval,
-                tae_preview_only=(preview_method == "tae" and bool(taesd_file)),
-                pulid_weights=pulid_w_path, pulid_id_embedding=pulid_emb_path,
-                pulid_id_weight=pulid_w,
-                **final_quality)
+            def build_one(sd_seed, sd_batch, tmpl):
+                return build_command(
+                    model_id, quant, p["prompt"], p.get("negative", ""),
+                    int(p["width"]), int(p["height"]), int(p["steps"]), float(p["cfg"]),
+                    sd_seed, sd_batch, tmpl, str(sd), manifest,
+                    source_image=(input_images[0] if (input_mode == "init" and input_images) else None),
+                    lora_dir=p.get("lora_dir"),
+                    strength=p.get("strength"),
+                    ref_images=input_images if has_refs else None,
+                    input_mode=input_mode,
+                    ref_max_pixels=p.get("ref_max_pixels"),
+                    mask_image=(str(ROOT / p["mask_image"]) if p.get("mask_image") else None),
+                    sampler=sampler, scheduler=scheduler, vae_tiling=vae_tiling,
+                    slg_scale=slg_scale,
+                    taesd_path=taesd_file, sage_attn=sage_attn,
+                    preview_method=preview_method, preview_path=preview_path,
+                    preview_interval=preview_interval,
+                    tae_preview_only=(preview_method == "tae" and bool(taesd_file)),
+                    pulid_weights=pulid_w_path, pulid_id_embedding=pulid_emb_path,
+                    pulid_id_weight=pulid_w,
+                    **final_quality)
+
+            if chaos > 0 and batch > 1:
+                # Un appel sd-cli par image, graines indépendantes — le lot reste séquentiel
+                # mais chaque image part d'une graine distincte (et reproductible via le journal).
+                cmds = [build_one(img_seeds[i], 1,
+                                  str(OUTPUT_DIR / f"{output_prefix}_{i:03d}_%03d.png"))
+                        for i in range(batch)]
+            else:
+                cmds = [build_one(img_seeds[0], batch, out_tmpl)]
 
             # Vérifier qu'aucun argument n'est None
-            for idx_arg, arg_val in enumerate(cmd):
+            for idx_arg, arg_val in enumerate([a for c in cmds for a in c]):
                 if arg_val is None:
                     raise RuntimeError(f"Erreur interne : l'argument de commande #{idx_arg} est None.")
 
@@ -1158,7 +1178,23 @@ class TaskManager:
                     return "\n".join(err_lines[-6:])
                 return "\n".join(last_lines[-8:]) if last_lines else "Aucun message du moteur."
 
-            ret_code, t_first_step, last_step_seen, last_lines = run_cli(cmd)
+            ret_code = 0
+            t_first_step = None
+            last_step_seen = 0
+            last_lines = []
+            for ci, c in enumerate(cmds):
+                if self._cancel:
+                    break
+                if len(cmds) > 1:
+                    self._set(log=f"Chaos {chaos} : image {ci + 1}/{len(cmds)} — graine aléatoire indépendante ({img_seeds[ci]})")
+                rc, tfs, lss, ll = run_cli(c)
+                if rc != 0:
+                    ret_code = rc
+                    last_lines = ll
+                    break
+                t_first_step = t_first_step if t_first_step is not None else tfs
+                last_step_seen += lss
+                last_lines = ll
 
             if self._cancel:
                 self._set(log="Génération annulée.", done=True, busy=False,
@@ -1215,7 +1251,7 @@ class TaskManager:
                         cmd_hr = build_command(
                             model_id, quant, p["prompt"], p.get("negative", ""),
                             hw, hh, int(p["steps"]), float(p["cfg"]),
-                            seed + hf_i, 1, out_tmpl_hr, str(sd), manifest,
+                            (img_seeds[hf_i] if hf_i < len(img_seeds) else seed + hf_i), 1, out_tmpl_hr, str(sd), manifest,
                             source_image=str(fp), strength=hires_strength,
                             input_mode="init",
                             lora_dir=p.get("lora_dir"),
@@ -1256,7 +1292,7 @@ class TaskManager:
                     txt = _pngmeta.build_webui_text(
                         prompt=p["prompt"], negative=p.get("negative", ""),
                         steps=int(p["steps"]), cfg=float(p["cfg"]),
-                        seed=seed + i,
+                        seed=img_seeds[i] if i < len(img_seeds) else seed + i,
                         width=None, height=None, sampler=chosen_sampler,
                         model_id=model_id)
                     _pngmeta.embed_params(fp, txt, only_if_missing=True)
@@ -1278,13 +1314,13 @@ class TaskManager:
                 image_id = db.add_image(
                     batch_id=batch_id, idx=i, model_id=model_id, model_name=m["name"],
                     quant=quant, prompt=p["prompt"], negative=p.get("negative", ""),
-                    seed=seed + i, width=out_w, height=out_h,
+                    seed=img_seeds[i] if i < len(img_seeds) else seed + i, width=out_w, height=out_h,
                     steps=int(p["steps"]), cfg=float(p["cfg"]),
                     sampler=chosen_sampler, filename=rel, batch_size=batch,
                     gen_time=round(total_seconds / max(1, len(produced)), 1),
                     source_images=input_images)
                 img_entry = {"url": f"/output/{rel}", "filename": rel,
-                             "seed": seed + i, "id": image_id}
+                             "seed": img_seeds[i] if i < len(img_seeds) else seed + i, "id": image_id}
                 if result_type == "vary":
                     img_entry["vary"] = True
                     img_entry["vary_mode"] = p.get("vary_mode") or "subtle"

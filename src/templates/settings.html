@@ -21,6 +21,16 @@
       ou lancez <code>python app.py --no-browser</code>.</small>
   </label>
 
+  <label class="field">
+    <span>Aperçu en direct — une image toutes les <em>N</em> étapes</span>
+    <select id="preview_interval">
+      {% for n in [1, 2, 3, 5, 8, 12] %}
+      <option value="{{ n }}" {% if settings.preview_interval|default(3)|int == n %}selected{% endif %}>Toutes les {{ n }} étape{{ 's' if n > 1 else '' }}</option>
+      {% endfor %}
+    </select>
+    <small class="muted">Utilisé par l'aperçu en direct de la page Générer (mode « Auto » / « Projeté » / « TAESD » de la section Qualité). 1 = très fluide mais coûteux.</small>
+  </label>
+
   <button id="save-settings" class="btn primary">Enregistrer</button>
   <p id="set-msg" class="muted"></p>
 
@@ -49,12 +59,14 @@
 document.getElementById('save-settings').addEventListener('click', async ()=>{
   const tok = document.getElementById('hf_token').value.trim();
   const openBrowser = document.getElementById('open_browser').checked;
-  const r = await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hf_token:tok, open_browser:openBrowser})});
+  const previewInterval = document.getElementById('preview_interval').value;
+  const r = await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hf_token:tok, open_browser:openBrowser, preview_interval: previewInterval})});
   const j = await r.json();
   let msg = j.token_set ? 'Token enregistré ✓' : 'Token vidé.';
   msg += openBrowser
     ? ' Chrome s’ouvrira au prochain démarrage.'
     : ' Ouverture automatique du navigateur désactivée.';
+  msg += ` Aperçu : une image toutes les ${j.preview_interval ?? previewInterval} étape(s).`;
   document.getElementById('set-msg').textContent = msg;
 });
 

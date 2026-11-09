@@ -192,6 +192,17 @@ Agrandissement » regroupe toutes les options avancées, chacune avec une **expl
 | **🎭 Visage fidèle (PuLID)** | Conserve le visage d'une photo (FLUX.1 Schnell/Dev/FHDR uniquement) | Section Qualité → 🎭 Visage fidèle — voir `docs/PULID_FR.md` |
 | **⬆️ PiD ×4** | Super-résolution **générative** ×4 (1024→4096 en 4 étapes), conditionnée par le prompt de l'image — reconstruit la matière là où ESRGAN lisse | Bouton « ⬆️ PiD ×4 » sur chaque résultat / dans l'historique (voir `docs/PID_FR.md`, licence NSCLv1) |
 | **🔀 Varier (subtil / fort)** | Variation façon Midjourney : re-génère l'image en img2img avec une **nouvelle graine** — subtil = force 0,35 (léger), fort = force 0,75 (franc) ; le prompt et les réglages sont repris de l'image | Boutons « 🔀 Varier » sur chaque résultat / dans l'historique (modèles img2img uniquement : SD 3.5, FLUX.1 Dev, Chroma) |
+
+Sur la page **Générer**, une section « ✨ Style Midjourney » regroupe des **approximations
+locales honnêtes** des contrôles esthétiques de Midjourney — tous les réglages restent
+modifiables ensuite :
+
+| Option | Approximation | Effet réel |
+|---|---|---|
+| **Styles rapides** | 12 chips (🎬 Cinéma, 📷 Photo, 🖼️ Huile, 🎨 Aquarelle, ⛩️ Anime, 👾 Pixel art, 🔺 Low-poly, 🌆 Cyberpunk, ⚙️ Steampunk, ⬜ Minimaliste, 💡 Néon, 🕶️ Noir) | Chaque clic ajoute/retire un suffixe **visible** dans le prompt |
+| **Stylisation (0–1000)** | ≈ « stylize », 100 = présélection inchangée | Ajuste **Étapes** et **CFG** par-dessus la présélection active |
+| **Weirdness (0–3000)** | ≈ « weird », 0 = réglages Qualité inchangés | 0 → rien ; 1–999 → Euler A + Karras ; 1000–1999 → DPM++ 2M + Beta ; 2000–3000 → LCM + SGM Uniform |
+| **Chaos (0–100)** | ≈ « chaos », 0 = graines consécutives | Au-dessus de 0 : graine fixe ignorée, **graine aléatoire indépendante par image** dans le lot |
 | **🎛️ Sampler / Scheduler** | Choix de l'échantillonneur (euler, heun, dpm++2m, euler_a, lcm) et du planificateur (karras, beta, exponential…) | Pages Générer & Édition |
 | **⚙️ VAE Tiling** | Décodage par tuiles — économise la VRAM sur grandes images | Réglages experts |
 | **⚙️ SLG (Skip Layer Guidance)** | Améliore le respect du prompt sur les modèles DiT (valeur conseillée : 3) | Réglages experts |
@@ -272,6 +283,7 @@ Certains modèles nécessitent un **token Hugging Face gratuit** :
 | Fonction | Description |
 |---|---|
 | 🖼️ **Génération** | 1 à 4 images par lot, 9 formats (1:1, 3:4, 4:3, 9:16, 16:9, 2:3, 4:5, 21:9, 9:21) + proportions originales en édition |
+| ✨ **Options façon Midjourney** | Styles 1-clic (suffixes visibles dans le prompt), Stylisation (0–1000, règle étapes/CFG), Weirdness (0–3000, règle échantillonneur/planificateur) et Chaos (0–100, graines indépendantes dans le lot) — approximations locales expliquées dans l'UI, tous les contrôles restent modifiables | Onglet Générer, section « ✨ Style Midjourney » |
 | ✂️ **Studio d'édition** | Onglet **Édition** : 1 canvas + jusqu'à **10 images** de référence, réordonnancement, comparaison avant/après |
 | 🗂️ **Lot de prompts** | Une ligne par prompt (16 max), générés en file d'attente |
 | ⚔️ **Duel / Comparaison** | Même prompt en 2 seeds consécutifs, ou sur 2 modèles |

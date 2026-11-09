@@ -1004,6 +1004,11 @@ def api_generate():
         return jsonify({"ok": False, "error": f"Planificateur inconnu : {scheduler}"}), 400
     params["sampler"] = sampler
     params["scheduler"] = scheduler
+    try:
+        chaos = int(data.get("chaos") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Valeur « chaos » invalide (entier entre 0 et 100)."}), 400
+    params["chaos"] = max(0, min(100, chaos))
     params["vae_tiling"] = bool(data.get("vae_tiling"))
     slg = data.get("slg_scale")
     if slg in ("", None):
@@ -1233,11 +1238,20 @@ def api_settings():
         # Case « ouvrir le navigateur au démarrage » (Paramètres)
         if "open_browser" in data:
             patch["open_browser"] = bool(data.get("open_browser"))
+        # Intervalle d'aperçu en direct (une image toutes les N étapes)
+        if "preview_interval" in data:
+            try:
+                iv = int(data.get("preview_interval"))
+            except (TypeError, ValueError):
+                iv = 3
+            patch["preview_interval"] = max(1, min(12, iv))
         save_settings(patch)
         return jsonify({"ok": True, "token_set": bool(hf_token()),
-                        "open_browser": bool(load_settings().get("open_browser", True))})
+                        "open_browser": bool(load_settings().get("open_browser", True)),
+                        "preview_interval": int(load_settings().get("preview_interval", 3))})
     return jsonify({"hf_token": hf_token(),
-                    "open_browser": bool(load_settings().get("open_browser", True))})
+                    "open_browser": bool(load_settings().get("open_browser", True)),
+                    "preview_interval": int(load_settings().get("preview_interval", 3))})
 
 
 

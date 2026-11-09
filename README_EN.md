@@ -194,6 +194,16 @@ section with a clear explanation for every option:
 | **🩹 Restore ×2 (SeedVR2)** | Diffusion-based detail reconstruction + 2× resolution for existing images (~6.8 GB weights, ~10 GB VRAM) | One-click on every result and in History |
 | **⬆️ PiD ×4** | **Generative** super-resolution ×4 (1024→4096, 4 steps), prompt-conditioned — rebuilds plausible detail instead of smoothing | One-click "⬆️ PiD ×4" on every result and in History — see `docs/PID_FR.md` (French). **NSCLv1 non-commercial license** |
 | **🔀 Vary (subtle / strong)** | Midjourney-style variation: re-generates the image via img2img with a **new seed** — subtle = strength 0.35 (light touch), strong = strength 0.75 (bold); prompt and settings are copied from the source image | « 🔀 Vary » buttons on every result / in History (img2img-capable models only: SD 3.5, FLUX.1 Dev, Chroma) |
+On the **Générer** (Generate) page, a « ✨ Midjourney style » section provides **honest local
+approximations** of Midjourney's aesthetic controls — everything stays editable afterwards:
+
+| Option | Approximates | Actual effect |
+|---|---|---|
+| **Quick styles** | 12 chips (🎬 Cinema, 📷 Photo, 🖼️ Oil, 🎨 Watercolor, ⛩️ Anime, 👾 Pixel art, 🔺 Low-poly, 🌆 Cyberpunk, ⚙️ Steampunk, ⬜ Minimal, 💡 Neon, 🕶️ Noir) | Each click adds/removes a **visible** suffix in the prompt |
+| **Stylisation (0–1000)** | ≈ « stylize », 100 = preset unchanged | Adjusts **Steps** and **CFG** on top of the active preset |
+| **Weirdness (0–3000)** | ≈ « weird », 0 = Quality settings untouched | 0 → no-op; 1–999 → Euler A + Karras; 1000–1999 → DPM++ 2M + Beta; 2000–3000 → LCM + SGM Uniform |
+| **Chaos (0–100)** | ≈ « chaos », 0 = consecutive seeds | Above 0: fixed seed ignored, **independent random seed per image** in the batch |
+
 | **🎛️ Sampler / Scheduler** | Choose the sampler (euler, heun, dpm++2m, euler_a, lcm) and scheduler (karras, beta, exponential…) | Generate & Edit pages |
 | **⚙️ VAE Tiling** | Tiled VAE decode — saves VRAM on large images | Expert settings |
 | **⚙️ SLG (Skip Layer Guidance)** | Better prompt adherence on DiT models (recommended: 3) | Expert settings |
@@ -245,12 +255,13 @@ Some models require a **free Hugging Face token**:
 
 | Feature | Description |
 |---|---|
-| 🖼️ **Generation** | 1 to 4 images per batch, 5 formats + original aspect ratio when editing |
+| 🖼️ **Generation** | 1 to 4 images per batch, 9 aspect ratios (1:1, 3:4, 4:3, 9:16, 16:9, 2:3, 4:5, 21:9, 9:21) + original aspect ratio when editing |
 | ✂️ **Edit studio** | **Edit** tab: 1 canvas + up to **10 reference images**, reordering, before/after comparison |
 | 🗂️ **Prompt batch** | One line per prompt (16 max), queued back-to-back |
 | ⚔️ **Seed duel / Model compare** | Same prompt on 2 consecutive seeds or on 2 models |
 | 📥 **PNG-embedded metadata** | Drag & drop any generated PNG: prompt, seed, model… restored instantly |
 | ⬆️ **PiD ×4** | Generative super-resolution (FLUX.1 / FLUX.2 / Qwen-Image), 4 steps, 4096×4096 output |
+| ✨ **Midjourney-style options** | Quick style chips (visible prompt suffixes), Stylisation (0–1000, adjusts steps/CFG), Weirdness (0–3000, adjusts sampler/scheduler) and Chaos (0–100, independent seeds per image in a batch) — honest local approximations, all controls stay editable | Générer tab, section « ✨ Style Midjourney » |
 | 🌐 **Translation** | Translates your prompt (FR, ES…) to English |
 | ✨ **Enrichment** | An LLM enriches your prompt (style, lighting, composition…) |
 | 📊 **Statistics** | Generation time per model, most used model, etc. |

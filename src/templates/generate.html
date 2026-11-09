@@ -5,7 +5,7 @@
 <div class="gen-grid">
 
   <!-- Colonne réglages -->
-  <section class="panel form-panel">
+  <section class="panel form-panel gen-panel">
     <div class="panel-title-row">
       <h2>Nouvelle image</h2>
       <div class="row" style="gap:8px;">
@@ -47,6 +47,45 @@
       <span>Prompt négatif <em>(optionnel)</em></span>
       <textarea id="negative" rows="2" placeholder="ce qu'il faut éviter : blurry, low quality, extra fingers"></textarea>
     </label>
+
+    <!-- ✨ Style Midjourney (approximations expliquées) -->
+    <details class="advanced mj-box" id="mj-box" open>
+      <summary>✨ Style Midjourney <small class="muted">— approximations expliquées</small></summary>
+      <p class="hint mj-hint">Midjourney n'expose pas ses réglages internes : voici des <strong>équivalents approximatifs, traduits en vrais contrôles locaux</strong> (texte du prompt, étapes, CFG, échantillonneur, graines). Tout reste modifiable à la main.</p>
+
+      <div class="field">
+        <span>Styles rapides <em>(clic = ajoute / retire un suffixe visible au prompt)</em></span>
+        <div class="mj-chips" id="mj-style-chips"></div>
+        <small class="muted">Le suffixe apparaît en clair à la fin du prompt — rien n'est caché ni envoyé silencieusement.</small>
+      </div>
+
+      <div class="mj-slider">
+        <div class="mj-slider-head">
+          <label for="mj-stylize">Stylisation <span class="mj-val" id="mj-stylize-val">100</span></label>
+          <small class="muted">0 = très littéral · 100 = neutre · 1000 = très artistique</small>
+        </div>
+        <input type="range" id="mj-stylize" min="0" max="1000" step="10" value="100" aria-label="Stylisation (approximation de « stylize »)">
+        <p class="hint">≈ « stylize » MJ : ajuste <strong>Étapes</strong> et <strong>CFG</strong> au-dessus de la présélection active (0 = reste littéral, 100 = présélection inchangée, 1000 = pousse nettement plus haut).</p>
+      </div>
+
+      <div class="mj-slider">
+        <div class="mj-slider-head">
+          <label for="mj-weird">Weirdness <span class="mj-val" id="mj-weird-val">0</span></label>
+          <small class="muted">0 = inchangé (réglages Qualité) · 3000 = expérimental</small>
+        </div>
+        <input type="range" id="mj-weird" min="0" max="3000" step="50" value="0" aria-label="Weirdness (approximation de « weird »)">
+        <p class="hint">≈ « weird » MJ : à 0, vos réglages Qualité (échantillonneur/planificateur) sont repris tels quels ; plus vous montez, plus le moteur s'éloigne de ses réglages sûrs — <span id="mj-weird-desc">réglages Qualité inchangés (reprise tels quels)</span>. Vous pouvez toujours ajuster l'échantillonneur/planificateur directement dans la section Qualité.</p>
+      </div>
+
+      <div class="mj-slider">
+        <div class="mj-slider-head">
+          <label for="mj-chaos">Chaos <span class="mj-val" id="mj-chaos-val">0</span></label>
+          <small class="muted">0 = graines consécutives (cohérent) · 100 = graines indépendantes dans le lot</small>
+        </div>
+        <input type="range" id="mj-chaos" min="0" max="100" step="5" value="0" aria-label="Chaos (approximation de « chaos »)">
+        <p class="hint">≈ « chaos » MJ : au-dessus de 0, la graine fixe est ignorée et <strong>chaque image du lot reçoit une graine aléatoire indépendante</strong> ; à 0, les images partagent des graines consécutives (variantes proches).</p>
+      </div>
+    </details>
 
     <!-- Image de depart pour l'img2img (1 image + force). L'edition multi-images a sa page. -->
     <details class="advanced" id="img2img-box">
