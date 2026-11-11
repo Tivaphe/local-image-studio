@@ -5,6 +5,32 @@
   --accent:#7c5cff; --accent2:#9d83ff; --ok:#36c98a; --warn:#f0a93b; --danger:#e0566b;
   --radius:14px;
 }
+
+/* ===== Thème clair (clair/sombre, bascule ☀️/🌙 dans la topbar) ===== */
+html[data-theme="light"]{
+  --bg:#edeff5; --bg2:#ffffff; --panel:#ffffff; --panel2:#f4f5f9;
+  --border:#d9dde7; --txt:#22252e; --muted:#5b6270;
+  --accent:#7c5cff; --accent2:#6a3df0; --ok:#1f9e63; --warn:#b07514; --danger:#d6455b;
+}
+html[data-theme="light"] body{
+  background:radial-gradient(1200px 600px at 80% -10%, #dfe3ee, var(--bg));
+}
+html[data-theme="light"] code{background:#00000012}
+html[data-theme="light"] .topbar{background:rgba(255,255,255,.85)}
+html[data-theme="light"] .nav a:hover{background:#00000008;color:var(--txt)}
+html[data-theme="light"] .nav a.active{color:#fff}
+html[data-theme="light"] .panel{box-shadow:0 1px 2px rgba(20,22,35,.08),0 10px 28px rgba(20,22,35,.10)}
+html[data-theme="light"] .tag{background:#0000000d}
+html[data-theme="light"] .ratio i{background:#00000026}
+html[data-theme="light"] .stats-table tbody tr:hover{background:#00000008}
+html[data-theme="light"] .field em{color:#7a8194}
+html[data-theme="light"] input,html[data-theme="light"] select,html[data-theme="light"] textarea{background:#ffffff}
+html[data-theme="light"] .log{background:#14161d}
+html[data-theme="light"] .mj-chip{background:#f4f5f9}
+html[data-theme="light"] .gen-panel{box-shadow:0 0 0 1px #7c5cff44,0 14px 40px rgba(90,60,220,.18)}
+html[data-theme="light"] .history-sort{background:#ffffff}
+html[data-theme="light"] .upscaled-badge{background:rgba(28,22,56,.88)}
+html[data-theme="light"] .upscaled-badge,html[data-theme="light"] .upscaled-badge *{color:#f2efff}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
 body{
@@ -21,6 +47,9 @@ code{background:#00000044;padding:1px 5px;border-radius:5px;font-size:.9em}
   border-bottom:1px solid var(--border);background:rgba(20,22,29,.8);backdrop-filter:blur(8px);position:sticky;top:0;z-index:10}
 .brand{font-weight:700;font-size:17px;letter-spacing:.3px}
 .brand .logo{color:var(--accent)}
+.theme-toggle{margin-left:auto;width:38px;height:38px;flex:none;display:grid;place-items:center;
+  border:1px solid var(--border);background:var(--panel2);border-radius:10px;cursor:pointer;font-size:17px;line-height:1}
+.theme-toggle:hover{border-color:var(--accent)}
 .nav{display:flex;gap:6px}
 .nav a{padding:8px 14px;border-radius:9px;color:var(--muted);font-weight:600}
 .nav a:hover{background:#ffffff10;text-decoration:none;color:var(--txt)}

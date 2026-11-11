@@ -4,6 +4,27 @@
 window.$ = (s, el = document) => el.querySelector(s);
 window.$$ = (s, el = document) => [...el.querySelectorAll(s)];
 
+// Bascule du thème clair/sombre (persisté dans lis-theme)
+function setTheme(theme) {
+  try { localStorage.setItem('lis-theme', theme); } catch (e) {}
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = $('#theme-toggle');
+  if (btn) {
+    btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+    btn.title = theme === 'dark' ? 'Passer au thème clair' : 'Passer au thème sombre';
+    btn.setAttribute('aria-label', btn.title);
+  }
+}
+const themeToggleBtn = $('#theme-toggle');
+if (themeToggleBtn) {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  setTheme(current);
+  themeToggleBtn.addEventListener('click', () => {
+    const next = (document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+  });
+}
+
 // Badge d'état du moteur (présent sur toutes les pages via la topbar)
 async function refreshEngineBadge() {
   const badge = $('#engine-badge');

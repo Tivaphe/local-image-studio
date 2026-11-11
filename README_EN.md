@@ -29,6 +29,17 @@ A simple web interface to generate images with the latest AI models (FLUX, Qwen-
 
 **No image, no prompt ever leaves your computer.** Everything runs on your local GPU.
 
+## 📸 Interface preview
+
+| Generate — dark theme | Generate — light theme (☀️/🌙 toggle in the top bar) |
+|---|---|
+| ![Generate, dark theme](docs/screenshots/generate-dark.jpg) | ![Generate, light theme](docs/screenshots/generate-light.jpg) |
+| ![Edit, dark theme](docs/screenshots/edit-dark.jpg) | ![History, dark theme](docs/screenshots/history-dark.jpg) |
+| ![Models, dark theme](docs/screenshots/models-dark.jpg) | ![Settings, light theme](docs/screenshots/settings-light.jpg) |
+
+> 🖼️ The JPGs are generated with a single command on your machine: `python3 scripts/take-screenshots.py`
+> (see [`docs/screenshots/README.md`](docs/screenshots/README.md)).
+
 ---
 
 ## 🖥️ Requirements
@@ -262,6 +273,7 @@ Some models require a **free Hugging Face token**:
 | 📥 **PNG-embedded metadata** | Drag & drop any generated PNG: prompt, seed, model… restored instantly |
 | ⬆️ **PiD ×4** | Generative super-resolution (FLUX.1 / FLUX.2 / Qwen-Image), 4 steps, 4096×4096 output |
 | ✨ **Midjourney-style options** | Quick style chips (visible prompt suffixes), Stylisation (0–1000, adjusts steps/CFG), Weirdness (0–3000, adjusts sampler/scheduler) and Chaos (0–100, independent seeds per image in a batch) — honest local approximations, all controls stay editable | Générer tab, section « ✨ Style Midjourney » |
+| 🌗 **Light / dark theme** | ☀️/🌙 toggle in the top bar — remembered in the browser | All pages |
 | 🌐 **Translation** | Translates your prompt (FR, ES…) to English |
 | ✨ **Enrichment** | An LLM enriches your prompt (style, lighting, composition…) |
 | 📊 **Statistics** | Generation time per model, most used model, etc. |

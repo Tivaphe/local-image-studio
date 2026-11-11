@@ -22,6 +22,17 @@ Interface web simple pour générer des images avec les modèles d'IA les plus r
 
 **Aucune image, aucun prompt ne quitte votre ordinateur.** Tout tourne sur votre GPU local.
 
+## 📸 Aperçu de l'interface
+
+| Générer — thème sombre | Générer — thème clair (☀️/🌙 dans la barre du haut) |
+|---|---|
+| ![Générer, thème sombre](docs/screenshots/generate-dark.jpg) | ![Générer, thème clair](docs/screenshots/generate-light.jpg) |
+| ![Édition, thème sombre](docs/screenshots/edit-dark.jpg) | ![Historique, thème sombre](docs/screenshots/history-dark.jpg) |
+| ![Modèles, thème sombre](docs/screenshots/models-dark.jpg) | ![Paramètres, thème clair](docs/screenshots/settings-light.jpg) |
+
+> 🖼️ Les JPG se génèrent en une commande sur votre machine : `python3 scripts/take-screenshots.py`
+> (voir [`docs/screenshots/README.md`](docs/screenshots/README.md)).
+
 ---
 
 ## 🖥️ Configuration requise
@@ -288,6 +299,7 @@ Certains modèles nécessitent un **token Hugging Face gratuit** :
 | 🗂️ **Lot de prompts** | Une ligne par prompt (16 max), générés en file d'attente |
 | ⚔️ **Duel / Comparaison** | Même prompt en 2 seeds consécutifs, ou sur 2 modèles |
 | 📡 **Aperçu en direct** | L'image se construit à l'écran pendant l'échantillonnage |
+| 🌗 **Thème clair / sombre** | Bascule ☀️/🌙 dans la barre du haut — préféré de chacun, mémorisé dans le navigateur |
 | 📥 **Réglages dans le PNG** | Glissez-déposez n'importe quel PNG généré : prompt, seed, modèle… restaurés |
 | ⬆️ **PiD ×4** | Super-résolution générative (FLUX.1 / FLUX.2 / Qwen-Image), 4 étapes, sortie 4096×4096 |
 | 🌐 **Traduction** | Traduit votre prompt (FR, ES…) vers l'anglais automatiquement |

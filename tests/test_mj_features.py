@@ -161,3 +161,39 @@ class MjUiWiringTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ThemeTests(unittest.TestCase):
+    def test_base_html_has_toggle_and_antifousc(self):
+        html = (_REPO / "src/templates/base.html").read_text(encoding="utf-8")
+        self.assertIn('id="theme-toggle"', html)
+        self.assertIn("lis-theme", html)
+        self.assertIn("data-theme", html)
+
+    def test_app_js_persists_theme(self):
+        js = (_REPO / "src/static/app.js").read_text(encoding="utf-8")
+        self.assertIn("function setTheme", js)
+        self.assertIn("lis-theme", js)
+        self.assertIn("theme-toggle", js)
+
+    def test_style_css_defines_light_theme(self):
+        css = (_REPO / "src/static/style.css").read_text(encoding="utf-8")
+        self.assertIn('html[data-theme="light"]', css)
+        self.assertIn('html[data-theme="light"] body', css)
+        self.assertIn(".theme-toggle", css)
+
+    def test_readmes_reference_screenshots_section(self):
+        fr = (_REPO / "README.md").read_text(encoding="utf-8")
+        en = (_REPO / "README_EN.md").read_text(encoding="utf-8")
+        for s in (fr, en):
+            self.assertIn("docs/screenshots/generate-dark.jpg", s)
+            self.assertIn("scripts/take-screenshots.py", s)
+        self.assertIn("Thème clair", fr)
+        self.assertIn("Light / dark theme", en)
+
+    def test_screenshot_tooling_present(self):
+        script = (_REPO / "scripts/take-screenshots.py").read_text(encoding="utf-8")
+        self.assertIn("playwright", script)
+        self.assertIn("docs", script)
+        readme = (_REPO / "docs/screenshots/README.md").read_text(encoding="utf-8")
+        self.assertIn("take-screenshots.py", readme)
