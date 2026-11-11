@@ -1,6 +1,9 @@
 /* ===== Section « ✨ Qualité, Détails & Agrandissement » (partagée) =====
    - Rend un panneau repliable simple, avec une explication française pour chaque option.
-   - Persiste les choix dans localStorage (lis_quality_prefs_v1), commun à toutes les pages.
+   - Ne persiste QUE les préférences de présentation (échantillonneur / planificateur) dans
+     localStorage (lis_quality_prefs_v1). Toutes les options avancées (UltraSharp, SageAttention,
+     ADetailer, Hires Fix, mini-VAE, tuilage VAE, SLG, PuLID, aperçu) repartent désactivées à
+     chaque actualisation — rien ne s'active tout seul.
    - Q.collect() retourne les paramètres à fusionner dans le corps de /api/generate.
    - Fournit les boutons « 🔍 Agrandir ×4 » (génération, édition, historique).
 */
@@ -22,9 +25,26 @@
     try { return JSON.parse(localStorage.getItem(PREF_KEY) || "{}"); }
     catch (e) { return {}; }
   }
-  function savePrefs(p) {
-    try { localStorage.setItem(PREF_KEY, JSON.stringify({ ...loadPrefs(), ...p })); }
+  // Seules les préférences de présentation sont mémorisées (jamais les options avancées).
+  function collectPersisted() {
+    return {
+      sampler: $("#q-sampler")?.value || "default",
+      scheduler: $("#q-scheduler")?.value || "default",
+    };
+  }
+  function savePrefs() {
+    try { localStorage.setItem(PREF_KEY, JSON.stringify(collectPersisted())); }
     catch (e) { /* stockage indisponible */ }
+  }
+  // Supprime les anciennes clés lourdes restées dans le navigateur (upscale_id, sage_attn…).
+  function purgeStalePersistedPrefs() {
+    try {
+      const kept = {
+        sampler: loadPrefs().sampler || "default",
+        scheduler: loadPrefs().scheduler || "default",
+      };
+      localStorage.setItem(PREF_KEY, JSON.stringify(kept));
+    } catch (e) { /* stockage indisponible */ }
   }
 
   async function loadInfo(force = false) {
@@ -230,29 +250,21 @@
         <p class="hint q-foot" id="q-foot-note"></p>
       </details>`;
 
-    // ----------------- restauration des préférences ----------------- //
+    // -------- options avancées : toujours OFF au chargement (jamais restaurées) -------- //
     const setVal = (id, v) => {
       const el = $("#" + id);
       if (!el || v === undefined || v === null) return;
       const opt = el.querySelector(`option[value="${CSS.escape(String(v))}"]`);
       if (opt && !opt.disabled) el.value = v;
     };
-    setVal("q-upscale-model", prefs.upscale_id);
-    setVal("q-ad-model", prefs.adetailer_id);
     setVal("q-sampler", prefs.sampler || "default");
     setVal("q-scheduler", prefs.scheduler || "default");
-    if ($("#q-vae-tiling")) $("#q-vae-tiling").checked = !!prefs.vae_tiling;
-    if ($("#q-slg")) $("#q-slg").value = prefs.slg_scale ?? 0;
-    if ($("#q-hires-on")) $("#q-hires-on").checked = !!prefs.hires_fix;
-    if ($("#q-hires-strength")) $("#q-hires-strength").value = prefs.hires_strength ?? 0.35;
-    if ($("#q-taesd")) $("#q-taesd").checked = !!prefs.taesd;
-    if ($("#q-sage-attn")) $("#q-sage-attn").checked = !!prefs.sage_attn;
-    // « vae » (ancienne option, sans effet) -> désactivé par défaut
-    const savedPreview = ["none", "auto", "proj", "tae"].includes(prefs.preview) ? prefs.preview : "none";
+    // Aperçu en direct : désactivé pour de bon à l'actualisation (l'utilisateur l'active lui-même).
+    const savedPreview = "none";
     setVal("q-preview", savedPreview);
-    if ($("#q-preview-interval")) $("#q-preview-interval").value = prefs.preview_interval ?? 3;
+    if ($("#q-preview-interval")) $("#q-preview-interval").value = 3;
     const piFieldInit = $("#q-preview-interval-field");
-    if (piFieldInit) piFieldInit.style.display = savedPreview === "none" ? "none" : "";
+    if (piFieldInit) piFieldInit.style.display = "none";
     // PuLID : peuple la liste des empreintes de portraits depuis /api/quality-info
     const pulidSel = $("#q-pulid-id");
     if (pulidSel) {
@@ -264,11 +276,8 @@
         if (pt.size_mb) o.textContent += ` (${pt.size_mb} Mo)`;
         pulidSel.appendChild(o);
       });
-      setVal("q-pulid-id", prefs.pulid_id || "");
     }
-    if ($("#q-pulid-weight")) $("#q-pulid-weight").value = prefs.pulid_id_weight ?? 1.0;
-    const pulidWeightLab = $("#q-pulid-weight-val");
-    if (pulidWeightLab) pulidWeightLab.textContent = String(prefs.pulid_id_weight ?? 1.0).replace(".", ",");
+    purgeStalePersistedPrefs();
 
     Q._sectionEls = { withHires };
     updateDesc();
@@ -282,7 +291,7 @@
       if (!t || !t.id) return;
       updateDesc();
       updateFootNote();
-      savePrefs(Q.collect());
+      savePrefs();
     }
 
     function updateDesc() {
