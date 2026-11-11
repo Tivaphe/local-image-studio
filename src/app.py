@@ -1063,7 +1063,7 @@ def api_generate():
     params["taesd_id"] = taesd_id or ""
     params["sage_attn"] = bool(data.get("sage_attn"))
 
-    preview = (data.get("preview") or "auto").strip().lower()
+    preview = (data.get("preview") or "none").strip().lower()
     if preview not in ("none", "auto", "proj", "tae", "vae"):
         return jsonify({"ok": False, "error": "Méthode d'aperçu inconnue."}), 400
     params["preview"] = preview
@@ -1501,7 +1501,11 @@ def api_default_negative():
 # --------------------------------------------------------------------------- #
 @app.route("/stats")
 def stats_page():
-    return render_template("stats.html")
+    try:
+        empty = db.get_stats()["total_images"] == 0
+    except Exception:
+        empty = False
+    return render_template("stats.html", empty=empty)
 
 
 def _parse_args(argv=None):

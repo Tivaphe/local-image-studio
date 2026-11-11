@@ -206,17 +206,33 @@ def get_stats():
         """).fetchone()
         fav_res = res_row["res"] if res_row else "-"
 
-        # 7 dernieres generations (pour un mini graphique)
+        # 20 dernieres generations (pour un mini graphique)
         recent = conn.execute("""
             SELECT model_name, gen_time, created, model
             FROM images WHERE gen_time > 0
             ORDER BY id DESC LIMIT 20
         """).fetchall()
 
+        # Favoris
+        favorites = conn.execute(
+            "SELECT COUNT(*) AS c FROM images WHERE COALESCE(favorite, 0) = 1"
+        ).fetchone()["c"]
+
+        # Generations sur les 7 derniers jours (approx., sur la date de creation)
+        try:
+            last7 = conn.execute("""
+                SELECT COUNT(*) AS c FROM images
+                WHERE date(created) >= date('now', '-6 days')
+            """).fetchone()["c"]
+        except Exception:
+            last7 = 0
+
         return {
             "total_images": total,
             "total_generations": len(set(r["batch_id"] for r in
                   conn.execute("SELECT batch_id FROM images").fetchall())),
+            "favorites": favorites,
+            "last7_days": last7,
             "total_time_sec": total_time,
             "avg_time_sec": avg_time,
             "per_model": [dict(r) for r in per_model],

@@ -62,7 +62,7 @@ def load_settings():
             # sage_attn : acceleration CUDA SageAttention (ignoree si non supportee)
             _SETTINGS.setdefault("sage_attn", False)
             # preview : méthode d'apercu live ("none"|"proj"|"tae"|"vae")
-            _SETTINGS.setdefault("preview", "auto")
+            _SETTINGS.setdefault("preview", "none")
             # preview_interval : une image d'apercu toutes les N etapes
             _SETTINGS.setdefault("preview_interval", 3)
         return _SETTINGS
@@ -996,9 +996,9 @@ class TaskManager:
             # projection des latents (aucun fichier requis). Le mode « vae » n'a jamais
             # produit d'apercu avec ce binaire (le runner d'apercu est toujours un mini-VAE) :
             # on le traite comme « tae ».
-            preview_method = (p.get("preview") or load_settings().get("preview") or "auto").strip().lower()
+            preview_method = (p.get("preview") or load_settings().get("preview") or "none").strip().lower()
             if preview_method not in ("none", "auto", "proj", "tae", "vae"):
-                preview_method = "auto"
+                preview_method = "none"
             preview_hint = ""
             if preview_method == "auto":
                 preview_method = "tae" if taesd_file else "proj"
@@ -1320,7 +1320,8 @@ class TaskManager:
                     gen_time=round(total_seconds / max(1, len(produced)), 1),
                     source_images=input_images)
                 img_entry = {"url": f"/output/{rel}", "filename": rel,
-                             "seed": img_seeds[i] if i < len(img_seeds) else seed + i, "id": image_id}
+                             "seed": img_seeds[i] if i < len(img_seeds) else seed + i, "id": image_id,
+                             "prompt": p.get("prompt")}
                 if result_type == "vary":
                     img_entry["vary"] = True
                     img_entry["vary_mode"] = p.get("vary_mode") or "subtle"
@@ -1450,6 +1451,7 @@ class TaskManager:
                       result={"type": "upscale",
                               "images": [{"url": f"/output/{out_name}", "filename": out_name,
                                           "seed": 0, "id": image_id,
+                                          "prompt": f"Agrandissement ×{scale} de {src.name}",
                                           "upscaled": True, "scale": scale}],
                               "cancelled": False})
         except Exception as e:
@@ -1621,6 +1623,7 @@ class TaskManager:
                       result={"type": "repair",
                               "images": [{"url": f"/output/{out_name}", "filename": out_name,
                                           "seed": seed, "id": image_id,
+                                          "prompt": (p.get("prompt") or "").strip(),
                                           "repaired": True}],
                               "cancelled": False})
         except Exception as e:
@@ -1742,6 +1745,7 @@ class TaskManager:
                       result={"type": "restore_x2",
                               "images": [{"url": f"/output/{out_name}", "filename": out_name,
                                           "seed": seed, "id": image_id,
+                                          "prompt": f"Restauration ×2 de {src.name}",
                                           "upscaled": True, "scale": 2}],
                               "cancelled": False})
         except Exception as e:
@@ -1919,6 +1923,7 @@ class TaskManager:
                               "backbone": backbone,
                               "images": [{"url": f"/output/{out_name}", "filename": out_name,
                                           "seed": seed, "id": image_id,
+                                          "prompt": prompt,
                                           "upscaled": True, "scale": 4}],
                               "cancelled": False})
         except Exception as e:

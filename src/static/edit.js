@@ -103,6 +103,7 @@ function saveEditDraft() {
         seed: r.seed,
         id: r.id,
         displayUrl: r.displayUrl,
+        prompt: r.prompt,
       })),
       comparisonSource: (comparisonSource && !String(comparisonSource).startsWith('data:'))
         ? comparisonSource
@@ -2356,6 +2357,18 @@ $('#mmproj-download-btn')?.addEventListener('click', async e => {
 });
 
 // ---------------------------------------------------------------- generation
+// Ctrl/Cmd + Entrée depuis le prompt lance l'édition
+const editPromptEl = $('#prompt');
+if (editPromptEl) {
+  editPromptEl.addEventListener('keydown', event => {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      $('#generate-btn').click();
+    }
+  });
+}
+
 $('#generate-btn').addEventListener('click', async () => {
   const m = currentModel();
   showGenError('');
@@ -2711,7 +2724,11 @@ function showResults(images) {
     d.innerHTML = `
       <img src="${img.displayUrl}" alt="">
       <div class="rbar"><span>seed ${img.seed}</span>
-        <a class="link" href="${img.url}" download>télécharger</a></div>`;
+        <a class="link" href="${img.url}" download>télécharger</a>
+        <button type="button" class="link copy-prompt-link" title="Copier le prompt de ce rendu">📋 prompt</button></div>`;
+    if (window.LisQuality && typeof LisQuality.bindCopyPrompt === 'function') {
+      LisQuality.bindCopyPrompt(d.querySelector('.copy-prompt-link'), img);
+    }
     d.querySelector('img').addEventListener('click', () => {
       activeCompareResultIdx = idx;
       $('#compare-after').src = img.displayUrl;
@@ -2871,7 +2888,11 @@ function appendUpscaledResults(images) {
       <span class="upscaled-badge" title="${badge.title}">${badge.text}</span>
       <img src="${displayUrl}" alt="">
       <div class="rbar"><span>${badge.label}</span>
-        <a class="link" href="${img.url}" download>télécharger</a></div>`;
+        <a class="link" href="${img.url}" download>télécharger</a>
+        <button type="button" class="link copy-prompt-link" title="Copier le prompt de l'image source">📋 prompt</button></div>`;
+    if (window.LisQuality && typeof LisQuality.bindCopyPrompt === 'function') {
+      LisQuality.bindCopyPrompt(d.querySelector('.copy-prompt-link'), img);
+    }
     d.querySelector('img').addEventListener('click', () => {
       openLightbox([{
         src: displayUrl, downloadUrl: img.url,

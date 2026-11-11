@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Aller au contenu</a>
   <header class="topbar">
     <div class="brand">
       <span class="logo">◆</span> Local Image Studio
@@ -37,7 +38,7 @@
     <div id="engine-badge" class="badge badge-warn" title="État du moteur sd-cli">moteur…</div>
   </header>
 
-  <main class="container">
+  <main class="container" id="main-content">
     {% block content %}{% endblock %}
   </main>
 

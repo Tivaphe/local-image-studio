@@ -100,6 +100,8 @@
                   data-w="{{ im.width }}" data-h="{{ im.height }}"
                   data-steps="{{ im.steps }}" data-cfg="{{ im.cfg }}" data-seed="{{ im.seed }}"
                   data-sources='{{ sources | tojson }}'>{{ 'Rééditer' if editable and sources else 'Réutiliser' }}</button>
+          <button type="button" class="link copy-prompt"
+                  title="📋 Copier le prompt de cette image dans le presse-papier">📋 Copier le prompt</button>
           {% if upscaler_ready %}
           <button type="button" class="link upscale-link" data-id="{{ im.id }}"
                   title="🔍 Agrandir cette image ×4 (super-résolution) — la grande version est ajoutée à l'historique">🔍 ×4</button>
@@ -583,6 +585,13 @@ document.querySelectorAll('.use-in-edit').forEach(b => {
       b.textContent = orig;
     }
   });
+});
+
+// --- 📋 Copie rapide du prompt (un clic, avec repli si l'API Clipboard est indisponible) ---
+document.querySelectorAll('.copy-prompt').forEach(b => {
+  if (window.LisQuality && typeof LisQuality.bindCopyPrompt === 'function') {
+    LisQuality.bindCopyPrompt(b, {});
+  }
 });
 
 document.querySelectorAll('.reuse').forEach(b => {

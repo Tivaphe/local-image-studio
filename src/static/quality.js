@@ -161,8 +161,8 @@
           <p class="hint">
             Pendant l'échantillonnage, une fenêtre « LIVE » apparaît au-dessus des résultats avec
             l'image qui se débruite pas à pas (pages Générer et Édition, sd-cli requis).
-            <b>Activé par défaut</b> (« Auto ») : mini-VAE si installé pour ce modèle, sinon projection
-            des latents (instantanée). La projection est connue pour SD 1.x/XL, SD 3.5, FLUX (Dev/Schnell/
+            <b>Désactivé par défaut</b> — sélectionnez « Auto » : mini-VAE si installé pour ce modèle,
+            sinon projection des latents (instantanée). La projection est connue pour SD 1.x/XL, SD 3.5, FLUX (Dev/Schnell/
             FHDR/Chroma/Kontext), FLUX.2 et Qwen-Image-2.1 ; sur Qwen-Image 2512, seul le mini-VAE
             (onglet Modèles → ⚡ VAE rapide) affiche un aperçu. Avec le mini-VAE, le décodage final
             reste fait par le vrai VAE (un peu plus lent, plus net). Sans fichier ni projection connue,
@@ -247,8 +247,8 @@
     if ($("#q-hires-strength")) $("#q-hires-strength").value = prefs.hires_strength ?? 0.35;
     if ($("#q-taesd")) $("#q-taesd").checked = !!prefs.taesd;
     if ($("#q-sage-attn")) $("#q-sage-attn").checked = !!prefs.sage_attn;
-    // « vae » (ancienne option, sans effet) -> retour au mode « auto »
-    const savedPreview = ["none", "auto", "proj", "tae"].includes(prefs.preview) ? prefs.preview : "auto";
+    // « vae » (ancienne option, sans effet) -> désactivé par défaut
+    const savedPreview = ["none", "auto", "proj", "tae"].includes(prefs.preview) ? prefs.preview : "none";
     setVal("q-preview", savedPreview);
     if ($("#q-preview-interval")) $("#q-preview-interval").value = prefs.preview_interval ?? 3;
     const piFieldInit = $("#q-preview-interval-field");
@@ -313,7 +313,7 @@
       const piLab = $("#q-preview-interval-val");
       if (piLab) piLab.textContent = String($("#q-preview-interval")?.value || 3);
       const piField = $("#q-preview-interval-field");
-      if (piField) piField.style.display = ($("#q-preview")?.value || "auto") === "none" ? "none" : "";
+      if (piField) piField.style.display = ($("#q-preview")?.value || "none") === "none" ? "none" : "";
       const pwVal = parseFloat($("#q-pulid-weight")?.value || "1");
       const pwLab = $("#q-pulid-weight-val");
       if (pwLab) pwLab.textContent = pwVal.toFixed(2).replace(".", ",");
@@ -396,7 +396,7 @@
     if (ad) out.adetailer_id = ad;
     if ($("#q-taesd")?.checked) out.taesd_id = "auto";
     if ($("#q-sage-attn")?.checked) out.sage_attn = true;
-    const preview = $("#q-preview")?.value || "auto";
+    const preview = $("#q-preview")?.value || "none";
     out.preview = preview;
     if (preview !== "none") out.preview_interval = parseInt($("#q-preview-interval")?.value || "3", 10);
     const pulidSel = $("#q-pulid-id");
@@ -410,6 +410,45 @@
       out.hires_strength = parseFloat($("#q-hires-strength")?.value || "0.35");
     }
     return out;
+  };
+
+  // Copie texte avec repli textarea (navigator.clipboard exige un contexte sécurisé)
+  Q.copyText = async function (text) {
+    const s2 = String(text == null ? "" : text);
+    try {
+      await navigator.clipboard.writeText(s2);
+      return true;
+    } catch (e) {
+      const ta = document.createElement("textarea");
+      ta.value = s2;
+      ta.setAttribute("readonly", "");
+      ta.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0";
+      document.body.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch (_) { ok = false; }
+      ta.remove();
+      return ok;
+    }
+  };
+
+  // Bouton « 📋 Copier le prompt » pour une carte image (résultat ou historique).
+  // img.prompt est fourni par le moteur depuis les dernières versions ; sinon on retombe
+  // sur le prompt courant du formulaire, sinon sur le texte de la carte.
+  Q.bindCopyPrompt = function (btn, img) {
+    if (!btn) return;
+    btn.addEventListener("click", async () => {
+      const card = btn.closest(".card,.result");
+      const fromCard = card ? (card.querySelector(".card-prompt") || {}).textContent : "";
+      const fallbackPrompt = $("#prompt") ? $("#prompt").value : "";
+      const prompt = (img && img.prompt) ? img.prompt : (fromCard && fromCard.trim() ? fromCard.trim() : fallbackPrompt);
+      const ok = await Q.copyText(prompt);
+      if (window.showToast) {
+        window.showToast(ok ? "📋 Prompt copié ✓" : "Impossible de copier le prompt");
+      }
+      btn.textContent = ok ? "✓ copié" : "✕ échec";
+      setTimeout(() => { btn.textContent = "📋 prompt"; }, 1400);
+    });
   };
 
   // Modèle ×4 à utiliser pour les boutons « Agrandir » (choisi, sinon 1er installé).

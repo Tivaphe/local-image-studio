@@ -1026,6 +1026,18 @@ function finalizeGenerationPayload(model_id) {
 }
 
 // ---------- generation ----------
+// Ctrl/Cmd + Entrée depuis le prompt lance la génération (comme un vrai Studio)
+const promptEl = $('#prompt');
+if (promptEl) {
+  promptEl.addEventListener('keydown', event => {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      $('#generate-btn').click();
+    }
+  });
+}
+
 $('#generate-btn').addEventListener('click', async () => {
   const model_id = $('#model').value;
   const m = MODELS[model_id];
@@ -1268,10 +1280,14 @@ function showResults(images) {
       <div class="rbar">
         <span>seed ${img.seed}</span>
         <a class="link" href="${img.url}" download>telecharger</a>
+        <button type="button" class="link copy-prompt-link" title="Copier le prompt utilisé pour cette image">📋 prompt</button>
       </div>`;
     d.querySelector('img').addEventListener('click', () => {
       openLightbox(lbItems, hasSource ? idx + 1 : idx);
     });
+    if (window.LisQuality && typeof LisQuality.bindCopyPrompt === 'function') {
+      LisQuality.bindCopyPrompt(d.querySelector('.copy-prompt-link'), img);
+    }
     const sendToEdit = document.createElement('button');
     sendToEdit.type = 'button';
     sendToEdit.className = 'btn small result-use-source';
@@ -1344,6 +1360,7 @@ function appendUpscaledResults(images) {
       <div class="rbar">
         <span>${badge.label}</span>
         <a class="link" href="${img.url}" download>telecharger</a>
+        <button type="button" class="link copy-prompt-link" title="Copier le prompt de l'image source">📋 prompt</button>
       </div>`;
     d.querySelector('img').addEventListener('click', () => {
       openLightbox([{
@@ -1354,6 +1371,9 @@ function appendUpscaledResults(images) {
         badge: badge.text,
       }], 0);
     });
+    if (window.LisQuality && typeof LisQuality.bindCopyPrompt === 'function') {
+      LisQuality.bindCopyPrompt(d.querySelector('.copy-prompt-link'), img);
+    }
     const sendToEdit = document.createElement('button');
     sendToEdit.type = 'button';
     sendToEdit.className = 'btn small result-use-source';
