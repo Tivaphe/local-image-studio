@@ -657,6 +657,11 @@ DEPS = {
         "filename": "ae.safetensors",
         "dest": VAE_DIR / "ae.safetensors",
         "size_gb": 0.32,
+        # Dépôt BFL gated (licence FLUX requise). Si le téléchargement échoue
+        # (ex. 401 sans token), le moteur retente automatiquement sur ce miroir
+        # public officiel Comfy-Org (même fichier, 335 Mo).
+        "fallback": {"repo": "Comfy-Org/Z-Image-Turbo",
+                     "filename": "split_files/vae/ae.safetensors"},
     },
     "vae_flux2": {
         "type": "exact",
@@ -1635,22 +1640,26 @@ MODELS = {
     },
     "chroma": {
         "presets": {
-            "rapide":    {"steps": 20, "cfg": 4.0, "quant": "Q4_K_M", "label": "⚡ Rapide (20 étapes, Q4_K_M)"},
-            "equilibre": {"steps": 26, "cfg": 4.0, "quant": "Q5_K_M", "label": "⚖️ Équilibre (26 étapes, Q5_K_M)"},
-            "qualite":   {"steps": 32, "cfg": 4.5, "quant": "Q8_0",   "label": "✨ Qualité (32 étapes, Q8_0)"},
+            "rapide":    {"steps": 20, "cfg": 4.0, "quant": "Q4_0", "label": "⚡ Rapide (20 étapes, Q4_0)"},
+            "equilibre": {"steps": 26, "cfg": 4.0, "quant": "Q4_0", "label": "⚖️ Équilibre (26 étapes, Q4_0)"},
+            "qualite":   {"steps": 32, "cfg": 4.5, "quant": "Q8_0", "label": "✨ Qualité (32 étapes, Q8_0)"},
         },
-        "name": "Chroma Unlocked (Textures & Prompt Négatif)",
+        "name": "Chroma Unlocked v40 (Textures & Prompt Négatif)",
         "arch": "chroma",
         "repo": "silveroxides/Chroma-GGUF",
-        "quants": ["Q4_K_M", "Q5_K_M", "Q6_K", "Q8_0"],
-        "default_quant": "Q5_K_M",
+        "quants": ["Q4_0", "Q8_0"],
+        "default_quant": "Q4_0",
         "file_for_quant": {
-            "Q4_K_M": "chroma-unlocked-v40-Q4_K_M.gguf",
-            "Q5_K_M": "chroma-unlocked-v40-Q5_K_M.gguf",
-            "Q6_K":   "chroma-unlocked-v40-Q6_K.gguf",
-            "Q8_0":   "chroma-unlocked-v40-Q8_0.gguf",
+            "Q4_0": "chroma-unlocked-v40-Q4_0.gguf",
+            "Q8_0": "chroma-unlocked-v40-Q8_0.gguf",
         },
-        "size_gb": {"Q4_K_M": 5.4, "Q5_K_M": 6.3, "Q6_K": 7.3, "Q8_0": 9.5},
+        # Les fichiers vivent dans le sous-dossier chroma-unlocked-v40/ du dépôt
+        # (aplatis dans models/diffusion/ à la copie locale).
+        "remote_file_for_quant": {
+            "Q4_0": "chroma-unlocked-v40/chroma-unlocked-v40-Q4_0.gguf",
+            "Q8_0": "chroma-unlocked-v40/chroma-unlocked-v40-Q8_0.gguf",
+        },
+        "size_gb": {"Q4_0": 5.4, "Q8_0": 9.7},
         "deps": ["vae_flux", "t5xxl"],
         "supports_neg": True,
         "supports_img2img": True,
@@ -1662,28 +1671,38 @@ MODELS = {
         "desc": (
             "Dérivé dé-distillé de FLUX (8,9B) : contrairement à FLUX classique, Chroma comprend "
             "un vrai Prompt Négatif (CFG 4.0), évite l'effet peau lissée/plastique et produit des "
-            "textures organiques ultra-détaillées. N'utilise que vae_flux et t5xxl."
+            "textures organiques ultra-détaillées. N'utilise que vae_flux et t5xxl. "
+            "Le dépôt upstream (silveroxides) ne publie plus en v40 que Q4_0 et Q8_0."
         ),
         "defaults": {"steps": 26, "cfg": 4.0, "sampler": "euler"},
         "min_steps": 16, "max_steps": 45,
     },
     "chroma-radiance": {
         "presets": {
-            "rapide":    {"steps": 20, "cfg": 4.0, "quant": "Q4_K_M", "label": "⚡ Rapide (20 étapes, Q4_K_M)"},
-            "equilibre": {"steps": 26, "cfg": 4.0, "quant": "Q6_K",   "label": "⚖️ Équilibre (26 étapes, Q6_K)"},
+            "rapide":    {"steps": 20, "cfg": 4.0, "quant": "Q4_K_S", "label": "⚡ Rapide (20 étapes, Q4_K_S)"},
+            "equilibre": {"steps": 26, "cfg": 4.0, "quant": "Q5_K_M", "label": "⚖️ Équilibre (26 étapes, Q5_K_M)"},
             "qualite":   {"steps": 32, "cfg": 4.5, "quant": "Q8_0",   "label": "✨ Qualité (32 étapes, Q8_0)"},
         },
-        "name": "Chroma1-Radiance (Pixel-Space sans VAE)",
+        "name": "Chroma1-Radiance v0.3 (Pixel-Space sans VAE)",
         "arch": "chroma_radiance",
         "repo": "silveroxides/Chroma1-Radiance-GGUF",
-        "quants": ["Q4_K_M", "Q6_K", "Q8_0"],
-        "default_quant": "Q6_K",
+        "quants": ["Q4_K_S", "Q5_K_M", "Q6_K", "Q8_0"],
+        "default_quant": "Q5_K_M",
         "file_for_quant": {
-            "Q4_K_M": "Chroma1-Radiance-v0.4-Q4_K_M.gguf",
-            "Q6_K":   "Chroma1-Radiance-v0.4-Q6_K.gguf",
-            "Q8_0":   "Chroma1-Radiance-v0.4-Q8_0.gguf",
+            "Q4_K_S": "Chroma1-Radiance-v0.3-Q4_K_S.gguf",
+            "Q5_K_M": "Chroma1-Radiance-v0.3-Q5_K_M.gguf",
+            "Q6_K":   "Chroma1-Radiance-v0.3-Q6_K.gguf",
+            "Q8_0":   "Chroma1-Radiance-v0.3-Q8_0.gguf",
         },
-        "size_gb": {"Q4_K_M": 5.5, "Q6_K": 7.4, "Q8_0": 9.6},
+        # v0.4 (dernière version amont) ne publie plus que BF16 et Q8_0 ;
+        # v0.3 reste la dernière à proposer des quants intermédiaires.
+        "remote_file_for_quant": {
+            "Q4_K_S": "Chroma1-Radiance-v0.3/Chroma1-Radiance-v0.3-Q4_K_S.gguf",
+            "Q5_K_M": "Chroma1-Radiance-v0.3/Chroma1-Radiance-v0.3-Q5_K_M.gguf",
+            "Q6_K":   "Chroma1-Radiance-v0.3/Chroma1-Radiance-v0.3-Q6_K.gguf",
+            "Q8_0":   "Chroma1-Radiance-v0.3/Chroma1-Radiance-v0.3-Q8_0.gguf",
+        },
+        "size_gb": {"Q4_K_S": 5.8, "Q5_K_M": 7.1, "Q6_K": 8.2, "Q8_0": 10.4},
         "deps": ["t5xxl"],
         "needs_vae": False,
         "supports_neg": True,
@@ -1695,7 +1714,8 @@ MODELS = {
         "desc": (
             "Variante Radiance de Chroma qui génère directement dans l'espace pixel (sans perte "
             "de compression VAE) : piqué micro-détails remarquable, lumière réaliste et support "
-            "du Prompt Négatif. Ne requiert que t5xxl."
+            "du Prompt Négatif. Ne requiert que t5xxl. Version v0.3 : v0.4 ne propose plus que "
+            "BF16 et Q8_0 (10,4 Go) sur le dépôt upstream."
         ),
         "defaults": {"steps": 26, "cfg": 4.0, "sampler": "euler"},
         "min_steps": 16, "max_steps": 45,
@@ -1721,7 +1741,7 @@ MODELS = {
             "Q6_K":   "comfy/LongCat-Image-Q6_K.gguf",
             "Q8_0":   "comfy/LongCat-Image-Q8_0.gguf",
         },
-        "size_gb": {"Q4_K_M": 4.8, "Q6_K": 6.4, "Q8_0": 8.2},
+        "size_gb": {"Q4_K_M": 3.7, "Q6_K": 5.2, "Q8_0": 6.7},
         "deps": ["vae_flux", "qwen25vl_7b"],
         "llm_dep": "qwen25vl_7b",
         "supports_neg": True,

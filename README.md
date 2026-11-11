@@ -164,6 +164,11 @@ gardez l'onglet **Générer** → *Image de départ* (SD 3.5).
 > par Qwen-Image 2512). Si vous avez déjà FLUX.1 schnell ou Qwen-Image, aucun gros téléchargement
 > supplémentaire n'est nécessaire.
 >
+> **Notes dépôts Chroma** : Chroma Unlocked pointe sur le dernier v40 amont, qui ne publie que
+> **Q4_0** (5,4 Go) et **Q8_0** (9,7 Go) ; Chroma1-Radiance pointe sur **v0.3** (Q4_K_S → Q8_0),
+> la v0.4 n'ayant plus que BF16 et Q8_0. Le VAE `vae_flux` (dépôt FLUX gated) bascule
+> automatiquement sur le miroir public Comfy-Org si le téléchargement échoue (401).
+>
 > **Qwen-Image 2.1 Turbo** nécessite `sd-cli` `c150a6b` ou plus récent (8 étapes, CFG 1).
 > **FLUX.3 Image Klein** nécessite `sd-cli` `8cd731e` (15 oct. 2026) ou plus récent ; ses GGUF sont convertis avec ce même moteur (pics VRAM documentés : 6,8 Go en Q3_K à 9,8 Go en Q8_0) et il réutilise le VAE FLUX.2 et l'encodeur **Qwen3-VL-4B** (déjà téléchargés avec FLUX.2 Klein / Iris-3B).
 > **Fibo 2.0** nécessite un `sd-cli` récent (support ajouté le 21 oct. 2026). Ses GGUF viennent de `molbal/fibo-2.0-GGUF` (Q4_K_M, Q6_K, Q8_0) et utilisent l'encodeur Qwen3-VL-4B et le VAE FLUX.2. L'édition demande le **mmproj** Qwen3-VL-4B (0,84 Go), téléchargeable depuis l'onglet Édition.

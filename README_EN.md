@@ -165,6 +165,11 @@ The **✂️ Edit** tab — available on the models that really do editing:
 > `t5xxl`; LongCat-Image reuses `vae_flux` and the **Qwen2.5-VL-7B** encoder (already used by
 > Qwen-Image 2512). If you already have FLUX.1 schnell or Qwen-Image, no big extra download is needed.
 >
+> **Chroma repo notes**: Chroma Unlocked points at the latest upstream v40, which only ships
+> **Q4_0** (5.4 GB) and **Q8_0** (9.7 GB); Chroma1-Radiance points at **v0.3** (Q4_K_S → Q8_0),
+> as v0.4 only offers BF16 and Q8_0. The `vae_flux` VAE (gated FLUX repo) automatically falls
+> back to the public Comfy-Org mirror if the download fails (401).
+>
 > **Qwen-Image 2.1 Turbo** requires `sd-cli` `c150a6b` or newer (8 steps, CFG 1).
 > **FLUX.3 Image Klein** requires `sd-cli` `8cd731e` (Oct 15, 2026) or newer; its GGUFs are converted with that same engine (documented VRAM peaks: 6.8 GB at Q3_K up to 9.8 GB at Q8_0) and it reuses the FLUX.2 VAE and the **Qwen3-VL-4B** encoder (already downloaded with FLUX.2 Klein / Iris-3B).
 > **Fibo 2.0** requires a recent `sd-cli` (support added Oct 21, 2026). Its GGUFs come from `molbal/fibo-2.0-GGUF` (Q4_K_M, Q6_K, Q8_0) and use the Qwen3-VL-4B encoder and the FLUX.2 VAE. Editing needs the Qwen3-VL-4B **mmproj** (0.84 GB), downloadable from the Edit tab.

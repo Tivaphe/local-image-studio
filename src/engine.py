@@ -169,6 +169,30 @@ def engine_ready() -> bool:
 # =========================================================================== #
 #  Téléchargement des modèles + dépendances (huggingface_hub)
 # =========================================================================== #
+def friendly_download_error(exc):
+    """Transforme une exception du téléchargement Hugging Face en message
+    clair (français) et actionnable pour la page Modèles."""
+    msg = str(exc or "")
+    low = msg.lower()
+    name = type(exc).__name__.lower()
+    if "gated" in name or "gated" in low or "access to model" in low or "401" in low:
+        return ("accès refusé (401) : le dépôt est protégé (gated). Ajoutez un token Hugging Face "
+                "dans Paramètres, après avoir accepté la licence du dépôt sur huggingface.co.")
+    if "entry not found" in low or "404" in low or "not found" in name or "repository not found" in low:
+        return ("fichier introuvable (404) : le fichier demandé n'existe pas (ou plus) dans le dépôt. "
+                "Mettez à jour l'application (update.bat) ou signalez-le — la liste des fichiers "
+                "amont change sans prévenir.")
+    if "localentrynotfound" in name or "connection" in name or "connectionerror" in low or "timed out" in low or "network" in low:
+        return ("problème de réseau : impossible de contacter Hugging Face. Vérifiez votre connexion "
+                "(ou votre VPN / proxy), puis réessayez.")
+    if "no space left" in low or "disk" in low:
+        return "disque plein : libérez de l'espace sur le disque d'installation, puis réessayez."
+    if "huggingface_hub n'est pas installé" in msg:
+        return msg
+    # Cas général : garder l'erreur brute, mais lisible.
+    return msg
+
+
 def _import_hf():
     try:
         from huggingface_hub import hf_hub_download, list_repo_files
@@ -247,9 +271,20 @@ def ensure_dep(dep_id, token, msg_cb=None):
     if dep["type"] == "exact":
         dest = dep["dest"]
         dest.parent.mkdir(parents=True, exist_ok=True)
-        _hf_download_file(dep["repo"], dep["filename"], dest, token, msg_cb)
-        manifest[dep_id] = {"repo": dep["repo"], "filename": dep["filename"],
-                            "path": str(dest)}
+        try:
+            _hf_download_file(dep["repo"], dep["filename"], dest, token, msg_cb)
+            manifest[dep_id] = {"repo": dep["repo"], "filename": dep["filename"],
+                                "path": str(dest)}
+        except Exception as e:
+            fb = dep.get("fallback")
+            if not fb:
+                raise
+            if msg_cb:
+                msg_cb(f"⚠️ ae.safetensors depuis {dep['repo']} : {friendly_download_error(e)}")
+                msg_cb(f"→ Tentative depuis le miroir public {fb['repo']} (même fichier, ~335 Mo)…")
+            _hf_download_file(fb["repo"], fb["filename"], dest, token, msg_cb)
+            manifest[dep_id] = {"repo": fb["repo"], "filename": fb["filename"],
+                                "path": str(dest), "fallback_of": dep["repo"]}
     else:  # gguf
         _, list_repo_files = _import_hf()
         files = list_repo_files(dep["repo"], token=(token or None))
@@ -493,7 +528,7 @@ class TaskManager:
                       done=True, busy=False,
                       result={"type": "download", "model_id": model_id, "quant": quant})
         except Exception as e:
-            self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False)
+            self._set(error=friendly_download_error(e), log=f"Erreur: {e}", done=True, busy=False)
 
     def start_upscaler_download(self, upscaler_id):
         """Télécharge un modèle d'agrandissement ×4 (ESRGAN/MoSR, URL directe)."""
@@ -622,7 +657,7 @@ class TaskManager:
         try:
             work()
         except Exception as e:
-            self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False)
+            self._set(error=friendly_download_error(e), log=f"Erreur: {e}", done=True, busy=False)
 
     def start_engine_install(self):
         if self.is_busy():
