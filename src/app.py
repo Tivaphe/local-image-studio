@@ -1188,17 +1188,21 @@ def api_download_mmproj():
     dep_id = _mmproj_dep_for(data.get("model_id") or request.args.get("model_id"))
     try:
         ensure_dep(dep_id, hf_token())
-        manifest = load_manifest()
-        info = manifest.get(dep_id, {})
-        path = info.get("path")
-        exists = path and Path(path).exists()
-        if exists:
+        from registry import _dep_path
+        path = _dep_path(load_manifest(), dep_id)  # manifeste + recherche disque (cohérent)
+        if path and Path(path).exists():
             return jsonify({"ok": True, "message": "mmproj téléchargé ✓", "status": "ready",
-                            "dep": dep_id})
-        else:
-            return jsonify({"ok": False, "error": "Téléchargement effectué mais fichier non trouvé"}, status=500)
+                            "dep": dep_id, "path": path})
+        return jsonify({"ok": False, "error":
+                        "Le fichier mmproj est introuvable après téléchargement. "
+                        "Vérifiez l'espace disque et relancez l'application."}), 500
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        try:
+            from engine import friendly_download_error
+            msg = friendly_download_error(e)
+        except Exception:
+            msg = str(e)
+        return jsonify({"ok": False, "error": msg}), 500
 
 
 @app.route("/api/mmproj-status", methods=["GET"])

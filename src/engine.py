@@ -264,10 +264,22 @@ def model_status(model_id):
 
 def ensure_dep(dep_id, token, msg_cb=None):
     """Télécharge une dépendance partagée si absente, met à jour le manifeste."""
-    if _dep_present(dep_id):
+    manifest = load_manifest()
+    found = _dep_path(manifest, dep_id)
+    if found:
+        # Présente (manifeste ou recherche disque) : si le manifeste ignore l'emplacement,
+        # on l'enregistre — sinon tout code qui relit le manifeste croit le fichier absent.
+        info = manifest.get(dep_id) or {}
+        if not info.get("path"):
+            dep = DEPS[dep_id]
+            manifest[dep_id] = {
+                "repo": dep.get("repo"),
+                "filename": dep.get("filename") or Path(found).name,
+                "path": str(found), "found_on_disk": True,
+            }
+            save_manifest(manifest)
         return
     dep = DEPS[dep_id]
-    manifest = load_manifest()
     if dep["type"] == "exact":
         dest = dep["dest"]
         dest.parent.mkdir(parents=True, exist_ok=True)
