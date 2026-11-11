@@ -103,6 +103,10 @@
           <button type="button" class="link copy-prompt"
                   title="📋 Copier le prompt de cette image dans le presse-papier">📋 Copier le prompt</button>
           {% if upscaler_ready %}
+          <button type="button" class="link postprocess-link" data-id="{{ im.id }}"
+                  data-url="{{ url_for('serve_output', filename=im.filename) }}"
+                  data-filename="{{ im.filename }}" data-prompt="{{ im.prompt|e }}"
+                  title="🎛️ Post-traitement : exposition, contraste, luminosité, chaleur, clarté, saturation, vibrance — puis enregistrer ou passer en édition">🎛️ Ajuster</button>
           <button type="button" class="link upscale-link" data-id="{{ im.id }}"
                   title="🔍 Agrandir cette image ×4 (super-résolution) — la grande version est ajoutée à l'historique">🔍 ×4</button>
           {% endif %}
@@ -609,6 +613,16 @@ document.querySelectorAll('.reuse').forEach(b => {
     }
     sessionStorage.setItem('reuse', JSON.stringify(p));
     window.location.href = "{{ url_for('generate') }}";
+  });
+});
+
+// --- 🎛️ Post-traitement (modal partagé, voir static/postprocess.js) ---
+document.querySelectorAll('.postprocess-link').forEach(b => {
+  b.addEventListener('click', () => {
+    if (window.LisPost) {
+      window.LisPost.open({ url: b.dataset.url, filename: b.dataset.filename,
+                            id: Number(b.dataset.id), prompt: b.dataset.prompt || '' });
+    }
   });
 });
 

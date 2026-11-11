@@ -1444,6 +1444,71 @@ def api_use_output_as_source():
     })
 
 
+# --------------------------------------------------------------------------- #
+#  API : post-traitement (enregistrement d'une image ajustée dans le navigateur)
+# --------------------------------------------------------------------------- #
+@app.route("/api/postprocess/save", methods=["POST"])
+def api_postprocess_save():
+    """Enregistre le PNG ajusté envoyé par le navigateur dans output/ + historique."""
+    f = request.files.get("image")
+    if not f or not f.filename:
+        return jsonify({"ok": False, "error": "Aucune image fournie."}), 400
+    raw = f.read(64 * 1024 * 1024)
+    if len(raw) < 64:
+        return jsonify({"ok": False, "error": "Image trop petite ou invalide."}), 400
+    is_png = raw[:8] == b"\x89PNG\r\n\x1a\n"
+    is_jpg = raw[:2] == b"\xff\xd8"
+    if not (is_png or is_jpg):
+        return jsonify({"ok": False, "error": "Le fichier doit être un PNG ou un JPEG."}), 400
+
+    src_rel = str(request.form.get("source") or "").strip()
+    src_prompt = (request.form.get("prompt") or "").strip()
+    summary = (request.form.get("summary") or "").strip()[:240]
+
+    # Le chemin source doit rester dans le dépôt (uniquement utilisé pour les métadonnées)
+    src_ok = False
+    if src_rel:
+        try:
+            (config.ROOT / src_rel).resolve().relative_to(config.ROOT.resolve())
+            src_ok = True
+        except Exception:
+            src_rel, src_ok = "", False
+
+    src_name = Path(src_rel).name if src_rel else ""
+    stem = re.sub(r"[^a-zA-Z0-9_]", "_", Path(src_name).stem.lower())[:36] if src_name else "image"
+    out_name = f"post_{stem}_{uuid.uuid4().hex[:6]}.png"
+    out_path = config.OUTPUT_DIR / out_name
+    out_path.write_bytes(raw)
+
+    from engine import _png_size
+    dims = _png_size(out_path) if is_png else None
+    out_w, out_h = dims if dims else (0, 0)
+
+    db_prompt = f"Post-traitement de {src_name or 'image'}"
+    if summary:
+        db_prompt += f" ({summary})"
+    if src_prompt:
+        db_prompt += f" — d'après : {src_prompt[:160]}"
+
+    try:
+        txt = _pngmeta.build_webui_text(prompt=db_prompt, negative="", steps=0, cfg=0.0,
+                                        seed=0, width=out_w or None, height=out_h or None,
+                                        sampler="post-processing", model_id="postprocess")
+        _pngmeta.embed_params(out_path, txt, only_if_missing=True)
+    except Exception:
+        pass
+
+    image_id = db.add_image(batch_id=uuid.uuid4().hex, idx=0,
+                            model_id="postprocess", model_name="🎛️ Post-traitement",
+                            quant="retouche", prompt=db_prompt, negative="",
+                            seed=0, width=out_w, height=out_h,
+                            steps=0, cfg=0.0, sampler="post-processing",
+                            filename=out_name, batch_size=1, gen_time=0,
+                            source_images=[src_rel] if src_ok else None)
+    return jsonify({"ok": True, "id": image_id, "filename": out_name,
+                    "url": f"/output/{out_name}", "name": out_name})
+
+
 @app.route("/api/image/<int:img_id>")
 def api_image(img_id):
     """Parametres complets d'une image de l'historique (pour rejouer une edition)."""

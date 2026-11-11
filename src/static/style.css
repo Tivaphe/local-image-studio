@@ -660,3 +660,29 @@ small{color:var(--muted)}
 .style-badge.both{color:#b6f0c2;border-color:#3a8f55}
 .style-badge.all{opacity:.85}
 .style-badge.some{color:#ffd28a;border-color:#8f7a3a}
+
+/* ---------- post-traitement (modal partagé) ---------- */
+.pp-modal{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;padding:18px}
+.pp-modal[hidden]{display:none}
+.pp-backdrop{position:absolute;inset:0;background:rgba(8,9,13,.82);backdrop-filter:blur(6px)}
+.pp-panel{position:relative;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+  max-width:1080px;width:100%;max-height:94vh;display:flex;flex-direction:column;overflow:hidden;
+  box-shadow:0 24px 80px rgba(0,0,0,.55)}
+.pp-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:14px 18px;border-bottom:1px solid var(--border)}
+.pp-head h3{margin:0 0 2px;font-size:17px}
+.pp-close-x{font-size:20px;line-height:1;padding:4px 8px}
+.pp-body{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(230px,1fr);gap:0;min-height:0;overflow:auto}
+.pp-preview{background:#0a0b10;display:flex;align-items:center;justify-content:center;min-height:280px;position:relative;padding:10px}
+.pp-preview canvas{max-width:100%;max-height:62vh;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.6)}
+.pp-preview-hint{position:absolute;color:#9aa0ad}
+.pp-sliders{padding:14px 16px;display:flex;flex-direction:column;gap:10px;border-left:1px solid var(--border);overflow:auto}
+.pp-slider{display:flex;flex-direction:column;gap:2px;font-size:13px}
+.pp-slider span{display:flex;justify-content:space-between;color:var(--muted)}
+.pp-slider b{color:var(--txt);font-weight:600;font-variant-numeric:tabular-nums}
+.pp-slider input[type=range]{width:100%}
+.pp-note{line-height:1.45;margin:0}
+.pp-foot{display:flex;gap:10px;align-items:center;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--border);flex-wrap:wrap}
+@media (max-width:860px){
+  .pp-body{grid-template-columns:1fr}
+  .pp-sliders{border-left:none;border-top:1px solid var(--border)}
+}

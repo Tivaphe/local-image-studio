@@ -203,6 +203,7 @@ section with a clear explanation for every option:
 | **🔍 ×4 Upscaling** | Dedicated super-resolution (1024→4096 px): **RealESRGAN ×4** (photo), **4× Nomos2 MoSR** (natural textures), **4× UltraSharp** (details & sharpness), **4× UltraMix Balanced** (softer UltraSharp), **4× Remacri** (natural photo grain), **RealESRGAN Anime 6B** (illustration) | During generation **or** afterwards: one-click "🔍 Upscale ×4" button on every result and in History |
 | **🏗️ Hires Fix (2 passes)** | Pass 1 composes; pass 2 gently re-details at high resolution (up to ×2, ≤ ~2048 px) | Pure generation, img2img-capable models (SD 3.5, FLUX.1 Dev, Chroma) |
 | **🙂 ADetailer** | YOLOv8 detector that finds **faces/hands** and automatically re-details them — also one-click on any existing image | Generate & Edit pages (after installing the detector in Models) |
+| **🎛️ Post-processing** | A tiny built-in photo lab: **Exposure** (±2 EV, linear light), **Contrast**, **Brightness**, **Warmth**, **Clarity** (local micro-contrast), **Saturation** and **Vibrance** (smart, skin-tone friendly) — pixel-level, live preview, no network involved | One-click « 🎛️ Adjust » button on every result (Generate & Edit) and in History — **💾 Save** to History or **💾 Save → ✂️ Edit** to open it as the Edit canvas |
 | **⚡ Mini-VAE (TAE)** | Near-instant final decode for Qwen-Image models (~2 MB) | Quality → ⚡ Performance |
 | **⚡ SageAttention CUDA** | Faster attention, less VRAM on NVIDIA GPUs (SM80+, recent drivers) — no Python install | Quality → ⚡ Performance |
 | **📡 Live preview** | « LIVE » window: watch the image denoise step by step (**on by default, « Auto »**: Mini-VAE if installed, else latent projection) | Quality → ⚡ Performance |
@@ -285,6 +286,7 @@ Some models require a **free Hugging Face token**:
 | 📊 **Statistics** | Generation time per model, most used model, etc. |
 | 📚 **History** | All your images with their prompt, reusable in 1 click |
 | 💾 **Auto-save** | Images saved in `output/` |
+| 🎛️ **Post-processing** | 7 photo controls (exposure, contrast, brightness, warmth, clarity, saturation, vibrance) in pixels, live preview, saved to History with PNG metadata | « 🎛️ Adjust » button (Generate, Edit, History) |
 | 🎨 **Style manager** | **Styles** page (top bar): create **your own styles** — free prompt, « Generate + Edit » or either, targeted at **all models** or a hand-picked subset (25). They show up in the « ⭐ My styles » group of the Generate & Edit pre-prompt dropdowns ({img1} token translated automatically). Built-in styles shown read-only, 1-click copy | Top bar → 🎭 Styles |
 | 🚫 **Negative prompt** | Pre-filled automatically (editable) |
 | 📄 **Licenses** | Shown for each model |

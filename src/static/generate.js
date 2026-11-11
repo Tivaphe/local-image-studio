@@ -1334,6 +1334,16 @@ function showResults(images) {
       }
     });
     d.appendChild(sendToEdit);
+    if (window.LisPost) {
+      const adjust = document.createElement('button');
+      adjust.type = 'button';
+      adjust.className = 'btn small result-use-source';
+      adjust.textContent = '🎛️ Ajuster';
+      adjust.title = 'Post-traitement : exposition, contraste, luminosité, chaleur, clarté, saturation, vibrance — puis enregistrer ou passer en édition';
+      adjust.addEventListener('click', () => window.LisPost.open(
+        { url: img.url, filename: img.filename, id: img.id, prompt: img.prompt }));
+      d.appendChild(adjust);
+    }
     // Boutons 1-clic « 🔍 Agrandir ×4 » et « 🙂 Réparer visages & mains »
     if (window.LisQuality && typeof LisQuality.makeUpscaleButton === 'function') {
       d.appendChild(LisQuality.makeUpscaleButton({ imageId: img.id }));

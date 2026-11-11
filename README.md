@@ -202,6 +202,7 @@ Agrandissement » regroupe toutes les options avancées, chacune avec une **expl
 | **🔍 Agrandissement ×4** | Super-résolution dédiée (1024→4096 px). Choix : **RealESRGAN ×4** (photo), **4× Nomos2 MoSR** (textures naturelles), **4× UltraSharp** (détails & netteté), **4× UltraMix Balanced** (UltraSharp adouci), **4× Remacri** (grain photo naturel), **RealESRGAN Anime 6B** (illustration) | Pendant la génération (case option) **ou** après coup : bouton « 🔍 Agrandir ×4 » sur chaque résultat et dans l'historique |
 | **🏗️ Hires Fix (2 passes)** | 1ʳᵉ passe : composition à taille choisie ; 2ᵉ passe : re-détaillage doux en haute résolution (jusqu'à ×2, ≤ ~2048 px) | Génération pure, modèles compatibles img2img (SD 3.5, FLUX.1 Dev, Chroma) |
 | **🙂 ADetailer** | Détecteur YOLOv8 qui repère **visages/mains** puis les re-détaille automatiquement — aussi en 1 clic après coup sur n'importe quelle image | Pages Générer & Édition (après installation du détecteur dans Modèles) |
+| **🎛️ Post-traitement** | Petit labo photo intégré : **Exposition** (±2 EV, en lumière linéaire), **Contraste**, **Luminosité**, **Chaleur**, **Clarté** (micro-contraste local), **Saturation** et **Vibrance** (saturation intelligente, préserve les carnations) — ajustements par pixels, aperçu en direct, sans envoi réseau | Bouton « 🎛️ Ajuster » sur chaque résultat (Générer & Édition) et dans l'historique — **💾 Enregistrer** dans l'historique ou **💾 Enregistrer → ✂️ Éditer** pour l'utiliser comme image de départ du Studio d'édition |
 | **⚡ Mini-VAE (TAE)** | Décodage final Quasi instantané pour les modèles Qwen-Image (~2 Mo) | Section Qualité → ⚡ Performance |
 | **⚡ SageAttention CUDA** | Attention plus rapide et moins de VRAM sur GPU NVIDIA (SM80+, pilotes récents) — aucune installation Python | Section Qualité → ⚡ Performance |
 | **📡 Aperçu en direct** | Fenêtre « LIVE » : voyez l'image se débruiter pas à pas (**activé par défaut, mode « Auto »** : mini-VAE si installé, sinon projection des latents) | Section Qualité → ⚡ Performance |
@@ -313,6 +314,7 @@ Certains modèles nécessitent un **token Hugging Face gratuit** :
 | 📊 **Statistiques** | Temps de génération par modèle, modèle le plus utilisé, etc. |
 | 📚 **Historique** | Toutes vos images avec leur prompt, réutilisables en 1 clic |
 | 💾 **Auto-save** | Images sauvées dans `output/` |
+| 🎛️ **Post-traitement** | 7 réglages photo (exposition, contraste, luminosité, chaleur, clarté, saturation, vibrance) appliqués en pixels, aperçu direct, enregistrement dans l'historique avec métadonnées PNG | Bouton « 🎛️ Ajuster » (Générer, Édition, Historique) |
 | 🎨 **Gestion des styles** | Page **Styles** (barre du haut) : créez **vos propres styles** — prompt libre, « Génération + Édition » ou au choix, ciblés sur **tous les modèles** ou une sélection (25). Ils apparaissent dans le groupe « ⭐ Mes styles » des sélecteurs Générer & Édition (jeton {img1} traduit automatiquement). Styles intégrés affichés en lecture seule, copie 1-clic | Barre du haut → 🎭 Styles |
 | 🚫 **Prompt négatif** | Pré-rempli automatiquement (modifiable) |
 | 📄 **Licences** | Indiquées pour chaque modèle |
