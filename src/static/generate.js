@@ -337,6 +337,7 @@ function renderGenPreprompts() {
   const builtIn = m.gen_presets || [];
   const recommended = builtIn.filter(x => (x.category || 'general') !== 'style');
   const styles = builtIn.filter(x => x.category === 'style');
+  const userStyles = USER_STYLES.filter(st => st.models === 'all' || (Array.isArray(st.models) && st.models.includes(modelId)));
   const custom = loadCustomGenPreprompts();
 
   const addGroup = (label, items, prefix) => {
@@ -355,6 +356,7 @@ function renderGenPreprompts() {
 
   addGroup(`✨ Pré-prompts recommandés (${m.name})`, recommended, 'builtin');
   addGroup(`🎭 Styles & rendus (adaptés à ${m.name})`, styles, 'builtin');
+  addGroup('⭐ Mes styles (page Styles)', userStyles.map(st => ({ id: st.id, label: st.name, prompt: st.prompt })), 'user');
   addGroup('⭐ Mes pré-prompts enregistrés', custom, 'custom');
   if (delBtn) delBtn.hidden = true;
 }
@@ -409,9 +411,23 @@ function savePrefs(p) {
   } catch (e) {}
 }
 
+// Styles personnalisés (page /styles) applicables à la génération
+let USER_STYLES = [];
+
+async function loadUserStyles() {
+  try {
+    const r = await fetch('/api/styles?applies_to=gen');
+    const j = await r.json();
+    USER_STYLES = (j.styles || []).filter(st => st.applies_to === 'gen' || st.applies_to === 'both');
+  } catch (e) {
+    USER_STYLES = [];
+  }
+}
+
 async function loadModels() {
   const r = await fetch('/api/models');
   MODELS = await r.json();
+  await loadUserStyles();
   const sel = $('#model');
   if (!sel) return;
   sel.innerHTML = '';

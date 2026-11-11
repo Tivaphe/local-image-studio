@@ -215,7 +215,7 @@ approximations** of Midjourney's aesthetic controls — everything stays editabl
 
 | Option | Approximates | Actual effect |
 |---|---|---|
-| **🎭 Style pre-prompts** | 14 complete styles (🎬 Anamorphic cinema, 📷 Portra 400, 🖼️ Impressionism, 🎨 Watercolor, ✏️ Ink & charcoal, 🌸 Ukiyo-e, 🧸 3D Blender, 👾 Pixel art, 🔺 Low-poly, 🎞️ Film noir, ⬜ Flat/vector, 🎭 Mucha, 🌀 Dalí, 📖 Children's book) | « 🎭 Styles & renders » section of the pre-prompt dropdown (Generate) and « 🎭 Styles — keep the subject » (Edit, per-model reference token) |
+| **🎭 Style pre-prompts** | 24 complete styles (🎬 Anamorphic cinema, 📷 Portra 400, 🖼️ Impressionism, 🎨 Watercolor, ✏️ Ink & charcoal, 🌸 Ukiyo-e, 🧸 3D Blender, 👾 Pixel art, 🔺 Low-poly, 🎞️ Film noir, ⬜ Flat/vector, 🎭 Mucha, 🌀 Dalí, 📖 Children's book + **10 digital styles**: 🖌️ Speedpaint digital painting, 💡 Concept art / Matte painting, 🖼️ Photobash, 🌆 Synthwave / Retrowave, 🎲 Isometric game art, 🌀 Cel-shaded anime, 💎 Photoreal Octane 3D, 🌸 Vaporwave, 🟣 Glitch / datamosh, 🌊 Generative art) | « 🎭 Styles & renders » section of the pre-prompt dropdown (Generate) and « 🎭 Styles — keep the subject » (Edit: 16 styles with {img1}, per-model reference token) |
 | **Quick styles** | 12 chips (🎬 Cinema, 📷 Photo, 🖼️ Oil, 🎨 Watercolor, ⛩️ Anime, 👾 Pixel art, 🔺 Low-poly, 🌆 Cyberpunk, ⚙️ Steampunk, ⬜ Minimal, 💡 Neon, 🕶️ Noir) | Each click adds/removes a **visible** suffix in the prompt |
 | **Stylisation (0–1000)** | ≈ « stylize », 100 = preset unchanged | Adjusts **Steps** and **CFG** on top of the active preset |
 | **Weirdness (0–3000)** | ≈ « weird », 0 = Quality settings untouched | 0 → no-op; 1–999 → Euler A + Karras; 1000–1999 → DPM++ 2M + Beta; 2000–3000 → LCM + SGM Uniform |
@@ -285,6 +285,7 @@ Some models require a **free Hugging Face token**:
 | 📊 **Statistics** | Generation time per model, most used model, etc. |
 | 📚 **History** | All your images with their prompt, reusable in 1 click |
 | 💾 **Auto-save** | Images saved in `output/` |
+| 🎨 **Style manager** | **Styles** page (top bar): create **your own styles** — free prompt, « Generate + Edit » or either, targeted at **all models** or a hand-picked subset (25). They show up in the « ⭐ My styles » group of the Generate & Edit pre-prompt dropdowns ({img1} token translated automatically). Built-in styles shown read-only, 1-click copy | Top bar → 🎭 Styles |
 | 🚫 **Negative prompt** | Pre-filled automatically (editable) |
 | 📄 **Licenses** | Shown for each model |
 | 🔗 **HF links** | Direct access to each model's page |
@@ -309,7 +310,7 @@ local-image-studio/
 │   ├── registry.py        ← 25 model definitions + ×4 upscalers + ADetailer detectors
 │   ├── prompt_enhancer.py ← Prompt boost & translation (LLM)
 │   ├── gpu_info.py        ← VRAM detection
-│   ├── db.py              ← History & statistics
+│   ├── db.py              ← History, statistics & custom styles (/styles page)
 │   ├── config.py          ← Path configuration
 │   ├── templates/         ← HTML pages (generate.html, edit.html, …)
 │   └── static/            ← CSS + JavaScript (generate.js, edit.js, quality.js, …)

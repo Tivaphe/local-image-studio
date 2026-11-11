@@ -2308,6 +2308,85 @@ def edit_prompt_presets(model_id: str) -> list[dict]:
             ),
         },
         {
+            "id": "style_digitalpaint",
+            "category": "style",
+            "label": "🖌️ Peinture digitale",
+            "prompt": (
+                f"Keep the subject and composition of {img1} unchanged, repaint the image as a "
+                "dynamic digital painting with bold brush strokes, dramatic lighting and rich "
+                "saturated colors"
+            ),
+        },
+        {
+            "id": "style_concept",
+            "category": "style",
+            "label": "💡 Concept art / matte painting",
+            "prompt": (
+                f"Keep the subject and composition of {img1} unchanged, reimagine the scene as a "
+                "cinematic matte painting with atmospheric depth, photobash realism and AAA game "
+                "concept-art quality"
+            ),
+        },
+        {
+            "id": "style_synthwave",
+            "category": "style",
+            "label": "🌆 Synthwave / retrowave",
+            "prompt": (
+                f"Keep the subject and composition of {img1} unchanged, redraw the image in "
+                "synthwave retrowave style, magenta and cyan neon glow, chrome accents, 80s "
+                "outrun poster aesthetic"
+            ),
+        },
+        {
+            "id": "style_celshaded",
+            "category": "style",
+            "label": "🌀 Cel-shading / anime digital",
+            "prompt": (
+                f"Keep the subject and pose of {img1} unchanged, redraw the image in cel-shaded "
+                "anime style, crisp ink outlines, flat vibrant colors with hard shadows, premium "
+                "anime key visual"
+            ),
+        },
+        {
+            "id": "style_photobash",
+            "category": "style",
+            "label": "🖼️ Photobash",
+            "prompt": (
+                f"Keep the subject and composition of {img1} unchanged, restyle the image as a "
+                "photobash illustration blending real photographic textures with digital painting"
+            ),
+        },
+        {
+            "id": "style_octane",
+            "category": "style",
+            "label": "💎 Rendu 3D (Octane)",
+            "prompt": (
+                f"Keep the subject and composition of {img1} unchanged, reimagine the scene as a "
+                "photorealistic 3D render, octane renderer, subsurface scattering, cinematic "
+                "studio lighting, product quality"
+            ),
+        },
+        {
+            "id": "style_glitch",
+            "category": "style",
+            "label": "🟣 Glitch art",
+            "prompt": (
+                f"Keep the subject and composition of {img1} unchanged, apply a glitch art "
+                "treatment with pixel sorting, RGB channel shift, scan lines and chromatic "
+                "aberration"
+            ),
+        },
+        {
+            "id": "style_isometric",
+            "category": "style",
+            "label": "🎲 Isométrique game art",
+            "prompt": (
+                f"Keep the subject of {img1} unchanged, re-render the scene as an isometric "
+                "game art illustration, clean digital linework, vibrant stylized colors, crisp "
+                "render"
+            ),
+        },
+        {
             "id": "ref_bg_swap",
             "category": "multi",
             "label": "🖼️ Utiliser l'image 2 comme nouveau décor de l'image 1",
@@ -2563,6 +2642,107 @@ def gen_prompt_presets(model_id: str) -> list[dict]:
                 "Children's storybook illustration of a child sailing a tiny boat on a moonlit "
                 "sea, soft crayon and watercolor textures, whimsical clouds, cozy bedtime mood, "
                 "gentle pastel palette"
+            ),
+        },
+        # --- Styles digitaux (peinture digitale, concept art, 3D, retro digital) ---
+        {
+            "id": "gen_style_digitalpaint",
+            "category": "style",
+            "label": "🖌️ Peinture digitale (speedpaint)",
+            "prompt": (
+                "Dynamic digital painting of a windswept forest valley, bold painterly brushwork "
+                "with visible strokes, dramatic rim light, rich saturated colors, concept-art "
+                "quality, professional speedpaint"
+            ),
+        },
+        {
+            "id": "gen_style_concept",
+            "category": "style",
+            "label": "💡 Concept art / Matte painting",
+            "prompt": (
+                "Breathtaking sci-fi matte painting of a crashed spaceship in a misty redwood "
+                "forest, cinematic composition, photobash realism, atmospheric depth, AAA game "
+                "cinematic, 8k"
+            ),
+        },
+        {
+            "id": "gen_style_photobash",
+            "category": "style",
+            "label": "🖼️ Photobash illustration",
+            "prompt": (
+                "Photobash illustration of a rainy cyberpunk harbor at night, real photographic "
+                "textures blended with digital painting, moody reflections on wet concrete, "
+                "cinematic framing, highly detailed"
+            ),
+        },
+        {
+            "id": "gen_style_synthwave",
+            "category": "style",
+            "label": "🌆 Synthwave / Retrowave",
+            "prompt": (
+                "Synthwave retrowave digital artwork, a chrome sports car driving toward a neon "
+                "sun on a glowing grid horizon, magenta and cyan glow, subtle VHS grain, 80s "
+                "outrun poster style"
+            ),
+        },
+        {
+            "id": "gen_style_isometric",
+            "category": "style",
+            "label": "🎲 Isométrique game art",
+            "prompt": (
+                "Isometric game art illustration of a cozy floating island village, clean digital "
+                "linework, vibrant gradient sky, stylized cute assets, crisp render, indie game "
+                "aesthetic"
+            ),
+        },
+        {
+            "id": "gen_style_celshaded",
+            "category": "style",
+            "label": "🌀 Cel-shading / anime digital",
+            "prompt": (
+                "Cel-shaded anime digital illustration of a samurai overlooking a neon-lit city "
+                "rooftop, crisp ink outlines, flat vibrant colors with hard shadows, high contrast, "
+                "premium anime key visual"
+            ),
+        },
+        {
+            "id": "gen_style_octane",
+            "category": "style",
+            "label": "💎 Rendu 3D photoréaliste (Octane)",
+            "prompt": (
+                "Photorealistic 3D render of a ceramic coffee mug on a marble table, octane "
+                "renderer, subsurface scattering, soft studio HDRI lighting, product photography "
+                "quality, 8k"
+            ),
+        },
+        {
+            "id": "gen_style_vaporwave",
+            "category": "style",
+            "label": "🌸 Vaporwave",
+            "prompt": (
+                "Vaporwave aesthetic digital collage, roman bust with glitch stripes, palm trees "
+                "and sunset gradient grid, retro computer glitches, pastel pink and purple, dreamy "
+                "surreal mood"
+            ),
+        },
+        {
+            "id": "gen_style_glitch",
+            "category": "style",
+            "label": "🟣 Glitch art / datamosh",
+            "prompt": (
+                "Glitch art portrait of an android face fragmenting into pixel sorting and "
+                "datamoshing artifacts, RGB channel shift, scan lines, chromatic aberration, dark "
+                "background, cybernetic glitch aesthetic"
+            ),
+        },
+        {
+            "id": "gen_style_generative",
+            "category": "style",
+            "label": "🌊 Art génératif algorithmique",
+            "prompt": (
+                "Algorithmic generative art, flowing recursive flow field of glowing particles, "
+                "deep dark background, mathematically balanced composition, elegant generative "
+                "studio poster"
             ),
         },
     ]

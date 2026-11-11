@@ -345,6 +345,8 @@ function renderEditPreprompts() {
 
   const builtIn = m.edit_presets || [];
   const outpaintPresets = m.outpaint_presets || [];
+  const editModelId = $('#model')?.value;
+  const userStyles = USER_STYLES.filter(st => st.models === 'all' || (Array.isArray(st.models) && st.models.includes(editModelId)));
   const custom = loadCustomEditPreprompts();
 
   sel.innerHTML = `<option value="">→ Choisir un pré-prompt adapté à ${esc(m.name)} ←</option>`;
@@ -365,6 +367,7 @@ function renderEditPreprompts() {
 
   addGroup(`✂️ Édition sur 1 image (${m.name})`, builtIn.filter(x => x.category === 'canvas'), 'builtin');
   addGroup(`🎭 Styles — garder le sujet (${m.name})`, builtIn.filter(x => x.category === 'style'), 'builtin');
+  addGroup('⭐ Mes styles (page Styles)', userStyles.map(st => ({ id: st.id, label: st.name, prompt: st.prompt })), 'user');
   addGroup(`📚 Multi-images Canvas + Référence (${m.name})`, builtIn.filter(x => x.category === 'multi'), 'builtin');
   addGroup(`📐 Outpainting — Étendre le cadre (${m.name})`, builtIn.filter(x => x.category === 'outpaint'), 'builtin');
   addGroup(`⭐ Mes pré-prompts enregistrés (adaptés à ${m.name})`, custom, 'custom');
@@ -932,9 +935,23 @@ $$('[data-op-anchor]').forEach(btn => {
 });
 
 // ------------------------------------------------------------ modeles ------
+// Styles personnalisés (page /styles) applicables à l'édition
+let USER_STYLES = [];
+
+async function loadUserStyles() {
+  try {
+    const r = await fetch('/api/styles?applies_to=edit');
+    const j = await r.json();
+    USER_STYLES = (j.styles || []).filter(st => st.applies_to === 'edit' || st.applies_to === 'both');
+  } catch (e) {
+    USER_STYLES = [];
+  }
+}
+
 async function loadModels() {
   const r = await fetch('/api/models');
   MODELS = await r.json();
+  await loadUserStyles();
   editModels = Object.fromEntries(Object.entries(MODELS)
     .filter(([, m]) => m.supports_ref_images && (m.input_modes || []).includes('ref')));
 

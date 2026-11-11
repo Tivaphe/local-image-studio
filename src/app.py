@@ -153,6 +153,11 @@ def settings_page():
     return render_template("settings.html", settings=load_settings())
 
 
+@app.route("/styles")
+def styles_page():
+    return render_template("styles.html", models=MODELS)
+
+
 # --------------------------------------------------------------------------- #
 #  Fichiers générés
 # --------------------------------------------------------------------------- #
@@ -1494,6 +1499,93 @@ def api_translate():
 @app.route("/api/default-negative")
 def api_default_negative():
     return jsonify({"negative": DEFAULT_NEGATIVE})
+
+
+# --------------------------------------------------------------------------- #
+#  API : styles personnalisés (page /styles)
+# --------------------------------------------------------------------------- #
+@app.route("/api/styles")
+def api_styles():
+    applies_to = (request.args.get("applies_to") or "").strip().lower()
+    model_id = (request.args.get("model_id") or "").strip()
+    styles = db.list_user_styles()
+    if applies_to in ("gen", "edit"):
+        styles = [st for st in styles
+                  if st["applies_to"] in (applies_to, "both")]
+    if model_id:
+        styles = [st for st in styles
+                  if st["models"] == "all" or (isinstance(st["models"], list) and model_id in st["models"])]
+
+    # Catalogue intégré (identique pour tous les modèles) pour la page de gestion
+    any_model = next(iter(MODELS), None)
+    edit_model = next((mid for mid, m in MODELS.items() if m.get("supports_ref_images")), any_model)
+    builtin_gen = [p for p in (gen_prompt_presets(any_model) if any_model else []) if p.get("category") == "style"]
+    builtin_edit = [p for p in (edit_prompt_presets(edit_model) if edit_model else []) if p.get("category") == "style"]
+
+    return jsonify({"ok": True, "styles": styles,
+                    "builtin_gen": builtin_gen, "builtin_edit": builtin_edit,
+                    "models": {mid: m["name"] for mid, m in MODELS.items()}})
+
+
+def _style_payload():
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    prompt = (data.get("prompt") or "").strip()
+    applies_to = (data.get("applies_to") or "both").strip().lower()
+    models = data.get("models", "all")
+    if isinstance(models, list):
+        models = [str(m) for m in models if str(m) in MODELS] or "all"
+    elif models != "all":
+        models = "all"
+    return name, prompt, applies_to, models
+
+
+@app.route("/api/styles", methods=["POST"])
+def api_styles_create():
+    name, prompt, applies_to, models = _style_payload()
+    if not name or not prompt:
+        return jsonify({"ok": False, "error": "Le nom et le prompt sont obligatoires."}), 400
+    if applies_to not in ("gen", "edit", "both"):
+        return jsonify({"ok": False, "error": "« S'applique à » invalide."}), 400
+    try:
+        style_id = db.create_user_style(name, prompt, applies_to, models)
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    return jsonify({"ok": True, "id": style_id})
+
+
+@app.route("/api/styles/update", methods=["POST"])
+def api_styles_update():
+    data = request.get_json(silent=True) or {}
+    style_id = data.get("id")
+    if style_id is None:
+        return jsonify({"ok": False, "error": "Identifiant manquant."}), 400
+    name, prompt, applies_to, models = _style_payload()
+    if not name or not prompt:
+        return jsonify({"ok": False, "error": "Le nom et le prompt sont obligatoires."}), 400
+    if applies_to not in ("gen", "edit", "both"):
+        return jsonify({"ok": False, "error": "« S'applique à » invalide."}), 400
+    try:
+        ok = db.update_user_style(style_id, name, prompt, applies_to, models)
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Identifiant invalide."}), 400
+    if not ok:
+        return jsonify({"ok": False, "error": "Style introuvable."}), 404
+    return jsonify({"ok": True})
+
+
+@app.route("/api/styles/delete", methods=["POST"])
+def api_styles_delete():
+    data = request.get_json(silent=True) or {}
+    style_id = data.get("id")
+    if style_id is None:
+        return jsonify({"ok": False, "error": "Identifiant manquant."}), 400
+    ok = db.delete_user_style(style_id)
+    if not ok:
+        return jsonify({"ok": False, "error": "Style introuvable."}), 404
+    return jsonify({"ok": True})
 
 
 # --------------------------------------------------------------------------- #

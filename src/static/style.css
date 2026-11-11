@@ -637,3 +637,26 @@ small{color:var(--muted)}
 @media(prefers-reduced-motion:reduce){
   *{transition-duration:.01ms !important;animation-duration:.01ms !important}
 }
+
+/* ---------- page Gestion des styles (/styles) ---------- */
+.style-form{margin:10px 0 16px;padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--panel2);display:flex;flex-direction:column;gap:10px}
+.style-form .row{display:flex;gap:12px;flex-wrap:wrap}
+.style-form .grow{flex:1 1 260px}
+.style-form .actions{display:flex;gap:10px;align-items:center}
+.style-target-field{border:1px dashed var(--border,rgba(255,255,255,.15));border-radius:8px;padding:10px 12px;margin:0}
+.radio-inline{display:inline-flex;gap:6px;align-items:center;margin-right:14px;cursor:pointer}
+.style-models{margin-top:8px;max-height:190px;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:4px 12px;padding:8px;border:1px solid var(--border);border-radius:8px}
+.style-model-item{display:flex;gap:6px;align-items:center;font-size:13px;cursor:pointer;padding:2px 4px;border-radius:6px}
+.style-model-item:hover{background:rgba(255,255,255,.05)}
+.style-cards{display:flex;flex-direction:column;gap:10px}
+.style-builtin-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.style-card{border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:var(--panel2);display:flex;flex-direction:column;gap:6px}
+.style-card-head{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.style-card-prompt{margin:0;font-size:12.5px;color:var(--muted);max-height:4.5em;overflow:auto;white-space:pre-wrap}
+.style-card-foot{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:auto;padding-top:4px;border-top:1px solid var(--border,rgba(255,255,255,.07))}
+.style-badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--border,rgba(255,255,255,.18));white-space:nowrap}
+.style-badge.gen{color:#8fd0ff;border-color:#3a6b8f}
+.style-badge.edit{color:#ffb3d9;border-color:#8f3a6b}
+.style-badge.both{color:#b6f0c2;border-color:#3a8f55}
+.style-badge.all{opacity:.85}
+.style-badge.some{color:#ffd28a;border-color:#8f7a3a}

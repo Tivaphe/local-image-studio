@@ -56,6 +56,18 @@ def init_db():
             conn.execute("SELECT favorite FROM images LIMIT 1")
         except Exception:
             conn.execute("ALTER TABLE images ADD COLUMN favorite INTEGER DEFAULT 0")
+        # styles personnalisés (page Gestion des styles)
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_styles (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            prompt      TEXT NOT NULL,
+            applies_to  TEXT NOT NULL DEFAULT 'both',
+            models      TEXT NOT NULL DEFAULT 'all',
+            created     TEXT,
+            updated     TEXT
+        )
+        """)
         conn.commit()
 
 
@@ -239,3 +251,90 @@ def get_stats():
             "fav_resolution": fav_res,
             "recent": [dict(r) for r in recent],
         }
+
+
+# --------------------------------------------------------------------------- #
+#  Styles personnalisés (page Gestion des styles)
+# --------------------------------------------------------------------------- #
+_VALID_APPLIES = ("gen", "edit", "both")
+
+
+def _style_row(r):
+    d = dict(r)
+    try:
+        models = json.loads(d.get("models") or "\"all\"")
+    except Exception:
+        models = "all"
+    if models != "all" and not isinstance(models, list):
+        models = "all"
+    d["models"] = models
+    return d
+
+
+def list_user_styles():
+    with _lock, _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM user_styles ORDER BY updated DESC, id DESC").fetchall()
+        return [_style_row(r) for r in rows]
+
+
+def user_styles_for(model_id, applies_to):
+    """Styles personnalisés applicables à `model_id` pour 'gen' ou 'edit'."""
+    with _lock, _connect() as conn:
+        rows = conn.execute("SELECT * FROM user_styles").fetchall()
+    out = []
+    for r in rows:
+        d = _style_row(r)
+        if d["applies_to"] not in (applies_to, "both"):
+            continue
+        models = d["models"]
+        if models != "all" and (not isinstance(models, list) or model_id not in models):
+            continue
+        out.append(d)
+    return out
+
+
+def create_user_style(name, prompt, applies_to="both", models="all"):
+    name = (name or "").strip()[:80]
+    prompt = (prompt or "").strip()
+    if not name or not prompt:
+        raise ValueError("Le nom et le prompt sont obligatoires.")
+    if applies_to not in _VALID_APPLIES:
+        raise ValueError("applies_to doit valoir gen, edit ou both.")
+    if models != "all" and not isinstance(models, list):
+        raise ValueError("models doit valoir 'all' ou une liste d'identifiants.")
+    models_json = "all" if models == "all" else json.dumps([str(m) for m in models], ensure_ascii=False)
+    now = datetime.now().isoformat(timespec="seconds")
+    with _lock, _connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO user_styles (name, prompt, applies_to, models, created, updated)"
+            " VALUES (?,?,?,?,?,?)",
+            (name, prompt, applies_to, models_json, now, now))
+        conn.commit()
+        return cur.lastrowid
+
+
+def update_user_style(style_id, name, prompt, applies_to="both", models="all"):
+    name = (name or "").strip()[:80]
+    prompt = (prompt or "").strip()
+    if not name or not prompt:
+        raise ValueError("Le nom et le prompt sont obligatoires.")
+    if applies_to not in _VALID_APPLIES:
+        raise ValueError("applies_to doit valoir gen, edit ou both.")
+    if models != "all" and not isinstance(models, list):
+        raise ValueError("models doit valoir 'all' ou une liste d'identifiants.")
+    models_json = "all" if models == "all" else json.dumps([str(m) for m in models], ensure_ascii=False)
+    now = datetime.now().isoformat(timespec="seconds")
+    with _lock, _connect() as conn:
+        cur = conn.execute(
+            "UPDATE user_styles SET name=?, prompt=?, applies_to=?, models=?, updated=? WHERE id=?",
+            (name, prompt, applies_to, models_json, now, int(style_id)))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def delete_user_style(style_id):
+    with _lock, _connect() as conn:
+        cur = conn.execute("DELETE FROM user_styles WHERE id=?", (int(style_id),))
+        conn.commit()
+        return cur.rowcount > 0
