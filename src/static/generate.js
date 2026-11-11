@@ -335,6 +335,8 @@ function renderGenPreprompts() {
 
   sel.innerHTML = `<option value="">→ Choisir un pré-prompt adapté à ${m.name} ←</option>`;
   const builtIn = m.gen_presets || [];
+  const recommended = builtIn.filter(x => (x.category || 'general') !== 'style');
+  const styles = builtIn.filter(x => x.category === 'style');
   const custom = loadCustomGenPreprompts();
 
   const addGroup = (label, items, prefix) => {
@@ -351,7 +353,8 @@ function renderGenPreprompts() {
     sel.appendChild(grp);
   };
 
-  addGroup(`✨ Pré-prompts recommandés (${m.name})`, builtIn, 'builtin');
+  addGroup(`✨ Pré-prompts recommandés (${m.name})`, recommended, 'builtin');
+  addGroup(`🎭 Styles & rendus (adaptés à ${m.name})`, styles, 'builtin');
   addGroup('⭐ Mes pré-prompts enregistrés', custom, 'custom');
   if (delBtn) delBtn.hidden = true;
 }

@@ -364,6 +364,7 @@ function renderEditPreprompts() {
   };
 
   addGroup(`✂️ Édition sur 1 image (${m.name})`, builtIn.filter(x => x.category === 'canvas'), 'builtin');
+  addGroup(`🎭 Styles — garder le sujet (${m.name})`, builtIn.filter(x => x.category === 'style'), 'builtin');
   addGroup(`📚 Multi-images Canvas + Référence (${m.name})`, builtIn.filter(x => x.category === 'multi'), 'builtin');
   addGroup(`📐 Outpainting — Étendre le cadre (${m.name})`, builtIn.filter(x => x.category === 'outpaint'), 'builtin');
   addGroup(`⭐ Mes pré-prompts enregistrés (adaptés à ${m.name})`, custom, 'custom');

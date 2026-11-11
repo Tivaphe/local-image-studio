@@ -215,6 +215,7 @@ modifiables ensuite :
 
 | Option | Approximation | Effet réel |
 |---|---|---|
+| **🎭 Pré-prompts Styles & rendus** | 14 styles complets (🎬 Cinéma anamorphique, 📷 Portra 400, 🖼️ Impressionnisme, 🎨 Aquarelle, ✏️ Encre & fusain, 🌸 Ukiyo-e, 🧸 3D Blender, 👾 Pixel art, 🔺 Low-poly, 🎞️ Film noir, ⬜ Flat/vectoriel, 🎭 Mucha, 🌀 Dalí, 📖 Livre pour enfants) | Menu « 🎭 Styles & rendus » du sélecteur de pré-prompts (Générer) et « 🎭 Styles — garder le sujet » (Édition, jeton de référence du modèle) |
 | **Styles rapides** | 12 chips (🎬 Cinéma, 📷 Photo, 🖼️ Huile, 🎨 Aquarelle, ⛩️ Anime, 👾 Pixel art, 🔺 Low-poly, 🌆 Cyberpunk, ⚙️ Steampunk, ⬜ Minimaliste, 💡 Néon, 🕶️ Noir) | Chaque clic ajoute/retire un suffixe **visible** dans le prompt |
 | **Stylisation (0–1000)** | ≈ « stylize », 100 = présélection inchangée | Ajuste **Étapes** et **CFG** par-dessus la présélection active |
 | **Weirdness (0–3000)** | ≈ « weird », 0 = réglages Qualité inchangés | 0 → rien ; 1–999 → Euler A + Karras ; 1000–1999 → DPM++ 2M + Beta ; 2000–3000 → LCM + SGM Uniform |

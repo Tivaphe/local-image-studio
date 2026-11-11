@@ -11,7 +11,7 @@ import registry
 from registry import (MODELS, DEPS, build_command, resolve_dep_gguf,
                       _is_valid_dep, supports_outpainting, build_outpaint_prompt,
                       supports_inpainting, build_inpaint_prompt,
-                      outpaint_prompt_presets, edit_prompt_presets, gen_prompt_presets)
+                      outpaint_prompt_presets, edit_prompt_presets, gen_prompt_presets, _ref_token)
 
 NEW_MODELS = ["fibo2-dev", "fibo2-edit-turbo", "moss-image-sft", "moss-image-base", "krea2-turbo"]
 OUTPAINT_MODELS = [
@@ -108,6 +108,27 @@ class RegistryEntriesTests(unittest.TestCase):
             gen_presets = gen_prompt_presets(mid)
             self.assertTrue(len(gen_presets) >= 5, f"{mid} devrait avoir des pré-prompts de génération")
 
+    def test_style_preprompts(self):
+        # Les pré-prompts de style sont disponibles pour tous les modèles (génération)…
+        for mid, m in MODELS.items():
+            presets = gen_prompt_presets(mid)
+            styles = [p for p in presets if p.get("category") == "style"]
+            self.assertGreaterEqual(len(styles), 10, f"{mid} devrait proposer des pré-prompts de style")
+            self.assertEqual(len({p["id"] for p in styles}), len(styles), f"ids en double dans {mid}")
+            for p in styles:
+                self.assertTrue(p.get("label") and p.get("prompt"), f"style incomplet dans {mid}")
+
+        # …et pour les modèles d'édition par références (style sans changer le sujet)
+        for mid, m in MODELS.items():
+            if not m.get("supports_ref_images"):
+                continue
+            presets = edit_prompt_presets(mid)
+            styles = [p for p in presets if p.get("category") == "style"]
+            self.assertGreaterEqual(len(styles), 6, f"{mid} devrait proposer des styles d'édition")
+            token = _ref_token(mid, 1)
+            for p in styles:
+                self.assertIn(token, p["prompt"], f"style d'édition sans jeton de référence dans {mid}")
+
 
 class BuildCommandTests(unittest.TestCase):
     """Vérifie les arguments sd-cli produits pour chaque nouveau modèle, sans rien télécharger."""
@@ -198,3 +219,4 @@ class BuildCommandTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

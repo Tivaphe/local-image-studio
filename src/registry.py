@@ -2234,6 +2234,80 @@ def edit_prompt_presets(model_id: str) -> list[dict]:
             ),
         },
         {
+            "id": "style_watercolor",
+            "category": "style",
+            "label": "🎨 Aquarelle",
+            "prompt": (
+                f"Keep the subject and composition of {img1} completely unchanged, redraw the "
+                "entire image as a delicate watercolor painting with soft wet-on-wet washes and "
+                "textured paper"
+            ),
+        },
+        {
+            "id": "style_oil",
+            "category": "style",
+            "label": "🖼️ Peinture à l'huile",
+            "prompt": (
+                f"Keep the subject and composition of {img1} unchanged, repaint the scene as an "
+                "expressive oil painting with visible brushstrokes and warm chiaroscuro lighting"
+            ),
+        },
+        {
+            "id": "style_anime",
+            "category": "style",
+            "label": "🌸 Anime / illustration japonaise",
+            "prompt": (
+                f"Keep the subject and pose of {img1} unchanged, redraw the image in masterpiece "
+                "anime style, clean linework, vibrant cel shading, Makoto Shinkai inspired background"
+            ),
+        },
+        {
+            "id": "style_sketch",
+            "category": "style",
+            "label": "✏️ Croquis encre & fusain",
+            "prompt": (
+                f"Keep the subject of {img1} unchanged, convert the image into a detailed pencil "
+                "and charcoal sketch on textured paper with expressive cross-hatching"
+            ),
+        },
+        {
+            "id": "style_3d",
+            "category": "style",
+            "label": "🧸 3D / animation",
+            "prompt": (
+                f"Keep the subject and composition of {img1} unchanged, reimagine the scene as a "
+                "stylized 3D animated film still with soft cinematic lighting and global illumination"
+            ),
+        },
+        {
+            "id": "style_noir",
+            "category": "style",
+            "label": "🎞️ Noir & blanc (film noir)",
+            "prompt": (
+                f"Keep the subject and composition of {img1} unchanged, convert the image to "
+                "black and white film noir photography, hard contrast, venetian blind shadows, "
+                "1940s atmosphere"
+            ),
+        },
+        {
+            "id": "style_pixel",
+            "category": "style",
+            "label": "👾 Pixel art 16 bits",
+            "prompt": (
+                f"Keep the subject and composition of {img1} unchanged, convert the image into "
+                "16-bit pixel art with a limited color palette and crisp chunky pixels"
+            ),
+        },
+        {
+            "id": "style_ukiyoe",
+            "category": "style",
+            "label": "🖌️ Estampe japonaise ukiyo-e",
+            "prompt": (
+                f"Keep the subject and composition of {img1} unchanged, redraw the image as a "
+                "traditional ukiyo-e woodblock print with bold outlines and flat areas of color"
+            ),
+        },
+        {
             "id": "ref_bg_swap",
             "category": "multi",
             "label": "🖼️ Utiliser l'image 2 comme nouveau décor de l'image 1",
@@ -2262,6 +2336,7 @@ def gen_prompt_presets(model_id: str) -> list[dict]:
     common = [
         {
             "id": "gen_portrait",
+            "category": "general",
             "label": "📷 Portrait photoréaliste 85mm",
             "prompt": (
                 "Close-up editorial portrait of a weathered explorer in soft natural window light, "
@@ -2270,6 +2345,7 @@ def gen_prompt_presets(model_id: str) -> list[dict]:
         },
         {
             "id": "gen_landscape",
+            "category": "general",
             "label": "🏔️ Paysage cinématique Golden Hour",
             "prompt": (
                 "Breathtaking alpine valley at golden hour, dramatic volumetric sunbeams piercing "
@@ -2278,6 +2354,7 @@ def gen_prompt_presets(model_id: str) -> list[dict]:
         },
         {
             "id": "gen_cyberpunk",
+            "category": "general",
             "label": "🌃 Scène Cyberpunk néon sous la pluie",
             "prompt": (
                 "Cinematic street-level view of a futuristic Tokyo alley at night in the rain, "
@@ -2286,6 +2363,7 @@ def gen_prompt_presets(model_id: str) -> list[dict]:
         },
         {
             "id": "gen_product",
+            "category": "general",
             "label": "⌚ Photo produit commerciale Studio",
             "prompt": (
                 "Luxury mechanical chronograph watch resting on dark volcanic stone with water droplets, "
@@ -2294,6 +2372,7 @@ def gen_prompt_presets(model_id: str) -> list[dict]:
         },
         {
             "id": "gen_anime",
+            "category": "general",
             "label": "🎨 Illustration Anime / Concept Art",
             "prompt": (
                 "Masterpiece anime illustration of a cozy steampunk rooftop greenhouse overlooking a "
@@ -2304,6 +2383,7 @@ def gen_prompt_presets(model_id: str) -> list[dict]:
     if arch in ("ernie", "ideogram", "qwen_image", "moss_image", "flux3"):
         common.insert(0, {
             "id": "gen_typography",
+            "category": "general",
             "label": "🔤 Affiche / Texte lisible intégré",
             "prompt": (
                 "Vintage travel poster of an art-deco train station at twilight with bold, crisp "
@@ -2315,6 +2395,7 @@ def gen_prompt_presets(model_id: str) -> list[dict]:
         # LongCat rend le texte caractère par caractère : le mettre entre guillemets.
         common.insert(0, {
             "id": "gen_typography",
+            "category": "general",
             "label": "🔤 Texte exact entre guillemets (spécialité LongCat)",
             "prompt": (
                 "Minimalist movie poster of a lighthouse in a storm at dusk, the title "
@@ -2325,21 +2406,167 @@ def gen_prompt_presets(model_id: str) -> list[dict]:
     elif arch == "flux_kontext":
         common.insert(0, {
             "id": "gen_kontext_relight",
+            "category": "general",
             "label": "💡 Changer l'ambiance lumineuse (Kontext)",
             "prompt": (
                 "Keep the subject, composition and details identical, relight the scene with "
                 "warm golden-hour sunlight coming from the left, soft long shadows"
             ),
         })
+
+
     elif arch in ("sd3",):
         common.append({
             "id": "gen_img2img_restyle",
+            "category": "general",
             "label": "🖌️ Transformation peinture à l'huile (img2img)",
             "prompt": (
                 "Expressive impasto oil painting on canvas, rich visible brushstrokes, "
                 "warm chiaroscuro lighting, museum fine art quality"
             ),
         })
+
+    # --- 🎭 Styles & rendus : bibliothèque partagée, langage DiT/FLUX/Qwen/SD3 ---
+    styles = [
+        {
+            "id": "gen_style_cinematic",
+            "category": "style",
+            "label": "🎬 Cinéma anamorphique (teal & orange)",
+            "prompt": (
+                "Cinematic film still, a lone figure walking through a rain-soaked neon-lit "
+                "street at night, anamorphic lens flare, teal and orange color grade, subtle "
+                "35mm film grain, shallow depth of field, dramatic volumetric light"
+            ),
+        },
+        {
+            "id": "gen_style_portra",
+            "category": "style",
+            "label": "📷 Photo argentique Portra 400",
+            "prompt": (
+                "Analog 35mm film photograph of a quiet café terrace in the morning, "
+                "Kodak Portra 400, soft warm tones, fine film grain, natural available light, "
+                "candid documentary feel, 85mm lens"
+            ),
+        },
+        {
+            "id": "gen_style_oil",
+            "category": "style",
+            "label": "🖼️ Peinture à l'huile impressionniste",
+            "prompt": (
+                "Impressionist oil painting of a sunlit lavender field, vigorous visible brushstrokes, "
+                "impasto texture, warm painterly light, rich color harmony, museum masterpiece"
+            ),
+        },
+        {
+            "id": "gen_style_watercolor",
+            "category": "style",
+            "label": "🎨 Aquarelle délicate",
+            "prompt": (
+                "Delicate watercolor illustration of a fox curled up in autumn leaves, loose "
+                "wet-on-wet washes, soft paper texture, gentle pigment bleeds, muted earthy "
+                "palette, storybook charm"
+            ),
+        },
+        {
+            "id": "gen_style_ink",
+            "category": "style",
+            "label": "✏️ Encre & fusain (croquis)",
+            "prompt": (
+                "Detailed ink and charcoal sketch of an old lighthouse in a storm, expressive "
+                "cross-hatching, dramatic chiaroscuro, smudged charcoal shading, textured "
+                "sketchbook paper"
+            ),
+        },
+        {
+            "id": "gen_style_ukiyoe",
+            "category": "style",
+            "label": "🌸 Estampe japonaise ukiyo-e",
+            "prompt": (
+                "Traditional Japanese ukiyo-e woodblock print of a great wave beneath a full moon, "
+                "bold outlines, flat areas of color, carved woodblock texture, Edo period style"
+            ),
+        },
+        {
+            "id": "gen_style_3d",
+            "category": "style",
+            "label": "🧸 3D animation (rendu Blender)",
+            "prompt": (
+                "3D animated film still of a small robot tending a rooftop garden at sunset, soft "
+                "subsurface scattering, cinematic global illumination, stylized animated character "
+                "design, Blender render"
+            ),
+        },
+        {
+            "id": "gen_style_pixel",
+            "category": "style",
+            "label": "👾 Pixel art 16 bits",
+            "prompt": (
+                "Pixel art illustration of a cozy spaceship interior with a sleeping cat, 16-bit "
+                "style, limited color palette, crisp chunky pixels, no anti-aliasing, retro game "
+                "aesthetic"
+            ),
+        },
+        {
+            "id": "gen_style_lowpoly",
+            "category": "style",
+            "label": "🔺 Low-poly géométrique",
+            "prompt": (
+                "Low-poly geometric illustration of a snowy mountain lake at sunrise, faceted "
+                "triangular shapes, flat vibrant colors, minimalist composition, crisp clean render"
+            ),
+        },
+        {
+            "id": "gen_style_noir",
+            "category": "style",
+            "label": "🎞️ Film noir (noir & blanc)",
+            "prompt": (
+                "Black and white film noir photograph, a detective in a fedora under a street lamp "
+                "in the rain, hard venetian blind shadows, deep contrast, silver gelatin print, "
+                "1940s atmosphere"
+            ),
+        },
+        {
+            "id": "gen_style_flat",
+            "category": "style",
+            "label": "⬜ Flat design / vectoriel",
+            "prompt": (
+                "Minimalist flat vector illustration of a person cycling through a modern city, "
+                "bold geometric shapes, limited teal-coral-cream palette, subtle print grain, "
+                "editorial magazine cover"
+            ),
+        },
+        {
+            "id": "gen_style_artnouveau",
+            "category": "style",
+            "label": "🎭 Art Nouveau (Mucha)",
+            "prompt": (
+                "Art Nouveau lithograph poster of a woman with flowing floral hair, ornate organic "
+                "border, muted gold and sage palette, Alphonse Mucha style, intricate decorative "
+                "detail"
+            ),
+        },
+        {
+            "id": "gen_style_surreal",
+            "category": "style",
+            "label": "🌀 Surréalisme (Dalí)",
+            "prompt": (
+                "Surrealist oil painting of a desert with melting clocks draped over abandoned "
+                "objects, dreamlike vast landscape, hyperreal detail, Salvador Dalí style, "
+                "meticulous brushwork"
+            ),
+        },
+        {
+            "id": "gen_style_storybook",
+            "category": "style",
+            "label": "📖 Livre pour enfants",
+            "prompt": (
+                "Children's storybook illustration of a child sailing a tiny boat on a moonlit "
+                "sea, soft crayon and watercolor textures, whimsical clouds, cozy bedtime mood, "
+                "gentle pastel palette"
+            ),
+        },
+    ]
+    common.extend(styles)
     return common
 
 

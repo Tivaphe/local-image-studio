@@ -215,6 +215,7 @@ approximations** of Midjourney's aesthetic controls — everything stays editabl
 
 | Option | Approximates | Actual effect |
 |---|---|---|
+| **🎭 Style pre-prompts** | 14 complete styles (🎬 Anamorphic cinema, 📷 Portra 400, 🖼️ Impressionism, 🎨 Watercolor, ✏️ Ink & charcoal, 🌸 Ukiyo-e, 🧸 3D Blender, 👾 Pixel art, 🔺 Low-poly, 🎞️ Film noir, ⬜ Flat/vector, 🎭 Mucha, 🌀 Dalí, 📖 Children's book) | « 🎭 Styles & renders » section of the pre-prompt dropdown (Generate) and « 🎭 Styles — keep the subject » (Edit, per-model reference token) |
 | **Quick styles** | 12 chips (🎬 Cinema, 📷 Photo, 🖼️ Oil, 🎨 Watercolor, ⛩️ Anime, 👾 Pixel art, 🔺 Low-poly, 🌆 Cyberpunk, ⚙️ Steampunk, ⬜ Minimal, 💡 Neon, 🕶️ Noir) | Each click adds/removes a **visible** suffix in the prompt |
 | **Stylisation (0–1000)** | ≈ « stylize », 100 = preset unchanged | Adjusts **Steps** and **CFG** on top of the active preset |
 | **Weirdness (0–3000)** | ≈ « weird », 0 = Quality settings untouched | 0 → no-op; 1–999 → Euler A + Karras; 1000–1999 → DPM++ 2M + Beta; 2000–3000 → LCM + SGM Uniform |
