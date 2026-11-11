@@ -10,6 +10,7 @@ Options :
   --port N      changer le port d'écoute (défaut : 7860)
 """
 import argparse
+import hashlib
 import os
 import re
 import shutil
@@ -51,6 +52,29 @@ except Exception as _e:
     _ENHANCER_OK = False
 
 app = Flask(__name__)
+
+
+def _static_version():
+    """Empreinte du contenu de src/static — versionnée dans chaque URL statique.
+
+    Sans elle, le navigateur gardait quality.js / style.css en cache (12 h) et
+    réappliquer ses anciens réglages (ex. UltraSharp/SageAttention réactivés seuls).
+    """
+    h = hashlib.sha1()
+    static_dir = Path(__file__).resolve().parent / "static"
+    for f in sorted(static_dir.rglob("*")):
+        if f.is_file():
+            h.update(str(f.relative_to(static_dir)).encode("utf-8"))
+            h.update(f.read_bytes())
+    return h.hexdigest()[:12]
+
+
+STATIC_VERSION = _static_version()
+
+
+@app.context_processor
+def _inject_static_version():
+    return {"static_v": STATIC_VERSION}
 app.config["JSON_AS_ASCII"] = False
 # Outil local qui se met à jour via git pull / update.bat : on demande au navigateur de
 # toujours revalider les fichiers statiques (ETag/Last-Modified → 304 si rien n'a changé),

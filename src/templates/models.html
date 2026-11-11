@@ -371,5 +371,5 @@ modelsFilter?.addEventListener('change', () => {
   if (modelsCount) modelsCount.textContent = mode === 'all' ? '' : `${visible} / ${cards.length} modèle(s)`;
 });
 </script>
-<script src="{{ url_for('static', filename='models.js') }}"></script>
+<script src="{{ url_for('static', filename='models.js', v=static_v) }}"></script>
 {% endblock %}

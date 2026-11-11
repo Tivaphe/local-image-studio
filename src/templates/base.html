@@ -16,7 +16,7 @@
     }
   })();
   </script>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=static_v) }}">
 </head>
 <body>
   <a class="skip-link" href="#main-content">Aller au contenu</a>
@@ -43,7 +43,7 @@
     {% block content %}{% endblock %}
   </main>
 
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script src="{{ url_for('static', filename='app.js', v=static_v) }}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

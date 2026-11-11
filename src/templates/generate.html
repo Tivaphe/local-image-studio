@@ -291,6 +291,6 @@
 window.RATIOS = {{ ratios | tojson }};
 window.PAGE = "generate";
 </script>
-<script src="{{ url_for('static', filename='quality.js') }}"></script>
-<script src="{{ url_for('static', filename='generate.js') }}"></script>
+<script src="{{ url_for('static', filename='quality.js', v=static_v) }}"></script>
+<script src="{{ url_for('static', filename='generate.js', v=static_v) }}"></script>
 {% endblock %}

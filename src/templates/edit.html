@@ -410,6 +410,6 @@
 window.RATIOS = {{ ratios | tojson }};
 window.PAGE = "edit";
 </script>
-<script src="{{ url_for('static', filename='quality.js') }}"></script>
-<script src="{{ url_for('static', filename='edit.js') }}"></script>
+<script src="{{ url_for('static', filename='quality.js', v=static_v) }}"></script>
+<script src="{{ url_for('static', filename='edit.js', v=static_v) }}"></script>
 {% endblock %}

@@ -154,7 +154,7 @@
   {% endif %}
 </section>
 
-<script src="{{ url_for('static', filename='quality.js') }}"></script>
+<script src="{{ url_for('static', filename='quality.js', v=static_v) }}"></script>
 <script>
 // --- Suivi en direct des opérations auxiliaires (upscale / repair / restore / pid) ---
 const AUX_META = {
