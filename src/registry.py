@@ -399,6 +399,38 @@ def pid_default_prompt() -> str:
     return _DEFAULT_PID_PROMPT
 
 
+# Marqueurs de prompts qui décrivent une *instruction* (édition / retouche / traitement)
+# plutôt que le contenu de l'image. PiD étant une super-résolution GÉNÉRATIVE conditionnée
+# par le prompt, un tel texte biaise la reconstruction : on lui préfère alors la description
+# générique de qualité. Liste volontairement conservatrice (les faux positifs retombent sur
+# la description générique, ce qui est sûr — jamais sur un prompt d'édition).
+_EDIT_INSTRUCTION_MARKERS = (
+    "<image", "{img", "image 1", "image 2", "image 3", "image1", "image2",
+    "keep the subject", "keep the face", "keep his", "keep her", "keep the woman",
+    "keep the man", "keep the pose", "keep the composition", "keep the identity",
+    "garder le sujet", "garde le sujet", "garde sa", "garder sa",
+    "garde la composition", "garde le visage",
+    "préserve le", "preserver le", "preserve the",
+    "redraw", "redessine", "re-design", "re-render", "rerender",
+    "replace the", "remplace le", "remplace la", "remplace les", "remplacez",
+    "only change", "change only", "juste change",
+    "change the", "modifie le", "modifie la", "modifie les",
+    "inpaint", "outpaint", "extend the frame", "étendre le cadre", "étends le cadre",
+    "fill the mask", "remplis le masque", "masque",
+    "post-traitement", "post-processing", "postprocess", "post-process",
+    "combine image", "fusionne les images", "with reference", "en gardant",
+)
+
+
+def prompt_looks_like_edit_instruction(prompt: str) -> bool:
+    """True si le prompt ressemble à une *instruction d'édition/retouche* et non à
+    une description du contenu visuel. Sert à éviter de conditionner PiD par erreur."""
+    p = (prompt or "").strip().lower()
+    if not p:
+        return False
+    return any(marker in p for marker in _EDIT_INSTRUCTION_MARKERS)
+
+
 # --------------------------------------------------------------------------- #
 #  Mini-VAE TAE (decodage ultra-rapide + apercu en direct)
 #  taew2_1  : Qwen-Image / Qwen-Image 2512 / Wan 2.1 (decode rapide en fin

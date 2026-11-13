@@ -34,7 +34,8 @@ from registry import (MODELS, DEPS, DEP_QUANT_PRIORITY, resolve_dep_gguf,
                       portrait_embedding, supports_pulid, round16,
                       PID, pid_status, pid_gemma_path, pid_tokenizer_path,
                       pid_model_path, pid_vae_path, pid_backbone_for_arch,
-                      pid_default_prompt, build_pid_command)
+                      pid_default_prompt, build_pid_command,
+                      prompt_looks_like_edit_instruction)
 import metadata as _pngmeta
 
 
@@ -261,6 +262,28 @@ def model_status(model_id):
         "ready": ready,
     }
 
+
+def resolve_pid_prompt(explicit_prompt, src_image, default_prompt):
+    """Choisit le prompt de reconstruction PiD.
+
+    Ordre : prompt explicite > historique (si descriptif) > description générique.
+    Un prompt-instruction (édition / retouche / post-traitement) est refusé : PiD
+    s'en servirait pour *reconstruire* l'image — direction garantie mauvaise.
+    Retourne (prompt, source) avec source ∈ explicit|history|generic_postprocess|
+    generic_edit_instruction|generic_default.
+    """
+    p = (explicit_prompt or "").strip()
+    if p:
+        return p, "explicit"
+    if src_image:
+        if (src_image.get("model_id") or "") == "postprocess":
+            return default_prompt, "generic_postprocess"
+        entry_prompt = (src_image.get("prompt") or "").strip()
+        if entry_prompt:
+            if prompt_looks_like_edit_instruction(entry_prompt):
+                return default_prompt, "generic_edit_instruction"
+            return entry_prompt, "history"
+    return default_prompt, "generic_default"
 
 def ensure_dep(dep_id, token, msg_cb=None):
     """Télécharge une dépendance partagée si absente, met à jour le manifeste."""
@@ -1861,12 +1884,13 @@ class TaskManager:
                     f"VAE requis introuvable : {vae_path}. Relancez le téléchargement « ⬆️ PiD ×4 » "
                     "dans l'onglet Modèles (ou installez le modèle de la famille correspondante).")
 
-            # --- Prompt : celui de l'image source (historique) sinon défaut qualité ---
-            prompt = (p.get("prompt") or "").strip()
-            if not prompt and src_image:
-                prompt = (src_image.get("prompt") or "").strip()
-            if not prompt:
-                prompt = pid_default_prompt()
+            # --- Prompt : explicite > historique (descriptif) > défaut qualité ---
+            prompt, prompt_source = resolve_pid_prompt(p.get("prompt"), src_image,
+                                                       pid_default_prompt())
+            if src_image and prompt_source.startswith("generic_") and (p.get("prompt") or "").strip() == "":
+                self._set(log=("⬆️ PiD — le prompt de l'image ressemblait à une instruction "
+                               "d'édition/retouche : utilisation de la description générique "
+                               "(PiD reconstruit d'après le prompt ; décrivez le contenu)."))
 
             seed = p.get("seed") or 42
             try:

@@ -207,7 +207,7 @@ Agrandissement » regroupe toutes les options avancées, chacune avec une **expl
 | **⚡ SageAttention CUDA** | Attention plus rapide et moins de VRAM sur GPU NVIDIA (SM80+, pilotes récents) — aucune installation Python | Section Qualité → ⚡ Performance |
 | **📡 Aperçu en direct** | Fenêtre « LIVE » : voyez l'image se débruiter pas à pas (**activé par défaut, mode « Auto »** : mini-VAE si installé, sinon projection des latents) | Section Qualité → ⚡ Performance |
 | **🎭 Visage fidèle (PuLID)** | Conserve le visage d'une photo (FLUX.1 Schnell/Dev/FHDR uniquement) | Section Qualité → 🎭 Visage fidèle — voir `docs/PULID_FR.md` |
-| **⬆️ PiD ×4** | Super-résolution **générative** ×4 (1024→4096 en 4 étapes), conditionnée par le prompt de l'image — reconstruit la matière là où ESRGAN lisse | Bouton « ⬆️ PiD ×4 » sur chaque résultat / dans l'historique (voir `docs/PID_FR.md`, licence NSCLv1) |
+| **⬆️ PiD ×4** | Super-résolution **générative** ×4 (1024→4096 en 4 étapes), conditionnée par un prompt **confirmé par vous** (modale avant lancement — le prompt de l'image est pré-rempli mais modifiable ; les instructions d'édition sont déconseillées) — reconstruit la matière là où ESRGAN lisse | Bouton « ⬆️ PiD ×4 » sur chaque résultat / dans l'historique (voir `docs/PID_FR.md`, licence NSCLv1) |
 | **🔀 Varier (subtil / fort)** | Variation façon Midjourney : re-génère l'image en img2img avec une **nouvelle graine** — subtil = force 0,35 (léger), fort = force 0,75 (franc) ; le prompt et les réglages sont repris de l'image | Boutons « 🔀 Varier » sur chaque résultat / dans l'historique (modèles img2img uniquement : SD 3.5, FLUX.1 Dev, Chroma) |
 
 Sur la page **Générer**, une section « ✨ Style Midjourney » regroupe des **approximations
@@ -257,7 +257,7 @@ Deux outils agissent directement sur une image déjà générée (boutons sur ch
 | **🩹 Restauration ×2 (SeedVR2)** | Reconstruit la matière (peau, tissus, texte) et double la résolution par diffusion | ~6,8 Go à installer, ~10 Go de VRAM, lent mais bluffant sur vieilles photos |
 | **🙂 Réparation visages & mains (ADetailer)** | Le détecteur repère visages/mains et le modèle re-détaille ces zones uniquement | Quelques Mo à installer, modifie uniquement les zones détectées |
 | **🔍 Agrandissement ×4 (ESRGAN)** | Super-résolution classique | 17–64 Mo, rapide |
-| **⬆️ PiD ×4 (NVIDIA Pixel Diffusion)** | Ré-encode l'image avec le VAE du backbone puis la décode en **4096×4096 en 4 étapes**, guidée par le prompt de l'image — backbones FLUX.1 / FLUX.2 / Qwen-Image | ~1,6 Go par backbone + socle ~5,4 Go (Gemma 2 2B), **licence NSCLv1 non-commerciale** — voir `docs/PID_FR.md` |
+| **⬆️ PiD ×4 (NVIDIA Pixel Diffusion)** | Ré-encode l'image avec le VAE du backbone puis la décode en **4096×4096 en 4 étapes**, guidée par un prompt que vous confirmez (modale : prompt de l'image pré-rempli, modifiable, attention aux instructions d'édition) — backbones FLUX.1 / FLUX.2 / Qwen-Image | ~1,6 Go par backbone + socle ~5,4 Go (Gemma 2 2B), **licence NSCLv1 non-commerciale** — voir `docs/PID_FR.md` |
 
 > 💡 **Suivi en direct** : depuis la page **Historique**, chaque opération lancée sur une image existante
 > (« 🙂 Réparer », « 🩹 Restaurer ×2 », « 🔍 Agrandir ×4 », « ⬆️ PiD ×4 ») affiche un **bandeau de

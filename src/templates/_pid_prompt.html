@@ -1,0 +1,28 @@
+<!-- ===== Confirmation PiD ×4 : prompt de reconstruction (partagé) ===== -->
+<div class="pp-modal" id="pid-prompt-modal" hidden role="dialog" aria-modal="true" aria-labelledby="pid-prompt-title">
+  <div class="pp-backdrop" data-pidprompt-close></div>
+  <div class="pp-panel pid-prompt-panel">
+    <div class="pp-head">
+      <div>
+        <h3 id="pid-prompt-title">⬆️ PiD ×4 — prompt de reconstruction</h3>
+        <p class="muted small">
+          PiD <b>reconstruit</b> l'image en 4 étapes, conditionnée par le prompt. Un prompt-recette
+          (« garde le sujet, redessine… ») est une <u>instruction</u>, pas une description du contenu —
+          le résultat partira dans la mauvaise direction. Écrivez ce que vous <b>voyez</b>.
+        </p>
+      </div>
+      <button type="button" class="link pp-close-x" data-pidprompt-close aria-label="Fermer">✕</button>
+    </div>
+    <div class="pid-prompt-body">
+      <div class="pid-prompt-warn" id="pid-prompt-warn" hidden>⚠️ Ce prompt ressemble à une instruction d'édition — adaptez-le à ce que vous voyez, ou lancez avec la description générique.</div>
+      <label class="pid-prompt-label" for="pid-prompt-text">Prompt utilisé par PiD</label>
+      <textarea id="pid-prompt-text" rows="4" placeholder="Décrivez l'image — ex. « a young woman with red hair in a forest, soft golden light, 85mm portrait, film grain »…"></textarea>
+      <p class="muted small">Vide = description générique de qualité. Sortie 4096×4096, enregistrée dans l'historique. Licence NSCLv1 (non-commerciale).</p>
+    </div>
+    <div class="pp-foot">
+      <button type="button" class="btn ghost" data-pidprompt-close>Annuler</button>
+      <button type="button" class="btn" id="pid-prompt-generic">Description générique</button>
+      <button type="button" class="btn primary" id="pid-prompt-launch">⬆️ Lancer PiD</button>
+    </div>
+  </div>
+</div>

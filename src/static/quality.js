@@ -642,11 +642,12 @@
   // ------------------------------------------------------------------ //
   //  Super-résolution générative PiD ×4 (POST /api/pid-upscale, NVIDIA PiD)
   // ------------------------------------------------------------------ //
-  Q.startPid = async function ({ imageId = null, path = null, backbone = null } = {}) {
+  Q.startPid = async function ({ imageId = null, path = null, backbone = null, prompt = null } = {}) {
     const body = {};
     if (imageId != null) body.image_id = imageId;
     if (path) body.path = path;
     if (backbone) body.backbone = backbone;
+    if (prompt) body.prompt = prompt;
     let j;
     try {
       const r = await fetch("/api/pid-upscale", {
@@ -669,10 +670,64 @@
         window.showToast(`⏳ PiD ajouté à la file d'attente (position #${j.position}).`);
       }
     } else if (window.showToast) {
-      window.showToast("⬆️ PiD ×4 en cours (sortie 4096×4096, 4 étapes — reconstruit les détails, prompt repris de l'image)…");
+      window.showToast("⬆️ PiD ×4 en cours (sortie 4096×4096, 4 étapes, reconstruction conditionnée par le prompt confirmé)…");
     }
     ensurePolling();
     return true;
+  };
+
+  // Heuristique miroir de registry.prompt_looks_like_edit_instruction (JS)
+  const PID_EDIT_MARKERS = ["<image", "{img", "image 1", "image 2", "image1", "image2",
+    "keep the subject", "keep the face", "keep his", "keep her", "keep the pose",
+    "keep the composition", "keep the identity", "garder le sujet", "garde le sujet",
+    "garde le visage", "préserve le", "preserve the", "redraw", "redessine", "re-render",
+    "replace the", "remplace le", "remplace la", "change the", "modifie le", "modifie la",
+    "modifie les", "inpaint", "outpaint", "extend the frame", "étendre le cadre",
+    "post-traitement", "post-processing", "postprocess", "post-process"];
+  const looksLikeEditPrompt = txt =>
+    PID_EDIT_MARKERS.some(mk => String(txt || "").toLowerCase().includes(mk));
+
+  // Modale « ⬆️ PiD ×4 — prompt de reconstruction » (template _pid_prompt.html)
+  // Retourne une Promise<boolean> : true si PiD a été lancé (boutons « Lancer » ou « Description générique »).
+  Q.askPidPrompt = function ({ imageId = null, path = null, backbone = null } = {}) {
+    return new Promise(async resolve => {
+      const modal = document.getElementById("pid-prompt-modal");
+      const ta = document.getElementById("pid-prompt-text");
+      const warn = document.getElementById("pid-prompt-warn");
+      if (!modal || !ta) { // repli : comportement historique côté serveur
+        const ok = await Q.startPid({ imageId, path, backbone });
+        resolve(ok);
+        return;
+      }
+      ta.value = "";
+      warn.hidden = true;
+      if (imageId != null) {
+        try {
+          const r = await fetch(`/api/image/${imageId}`);
+          const j = await r.json();
+          if (j.ok && j.image && j.image.prompt) ta.value = j.image.prompt;
+        } catch (e) { /* réseau : on part sur champ vide = description générique */ }
+      }
+      if (ta.value.trim()) warn.hidden = !looksLikeEditPrompt(ta.value);
+      ta.addEventListener("input", () => { warn.hidden = !looksLikeEditPrompt(ta.value); });
+      document.body.style.overflow = "hidden";
+      modal.hidden = false;
+      const close = () => { modal.hidden = true; document.body.style.overflow = ""; };
+      const finish = async useGeneric => {
+        close();
+        const prompt = useGeneric ? null : (ta.value.trim() || null);
+        const ok = await Q.startPid({ imageId, path, backbone, prompt });
+        resolve(ok);
+      };
+      document.getElementById("pid-prompt-launch").onclick = () => finish(false);
+      document.getElementById("pid-prompt-generic").onclick = () => finish(true);
+      modal.querySelectorAll("[data-pidprompt-close]").forEach(el => {
+        el.onclick = () => { close(); resolve(false); };
+      });
+      const esc = e => { if (e.key === "Escape") { document.removeEventListener("keydown", esc); close(); resolve(false); } };
+      document.addEventListener("keydown", esc);
+      ta.focus();
+    });
   };
 
   Q.makePidButton = function ({ imageId = null, path = null, backbone = null } = {}) {
@@ -681,24 +736,24 @@
     btn.className = "btn small pid-mini";
     btn.textContent = "⬆️ PiD ×4";
     btn.title =
-      "Super-résolution générative PiD (NVIDIA Pixel Diffusion) : ré-encode l'image avec le VAE " +
-      "du backbone puis la décode en 4096×4096 en 4 étapes. Contrairement à SeedVR2, elle est " +
-      "conditionnée par le prompt de l'image (repris automatiquement depuis l'historique). " +
-      "Backbone choisi automatiquement selon la famille du modèle source (FLUX.1 / FLUX.2 / " +
-      "Qwen-Image) — ou forcez-le via backbone. Licence NSCLv1 (non-commerciale). " +
-      "La grande version est enregistrée dans l'historique.";
+      "Super-résolution générative PiD (NVIDIA Pixel Diffusion) : l'image est ré-encodée avec le VAE " +
+      "du backbone puis décodée en 4096×4096 en 4 étapes. Elle est conditionnée par un prompt que " +
+      "vous confirmez (et pouvez modifier) juste avant le lancement — évitez les instructions " +
+      "d'édition, PiD reconstruit à partir de ce texte. Backbone choisi automatiquement selon la " +
+      "famille du modèle source (FLUX.1 / FLUX.2 / Qwen-Image). Licence NSCLv1 (non-commerciale).";
     btn.addEventListener("click", async () => {
+      const prev = btn.textContent;
       btn.disabled = true;
       btn.textContent = "⬆️ pid…";
       Q._doneCbs.push(() => {
         btn.disabled = false;
         btn.textContent = "⬆️ PiD ×4";
       });
-      const ok = await Q.startPid({ imageId, path, backbone });
+      const ok = await Q.askPidPrompt({ imageId, path, backbone });
       if (!ok) {
         Q._doneCbs.pop();
         btn.disabled = false;
-        btn.textContent = "⬆️ PiD ×4";
+        btn.textContent = prev;
       }
     });
     return btn;

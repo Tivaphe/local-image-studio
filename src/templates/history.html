@@ -120,7 +120,7 @@
           {% endif %}
           {% if pid_ready %}
           <button type="button" class="link pid-link" data-id="{{ im.id }}"
-                  title="⬆️ Super-résolution générative PiD (NVIDIA Pixel Diffusion, 4 étapes, sortie 4096×4096, prompt repris de l'image) — la grande version est ajoutée à l'historique">⬆️ PiD</button>
+                  title="⬆️ Super-résolution générative PiD (NVIDIA Pixel Diffusion, 4 étapes, sortie 4096×4096) — le prompt de reconstruction vous sera demandé avant le lancement ; la grande version est ajoutée à l'historique">⬆️ PiD</button>
           {% endif %}
           {% if im.model in vary_models and (im.width or 0) <= 1536 and (im.height or 0) <= 1536 %}
           <button type="button" class="link vary-link" data-id="{{ im.id }}" data-mode="subtle"
@@ -684,8 +684,8 @@ document.querySelectorAll('.pid-link').forEach(b => {
     b.disabled = true;
     const orig = b.textContent;
     b.textContent = '⬆️ …';
-    const ok = window.LisQuality
-      ? await LisQuality.startPid({ imageId: parseInt(b.dataset.id, 10) })
+    const ok = window.LisQuality && LisQuality.askPidPrompt
+      ? await LisQuality.askPidPrompt({ imageId: parseInt(b.dataset.id, 10) })
       : false;
     if (!ok) {
       b.disabled = false;

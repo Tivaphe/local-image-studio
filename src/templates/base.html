@@ -45,6 +45,7 @@
 
   <script src="{{ url_for('static', filename='app.js', v=static_v) }}"></script>
   {% include "_postprocess.html" %}
+  {% include "_pid_prompt.html" %}
   {% block scripts %}{% endblock %}
 </body>
 </html>

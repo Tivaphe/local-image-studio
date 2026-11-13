@@ -686,3 +686,11 @@ small{color:var(--muted)}
   .pp-body{grid-template-columns:1fr}
   .pp-sliders{border-left:none;border-top:1px solid var(--border)}
 }
+
+/* ---------- PiD ×4 : confirmation du prompt ---------- */
+.pid-prompt-panel{max-width:640px}
+.pid-prompt-body{padding:14px 18px;display:flex;flex-direction:column;gap:8px}
+.pid-prompt-label{font-size:13px;color:var(--muted)}
+#pid-prompt-text{width:100%;box-sizing:border-box;resize:vertical;min-height:80px}
+.pid-prompt-warn{background:#f0a93b1f;border:1px solid #f0a93b55;color:var(--warn);
+  border-radius:8px;padding:8px 10px;font-size:13px;line-height:1.45}
