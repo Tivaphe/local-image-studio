@@ -13,7 +13,7 @@ contente de lisser. C'est le « super-résolveur » open-weights le plus proche 
 | | ESRGAN ×4 | SeedVR2 ×2 | **PiD ×4** |
 |---|---|---|---|
 | Type | Super-résolution déterministe | Restauration par diffusion | **Décodage génératif (pixel-space)** |
-| Guidé par le prompt | Non | Indirectement (image seule) | **Oui — reprend le prompt de l'image** |
+| Guidé par le prompt | Non | Indirectement (image seule) | **Oui — prompt confirmé par vous (modale avant lancement)** |
 | Sortie | ×4 | ×2 | **×4 → 4096×4096** |
 | Poids | 17–64 Mo | ~6,8 Go | **~1,6 Go int8 par backbone** (+ socle commun ~5,4 Go) |
 | Vitesse | Rapide | Lent (minutes) | 4 étapes, mais pixels 4096² (modéré) |
@@ -65,14 +65,25 @@ correspondant (réutilise les dépôts déjà utilisés par vos modèles FLUX/Qw
 Un bouton **⬆️ PiD ×4** apparaît sur chaque résultat (Générer / Édition) et dans l'historique.
 Concrètement :
 
-1. Le backbone est choisi automatiquement : d'abord la **famille du modèle source**
+1. **Vous confirmez le prompt** dans la modale « Prompt de reconstruction » qui s'ouvre avant
+   le lancement : le prompt enregistré avec l'image est pré-rempli, **modifiable**, et si vous
+   le videz c'est une description générique de qualité qui est utilisée. Un bouton
+   « Description générique » ignore le prompt affiché. Si le texte ressemble à une
+   *instruction d'édition* (« garde le sujet… », « redessine… », `<image…`…), un avertissement
+   s'affiche. C'est important : PiD **reconstruit** l'image à partir du prompt — lui donner une
+   recette d'édition au lieu d'une description du contenu emmène la reconstruction dans la
+   mauvaise direction. Décrivez **ce que vous voyez**.
+2. Le backbone est choisi automatiquement : d'abord la **famille du modèle source**
    (FLUX.1 → `flux1`, FLUX.2 → `flux2`, Qwen-Image → `qwenimage`) si elle est installée,
    sinon le premier backbone complet trouvé.
-2. Le **prompt** reprend celui de l'image source si elle existe dans l'historique
-   (c'est ce qui guide la reconstruction) ; sinon un prompt qualité générique est utilisé.
 3. sd-cli encode l'image (`-r`) puis décode en 4096×4096 (`--steps 4`, `--cfg-scale 1.0`).
 4. La sortie est enregistrée dans `output/` (préfixe `pid_`), taguée dans les métadonnées,
    et ajoutée à l'**historique** (bouton ⬆️ visible sur sa carte).
+5. Côté serveur, si aucun prompt explicite n'est envoyé, celui de l'image est repris depuis
+   l'historique **uniquement s'il décrit le contenu** : un prompt-instruction (édition, retouche,
+   post-traitement) ou une image issue d'un post-traitement retombe sur la description générique
+   (raison journalisée dans le log). L'API accepte un prompt explicite :
+   `POST /api/pid-upscale {"path": "…", "prompt": "…"}`.
 
 ## Limites connues & dépannage
 
@@ -109,6 +120,8 @@ sd-cli --diffusion-model models/pid/pid_1.5_flux1_1024_to_4096_4step_int8_convro
 - Paper : arXiv **2605.23902** · Projet : research.nvidia.com/labs/sil/projects/pid/
 
 > État des tests : les routes, la construction de commande, les téléchargements et l'historique
-> sont couverts par `tests/test_feature_packs.py` (95 tests). Le décodage GPU réel n'a pas pu
+> sont couverts par `tests/test_feature_packs.py` ; la résolution du prompt de reconstruction
+> (explicite > historique descriptif > description générique, + détection des instructions
+> d'édition FR/EN) est couverte par `tests/test_pid_prompt.py`. Le décodage GPU réel n'a pas pu
 > être validé dans l'environnement de développement (pas de GPU) — sur votre carte, la première
 > exécution vous dira tout de suite si ça tient en VRAM.
