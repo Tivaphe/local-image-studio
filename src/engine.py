@@ -1,0 +1,2598 @@
+# -*- coding: utf-8 -*-
+"""
+Moteur d'exécution :
+  - téléchargement de l'exécutable stable-diffusion.cpp (sd-cli)
+  - téléchargement des modèles GGUF et de leurs dépendances (huggingface_hub)
+  - lancement d'une génération (subprocess) + analyse de la progression
+  - gestion asynchrone des tâches (téléchargements / générations)
+"""
+import base64
+import io
+import json
+import socket
+import os
+import random
+import re
+import shutil
+import subprocess
+import threading
+import time
+import zipfile
+import uuid
+from pathlib import Path
+from urllib.request import urlopen, Request
+
+from config import (ROOT, BIN_DIR, LLAMA_DIR, _IS_WIN, DIFFUSION_DIR, OUTPUT_DIR, UPSCALE_DIR,
+                    ADETAILER_DIR, SEEDVR2_DIR, TAESD_DIR, PREVIEW_DIR, PID_DIR,
+                    find_sd_cli)
+from registry import (MODELS, DEPS, DEP_QUANT_PRIORITY, resolve_dep_gguf,
+                      CAPTIONER_MODELS, CAPTION_DEFAULT_PROMPT,
+                      captioner_status, captioner_cards, captioners_ready,
+                      resolve_captioner_id, captioner_files,
+                      load_manifest, save_manifest, build_command, _dep_path,
+                      check_images_input, UPSCALERS, ADETAILERS,
+                      upscaler_path, adetailer_path, build_upscale_command,
+                      build_adetailer_command, build_seedvr2_command,
+                      SEEDVR2, seedvr2_paths, seedvr2_status,
+                      TAESD, taesd_path, taesd_status, taesd_for_model,
+                      PULID, pulid_weights_path, pulid_status,
+                      portrait_embedding, supports_pulid, round16,
+                      PID, pid_status, pid_gemma_path, pid_tokenizer_path,
+                      pid_model_path, pid_vae_path, pid_backbone_for_arch,
+                      pid_default_prompt, build_pid_command,
+                      prompt_looks_like_edit_instruction)
+import metadata as _pngmeta
+
+
+# =========================================================================== #
+#  Réglages (token HF pour les dépôts gated comme FHDR)
+# =========================================================================== #
+_SETTINGS = {}
+_SETTINGS_LOCK = threading.Lock()
+_SETTINGS_PATH = ROOT / "settings.json"
+
+
+def load_settings():
+    global _SETTINGS
+    with _SETTINGS_LOCK:
+        if not _SETTINGS:
+            if _SETTINGS_PATH.exists():
+                try:
+                    _SETTINGS = json.loads(_SETTINGS_PATH.read_text(encoding="utf-8"))
+                except Exception:
+                    _SETTINGS = {}
+            _SETTINGS.setdefault("hf_token", "")
+            # Ouvrir le navigateur au démarrage du serveur (case dans Paramètres)
+            _SETTINGS.setdefault("open_browser", True)
+            # --- Performance & Apercu (valeurs par defaut) ---
+            # sage_attn : acceleration CUDA SageAttention (ignoree si non supportee)
+            _SETTINGS.setdefault("sage_attn", False)
+            # preview : méthode d'apercu live ("none"|"proj"|"tae"|"vae")
+            _SETTINGS.setdefault("preview", "none")
+            # preview_interval : une image d'apercu toutes les N etapes
+            _SETTINGS.setdefault("preview_interval", 3)
+        return _SETTINGS
+
+
+def save_settings(d):
+    with _SETTINGS_LOCK:
+        _SETTINGS.update(d)
+        _SETTINGS_PATH.write_text(json.dumps(_SETTINGS, indent=2, ensure_ascii=False),
+                                  encoding="utf-8")
+
+
+def hf_token():
+    return load_settings().get("hf_token", "").strip()
+
+
+# =========================================================================== #
+#  Téléchargement de l'exécutable sd-cli (stable-diffusion.cpp)
+# =========================================================================== #
+SDCPP_REPO_API = "https://api.github.com/repos/leejet/stable-diffusion.cpp/releases/latest"
+# Binaire principal (Windows CUDA 12) + runtime CUDA (cudart) fourni à part.
+BINARY_ASSET_END = "-bin-win-cuda12-x64.zip"
+CUDART_ASSET_START = "cudart-sd-bin-win-cu12-x64.zip"
+
+
+def _gh_get(url):
+    req = Request(url, headers={"Accept": "application/vnd.github+json",
+                                "User-Agent": "local-image-studio"})
+    return json.loads(urlopen(req, timeout=30).read())
+
+
+def latest_sdcli_assets():
+    """Renvoie (binary_url, cudart_url) pour la dernière release Windows CUDA."""
+    data = _gh_get(SDCPP_REPO_API)
+    binary_url = cudart_url = None
+    for a in data.get("assets", []):
+        name = a.get("name", "")
+        if name.endswith(BINARY_ASSET_END):
+            binary_url = a.get("browser_download_url")
+        elif name == CUDART_ASSET_START or (name.startswith("cudart") and name.endswith(".zip")):
+            cudart_url = a.get("browser_download_url")
+    # fallback CPU si pas de build CUDA
+    if not binary_url:
+        for a in data.get("assets", []):
+            if a.get("name", "").endswith("-bin-win-avx2-x64.zip"):
+                binary_url = a.get("browser_download_url")
+    return binary_url, cudart_url
+
+
+def _download(url, dest: Path, progress_cb=None):
+    """Télécharge un fichier avec suivi de progression (callback(done, total))."""
+    req = Request(url, headers={"User-Agent": "local-image-studio"})
+    with urlopen(req, timeout=60) as r:
+        total = int(r.headers.get("Content-Length", 0))
+        done = 0
+        chunk = 1 << 20  # 1 Mo
+        tmp = dest.with_suffix(dest.suffix + ".part")
+        with open(tmp, "wb") as f:
+            while True:
+                buf = r.read(chunk)
+                if not buf:
+                    break
+                f.write(buf)
+                done += len(buf)
+                if progress_cb:
+                    progress_cb(done, total)
+        tmp.replace(dest)
+
+
+def install_engine(progress_cb=None):
+    """Télécharge et extrait sd-cli (binaire + runtime CUDA) dans bin/."""
+    binary_url, cudart_url = latest_sdcli_assets()
+    if not binary_url:
+        raise RuntimeError("Impossible de trouver le binaire sd-cli Windows CUDA.")
+
+    def _dl_asset(url, label):
+        name = url.rsplit("/", 1)[-1]
+        dest = BIN_DIR / name
+        if progress_cb:
+            progress_cb(0, 1)
+        if progress_cb:
+            progress_cb(0, 0)  # signal « démarrage »
+        _download(url, dest, progress_cb)
+        with zipfile.ZipFile(dest) as z:
+            z.extractall(BIN_DIR)
+        dest.unlink(missing_ok=True)
+        if progress_cb:
+            progress_cb(1, 1)
+
+    # 1) runtime CUDA (cudart/cublas) — requis au démarrage de sd-cli.exe
+    if cudart_url:
+        if progress_cb:
+            progress_cb(0, 0)
+        _dl_asset(cudart_url, "cudart")
+    # 2) binaire sd-cli
+    _dl_asset(binary_url, "binary")
+    return find_sd_cli()
+
+
+def engine_ready() -> bool:
+    return find_sd_cli() is not None
+
+
+# =========================================================================== #
+#  Téléchargement des modèles + dépendances (huggingface_hub)
+# =========================================================================== #
+def friendly_download_error(exc):
+    """Transforme une exception du téléchargement Hugging Face en message
+    clair (français) et actionnable pour la page Modèles."""
+    msg = str(exc or "")
+    low = msg.lower()
+    name = type(exc).__name__.lower()
+    if "gated" in name or "gated" in low or "access to model" in low or "401" in low:
+        return ("accès refusé (401) : le dépôt est protégé (gated). Ajoutez un token Hugging Face "
+                "dans Paramètres, après avoir accepté la licence du dépôt sur huggingface.co.")
+    if "entry not found" in low or "404" in low or "not found" in name or "repository not found" in low:
+        return ("fichier introuvable (404) : le fichier demandé n'existe pas (ou plus) dans le dépôt. "
+                "Mettez à jour l'application (update.bat) ou signalez-le — la liste des fichiers "
+                "amont change sans prévenir.")
+    if "localentrynotfound" in name or "connection" in name or "connectionerror" in low or "timed out" in low or "network" in low:
+        return ("problème de réseau : impossible de contacter Hugging Face. Vérifiez votre connexion "
+                "(ou votre VPN / proxy), puis réessayez.")
+    if "no space left" in low or "disk" in low:
+        return "disque plein : libérez de l'espace sur le disque d'installation, puis réessayez."
+    if "huggingface_hub n'est pas installé" in msg:
+        return msg
+    # Cas général : garder l'erreur brute, mais lisible.
+    return msg
+
+
+def _import_hf():
+    try:
+        from huggingface_hub import hf_hub_download, list_repo_files
+        return hf_hub_download, list_repo_files
+    except ImportError as e:
+        raise RuntimeError("huggingface_hub n'est pas installé. Lancez: pip install huggingface_hub") from e
+
+
+def _hf_download_file(repo, filename, dest: Path, token, msg_cb=None):
+    hf_hub_download, _ = _import_hf()
+    if msg_cb:
+        msg_cb(f"Téléchargement de {filename} ({repo})")
+    # téléchargement dans un dossier tampon puis déplacement (aplatit les sous-dossiers)
+    staging = dest.parent / ".staging"
+    staging.mkdir(parents=True, exist_ok=True)
+    cached = hf_hub_download(repo_id=repo, filename=filename,
+                             local_dir=str(staging), token=(token or None))
+    shutil.move(cached, dest)
+    # nettoyage du dossier tampon
+    try:
+        shutil.rmtree(staging, ignore_errors=True)
+    except Exception:
+        pass
+
+
+def _png_size(path: Path):
+    """Lit rapidement les dimensions (largeur, hauteur) d'un PNG via son en-tête IHDR."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(26)
+        if head[:8] == b"\x89PNG\r\n\x1a\n" and head[12:16] == b"IHDR":
+            w = int.from_bytes(head[16:20], "big")
+            h = int.from_bytes(head[20:24], "big")
+            return w, h
+    except Exception:
+        pass
+    return None
+
+
+def _model_present(model_id, quant) -> bool:
+    m = MODELS[model_id]
+    ok = (DIFFUSION_DIR / m["file_for_quant"][quant]).exists()
+    if "uncond_file_for_quant" in m:
+        ok = ok and (DIFFUSION_DIR / m["uncond_file_for_quant"][quant]).exists()
+    return ok
+
+
+def _dep_present(dep_id) -> bool:
+    """Une dépendance est présente si elle est dans le manifeste ET le fichier existe, ou si présente à l'emplacement standard."""
+    mf = load_manifest()
+    p = _dep_path(mf, dep_id)
+    return bool(p and Path(p).exists())
+
+
+def model_status(model_id):
+    """Renvoie l'état (quant dispo, téléchargées, deps manquantes)."""
+    m = MODELS[model_id]
+    quants_ok = {}
+    for q in m["quants"]:
+        quants_ok[q] = _model_present(model_id, q)
+    deps_ok = {d: _dep_present(d) for d in m["deps"]}
+    ready = any(quants_ok.values()) and all(deps_ok.values())
+    return {
+        "quants": quants_ok,
+        "deps": deps_ok,
+        "ready": ready,
+    }
+
+
+def resolve_pid_prompt(explicit_prompt, src_image, default_prompt):
+    """Choisit le prompt de reconstruction PiD.
+
+    Ordre : prompt explicite > historique (si descriptif) > description générique.
+    Un prompt-instruction (édition / retouche / post-traitement) est refusé : PiD
+    s'en servirait pour *reconstruire* l'image — direction garantie mauvaise.
+    Retourne (prompt, source) avec source ∈ explicit|history|generic_postprocess|
+    generic_edit_instruction|generic_default.
+    """
+    p = (explicit_prompt or "").strip()
+    if p:
+        return p, "explicit"
+    if src_image:
+        if (src_image.get("model_id") or "") == "postprocess":
+            return default_prompt, "generic_postprocess"
+        entry_prompt = (src_image.get("prompt") or "").strip()
+        if entry_prompt:
+            if prompt_looks_like_edit_instruction(entry_prompt):
+                return default_prompt, "generic_edit_instruction"
+            return entry_prompt, "history"
+    return default_prompt, "generic_default"
+
+def ensure_dep(dep_id, token, msg_cb=None):
+    """Télécharge une dépendance partagée si absente, met à jour le manifeste."""
+    manifest = load_manifest()
+    found = _dep_path(manifest, dep_id)
+    if found:
+        # Présente (manifeste ou recherche disque) : si le manifeste ignore l'emplacement,
+        # on l'enregistre — sinon tout code qui relit le manifeste croit le fichier absent.
+        info = manifest.get(dep_id) or {}
+        if not info.get("path"):
+            dep = DEPS[dep_id]
+            manifest[dep_id] = {
+                "repo": dep.get("repo"),
+                "filename": dep.get("filename") or Path(found).name,
+                "path": str(found), "found_on_disk": True,
+            }
+            save_manifest(manifest)
+        return
+    dep = DEPS[dep_id]
+    if dep["type"] == "exact":
+        dest = dep["dest"]
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            _hf_download_file(dep["repo"], dep["filename"], dest, token, msg_cb)
+            manifest[dep_id] = {"repo": dep["repo"], "filename": dep["filename"],
+                                "path": str(dest)}
+        except Exception as e:
+            fb = dep.get("fallback")
+            if not fb:
+                raise
+            if msg_cb:
+                msg_cb(f"⚠️ ae.safetensors depuis {dep['repo']} : {friendly_download_error(e)}")
+                msg_cb(f"→ Tentative depuis le miroir public {fb['repo']} (même fichier, ~335 Mo)…")
+            _hf_download_file(fb["repo"], fb["filename"], dest, token, msg_cb)
+            manifest[dep_id] = {"repo": fb["repo"], "filename": fb["filename"],
+                                "path": str(dest), "fallback_of": dep["repo"]}
+    else:  # gguf
+        _, list_repo_files = _import_hf()
+        files = list_repo_files(dep["repo"], token=(token or None))
+        fname = resolve_dep_gguf(dep_id, files)
+        if not fname:
+            raise RuntimeError(f"Aucun GGUF trouvé pour {dep['repo']}")
+        dest = dep["dest_dir"] / fname
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _hf_download_file(dep["repo"], fname, dest, token, msg_cb)
+        manifest[dep_id] = {"repo": dep["repo"], "filename": fname,
+                            "path": str(dest)}
+    save_manifest(manifest)
+
+
+def download_upscaler(upscaler_id, msg_cb=None, progress_cb=None):
+    """Télécharge un modèle d'agrandissement ESRGAN/MoSR (URL directe, ~17-64 Mo)."""
+    u = UPSCALERS[upscaler_id]
+    dest = UPSCALE_DIR / u["filename"]
+    if dest.exists() and dest.stat().st_size > 1024 * 100:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if msg_cb:
+        msg_cb(f"Téléchargement de {u['name']} (~{u['size_mb']} Mo)…")
+    _download(u["url"], dest, progress_cb)
+
+
+def download_adetailer(detector_id, token, msg_cb=None):
+    """Télécharge un détecteur ADetailer YOLOv8 (safetensors) depuis Hugging Face."""
+    d = ADETAILERS[detector_id]
+    dest = ADETAILER_DIR / d["filename"]
+    if dest.exists() and dest.stat().st_size > 16 * 1024:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if msg_cb:
+        msg_cb(f"Téléchargement du détecteur {d['name']} (~{d['size_mb']} Mo)…")
+    _hf_download_file(d["repo"], d["filename"], dest, token, msg_cb)
+
+
+def download_seedvr2(token, msg_cb=None):
+    """Télécharge les deux poids SeedVR2 (diffusion int8 + VAE fp16)."""
+    for key in ("diffusion", "vae"):
+        info = SEEDVR2["files"][key]
+        dest = SEEDVR2_DIR / info["filename"]
+        if dest.exists() and dest.stat().st_size > 1024 * 1024:
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if msg_cb:
+            msg_cb(f"Téléchargement SeedVR2 — {info['filename']} (~{info['size_mb']} Mo)…")
+        _hf_download_file(SEEDVR2["repo"], info["filename"], dest, token, msg_cb)
+
+
+def download_pid(backbone, token, msg_cb=None):
+    """Télécharge le nécessaire pour PiD (une fois) : socle commun Gemma 2 2B
+    (encodeur bf16 + tokenizer non-gated) puis le modèle int8 du backbone choisi
+    + son VAE (réutilise le dépôt déjà utilisé par les modèles de la famille)."""
+    if backbone not in PID["backbones"]:
+        raise ValueError(f"Backbone PiD inconnu : {backbone}")
+    PID_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 1) Socle commun (une seule fois, partagé par les 3 backbones)
+    gemma = PID["gemma"]
+    gemma_dest = pid_gemma_path()
+    if not (gemma_dest.exists() and gemma_dest.stat().st_size > 1024 * 1024 * 1024):
+        if msg_cb:
+            msg_cb(f"Téléchargement PiD — encodeur Gemma 2 2B bf16 (~{gemma['size_mb']} Mo, ~5 Go)…")
+        _hf_download_file(gemma["repo"], gemma["filename"], gemma_dest, token, msg_cb)
+
+    tok = PID["tokenizer"]
+    tok_dest = pid_tokenizer_path()
+    if not (tok_dest.exists() and tok_dest.stat().st_size > 1024 * 1024):
+        if msg_cb:
+            msg_cb(f"Téléchargement PiD — tokenizer Gemma 2 (miroir non-gated {tok['repo']}, ~{tok['size_mb']} Mo)…")
+        _hf_download_file(tok["repo"], tok["filename"], tok_dest, token, msg_cb)
+
+    # 2) Modèle PiD 1.5 du backbone (int8_convrot, 1024→4096, 4 étapes)
+    bb = PID["backbones"][backbone]
+    model_dest = pid_model_path(backbone)
+    if not (model_dest.exists() and model_dest.stat().st_size > 512 * 1024 * 1024):
+        if msg_cb:
+            msg_cb(f"Téléchargement PiD — {bb['filename']} (~{bb['size_mb']} Mo)…")
+        _hf_download_file(PID["repo"], bb["repo_filename"], model_dest, token, msg_cb)
+
+    # 3) VAE du backbone (réutilise DEPS ; best effort : souvent déjà installé)
+    try:
+        ensure_dep(bb["vae_dep"], token, msg_cb)
+    except Exception as e:
+        if msg_cb:
+            msg_cb(f"⚠️ VAE « {bb['vae_dep']} » non téléchargé ({e}). "
+                   "Installez d'abord le modèle correspondant dans l'onglet Modèles.")
+
+
+def download_taesd(ta_id, token, msg_cb=None):
+    """Télécharge un mini-VAE TAE (~2 Mo) depuis Hugging Face."""
+    t = TAESD[ta_id]
+    dest = TAESD_DIR / t["filename"]
+    if dest.exists() and dest.stat().st_size > 50 * 1024:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if msg_cb:
+        msg_cb(f"Téléchargement du mini-VAE {t['name']} (~{t['size_mb']} Mo)…")
+    _hf_download_file(t["repo"], t.get("repo_filename", t["filename"]), dest, token, msg_cb)
+
+
+def download_pulid(token, msg_cb=None):
+    """Télécharge les poids PuLID-FLUX (guozinan/PuLID, ~1.14 Go)."""
+    dest = pulid_weights_path()
+    if dest.exists() and dest.stat().st_size > 100 * 1024 * 1024:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if msg_cb:
+        msg_cb(f"Téléchargement des poids PuLID-FLUX (~{PULID['weights_size_mb']} Mo)…")
+    _hf_download_file(PULID["weights_repo"], PULID["weights_filename"], dest, token, msg_cb)
+
+
+def download_model(model_id, quant, token, msg_cb=None):
+    """Télécharge le modèle GGUF (choisi) + ses dépendances."""
+    m = MODELS[model_id]
+    # 1) dépendances
+    for d in m["deps"]:
+        ensure_dep(d, token, msg_cb)
+    # 2) transformer principal
+    if not _model_present(model_id, quant):
+        file = m["file_for_quant"][quant]
+        # Nom dans le dépôt distant (peut contenir un sous-dossier, ex. "TURBO/...").
+        remote = m.get("remote_file_for_quant", {}).get(quant, file)
+        if msg_cb:
+            msg_cb(f"Téléchargement du modèle {file}")
+        _hf_download_file(m["repo"], remote,
+                          DIFFUSION_DIR / file, token, msg_cb)
+        # uncond pour ideogram
+        uncond = m.get("uncond_file_for_quant", {}).get(quant)
+        if uncond and not (DIFFUSION_DIR / uncond).exists():
+            if msg_cb:
+                msg_cb(f"Téléchargement du modèle uncond {uncond}")
+            _hf_download_file(m["repo"], uncond,
+                              DIFFUSION_DIR / uncond, token, msg_cb)
+
+
+# =========================================================================== #
+#  Gestionnaire de tâches asynchrones (téléchargements + générations)
+# =========================================================================== #
+class TaskManager:
+    """Exécute une tâche à la fois dans un thread d'arrière-plan."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._thread = None
+        self._queue = []
+        self.state = {
+            "busy": False,
+            "kind": None,          # "download" | "generate" | "engine"
+            "log": "",             # dernière ligne de log
+            "progress": 0.0,       # 0..1
+            "step": 0, "total_steps": 0,
+            "error": None,
+            "done": False,
+            "result": None,        # infos résultat (images, etc.)
+            "elapsed": 0.0,        # FIX 3 : temps écoulé depuis le départ
+            "eta": 0.0,            # FIX 3 : temps restant estimé
+        }
+
+    def _reset(self, kind, token=None):
+        with self._lock:
+            self.state = {"busy": True, "kind": kind, "log": "", "progress": 0.0,
+                          "step": 0, "total_steps": 0, "error": None,
+                          "done": False, "result": None, "preview_batch_id": None,
+                          "task_token": token or uuid.uuid4().hex[:12]}
+
+    def is_busy(self):
+        with self._lock:
+            return self.state["busy"]
+
+    def _serialize_queue_locked(self):
+        return [
+            {
+                "queue_id": item["queue_id"],
+                "position": idx + 1,
+                **item["summary"],
+            }
+            for idx, item in enumerate(self._queue)
+        ]
+
+    def list_queue(self):
+        with self._lock:
+            return self._serialize_queue_locked()
+
+    def remove_from_queue(self, queue_id):
+        with self._lock:
+            before = len(self._queue)
+            self._queue = [it for it in self._queue if it["queue_id"] != queue_id]
+            return len(self._queue) < before
+
+    def clear_queue(self):
+        with self._lock:
+            count = len(self._queue)
+            self._queue.clear()
+            return count
+
+    def queued_source_paths(self):
+        """Retourne l'ensemble des chemins d'images sources utilisés par la file d'attente."""
+        with self._lock:
+            paths = set()
+            for item in self._queue:
+                p = item.get("params") or {}
+                if p.get("source_image"):
+                    paths.add(str(p["source_image"]))
+                if p.get("mask_image"):
+                    paths.add(str(p["mask_image"]))
+                for r in (p.get("ref_images") or []):
+                    if r:
+                        paths.add(str(r))
+            return paths
+
+    def snapshot(self):
+        with self._lock:
+            snap = dict(self.state)
+            snap["queue"] = self._serialize_queue_locked()
+            snap["queue_size"] = len(self._queue)
+            return snap
+
+    def _set(self, **kw):
+        with self._lock:
+            self.state.update(kw)
+
+    def start_download(self, model_id, quant):
+        if self.is_busy():
+            raise RuntimeError("Une tâche est déjà en cours.")
+        token = hf_token()
+        self._reset("download")
+        t = threading.Thread(target=self._run_download,
+                             args=(model_id, quant, token), daemon=True)
+        self._thread = t
+        t.start()
+
+    def _run_download(self, model_id, quant, token):
+        try:
+            def msg(s):
+                self._set(log=s)
+            download_model(model_id, quant, token, msg_cb=msg)
+            self._set(log="Téléchargement terminé ✓", progress=1.0,
+                      done=True, busy=False,
+                      result={"type": "download", "model_id": model_id, "quant": quant})
+        except Exception as e:
+            self._set(error=friendly_download_error(e), log=f"Erreur: {e}", done=True, busy=False)
+
+    def start_upscaler_download(self, upscaler_id):
+        """Télécharge un modèle d'agrandissement ×4 (ESRGAN/MoSR, URL directe)."""
+        if upscaler_id not in UPSCALERS:
+            raise RuntimeError("Modèle d'agrandissement inconnu.")
+        if self.is_busy():
+            raise RuntimeError("Une tâche est déjà en cours.")
+        self._reset("download")
+
+        def work():
+            def msg(s):
+                self._set(log=s)
+            def prog(done, total):
+                if total:
+                    self._set(progress=done / total,
+                              log=f"{UPSCALERS[upscaler_id]['name']} : "
+                                  f"{done // (1 << 20)}/{total // (1 << 20)} Mo")
+            download_upscaler(upscaler_id, msg_cb=msg, progress_cb=prog)
+            self._set(log="Modèle d'agrandissement téléchargé ✓", progress=1.0,
+                      done=True, busy=False,
+                      result={"type": "download", "upscaler_id": upscaler_id})
+
+        t = threading.Thread(target=self._safe_aux_run, args=(work,), daemon=True)
+        self._thread = t
+        t.start()
+
+    def start_adetailer_download(self, detector_id):
+        """Télécharge un détecteur ADetailer YOLOv8 (safetensors, Hugging Face)."""
+        if detector_id not in ADETAILERS:
+            raise RuntimeError("Détecteur ADetailer inconnu.")
+        if self.is_busy():
+            raise RuntimeError("Une tâche est déjà en cours.")
+        token = hf_token()
+        self._reset("download")
+
+        def work():
+            def msg(s):
+                self._set(log=s)
+            download_adetailer(detector_id, token, msg_cb=msg)
+            self._set(log="Détecteur ADetailer téléchargé ✓", progress=1.0,
+                      done=True, busy=False,
+                      result={"type": "download", "detector_id": detector_id})
+
+        t = threading.Thread(target=self._safe_aux_run, args=(work,), daemon=True)
+        self._thread = t
+        t.start()
+
+    def start_seedvr2_download(self):
+        """Télécharge les poids SeedVR2 (restauration ×2, ~6.8 Go depuis HF)."""
+        if self.is_busy():
+            raise RuntimeError("Une tâche est déjà en cours.")
+        token = hf_token()
+        self._reset("download")
+
+        def work():
+            def msg(s):
+                self._set(log=s)
+            download_seedvr2(token, msg_cb=msg)
+            self._set(log="SeedVR2 téléchargé ✓", progress=1.0, done=True, busy=False,
+                      result={"type": "download", "seedvr2": True})
+
+        t = threading.Thread(target=self._safe_aux_run, args=(work,), daemon=True)
+        self._thread = t
+        t.start()
+
+    def start_pid_download(self, backbone):
+        """Télécharge le socle PiD (Gemma 2 2B + tokenizer, une seule fois) puis
+        le modèle int8 du backbone choisi (~1,6 Go) + son VAE."""
+        if backbone not in PID["backbones"]:
+            raise RuntimeError(f"Backbone PiD inconnu : {backbone}")
+        if self.is_busy():
+            raise RuntimeError("Une tâche est déjà en cours.")
+        token = hf_token()
+        self._reset("download")
+
+        def work():
+            def msg(s):
+                self._set(log=s)
+            download_pid(backbone, token, msg_cb=msg)
+            self._set(log=f"PiD ({backbone}) installé ✓", progress=1.0, done=True, busy=False,
+                      result={"type": "download", "pid": backbone})
+
+        t = threading.Thread(target=self._safe_aux_run, args=(work,), daemon=True)
+        self._thread = t
+        t.start()
+
+    def start_taesd_download(self, ta_id):
+        """Télécharge un mini-VAE TAE (~2 Mo, quasi instantané)."""
+        if ta_id not in TAESD:
+            raise RuntimeError("Mini-VAE inconnu.")
+        if self.is_busy():
+            raise RuntimeError("Une tâche est déjà en cours.")
+        token = hf_token()
+        self._reset("download")
+
+        def work():
+            def msg(s):
+                self._set(log=s)
+            download_taesd(ta_id, token, msg_cb=msg)
+            self._set(log="Mini-VAE téléchargé ✓", progress=1.0, done=True, busy=False,
+                      result={"type": "download", "taesd_id": ta_id})
+
+        t = threading.Thread(target=self._safe_aux_run, args=(work,), daemon=True)
+        self._thread = t
+        t.start()
+
+    def start_pulid_download(self):
+        """Télécharge les poids PuLID-FLUX (~1.14 Go depuis HF)."""
+        if self.is_busy():
+            raise RuntimeError("Une tâche est déjà en cours.")
+        token = hf_token()
+        self._reset("download")
+
+        def work():
+            def msg(s):
+                self._set(log=s)
+            download_pulid(token, msg_cb=msg)
+            self._set(log="Poids PuLID téléchargés ✓", progress=1.0, done=True, busy=False,
+                      result={"type": "download", "pulid": True})
+
+        t = threading.Thread(target=self._safe_aux_run, args=(work,), daemon=True)
+        self._thread = t
+        t.start()
+
+    def start_captioner_download(self, cid):
+        """Télécharge le légendeur d'image choisi (poids + mmproj si absents)."""
+        if cid not in CAPTIONER_MODELS:
+            raise RuntimeError(f"Légendeur inconnu : {cid}")
+        if self.is_busy():
+            raise RuntimeError("Une tâche est déjà en cours.")
+        token = hf_token()
+        self._reset("download")
+
+        def work():
+            def msg(s):
+                self._set(log=s)
+            missing = captioner_status(cid)["missing"]
+            if not missing:
+                self._set(log="Légendeur déjà installé ✓", progress=1.0, done=True,
+                          busy=False, result={"type": "download", "captioner": cid})
+                return
+            total = len(missing)
+            for i, dep_id in enumerate(missing, 1):
+                self._set(progress=(i - 1) / total,
+                          log=f"[{i}/{total}] Téléchargement de {dep_id}…")
+                ensure_dep(dep_id, token, msg_cb=msg)
+            self._set(progress=1.0, log=f"Légendeur « {CAPTIONER_MODELS[cid]['name']} » installé ✓",
+                      done=True, busy=False, result={"type": "download", "captioner": cid})
+
+        t = threading.Thread(target=self._safe_aux_run, args=(work,), daemon=True)
+        self._thread = t
+        t.start()
+
+    def start_llama_install(self):
+        """Télécharge la dernière release OFFICIELLE de llama.cpp (ggml-org) et l'installe dans bin/llama/."""
+        if self.is_busy():
+            raise RuntimeError("Une tâche est déjà en cours.")
+        self._reset("download")
+
+        def work():
+            def msg(s):
+                self._set(log=s)
+
+            def cb(done, total):
+                if total:
+                    self._set(progress=min(1.0, done / total))
+            msg("Recherche de la dernière release officielle llama.cpp…")
+            info = install_llama_cpp(progress_cb=cb)
+            self._set(progress=1.0,
+                      log=f"llama.cpp {info.get('version') or ''} installé dans bin/llama ✓",
+                      done=True, busy=False, result={"type": "download", "llama_cpp": True})
+
+        t = threading.Thread(target=self._safe_aux_run, args=(work,), daemon=True)
+        self._thread = t
+        t.start()
+
+    def _safe_aux_run(self, work):
+        try:
+            work()
+        except Exception as e:
+            self._set(error=friendly_download_error(e), log=f"Erreur: {e}", done=True, busy=False)
+
+    def start_engine_install(self):
+        if self.is_busy():
+            raise RuntimeError("Une tâche est déjà en cours.")
+        self._reset("engine")
+        t = threading.Thread(target=self._run_engine, daemon=True)
+        self._thread = t
+        t.start()
+
+    def _run_engine(self):
+        try:
+            def cb(done, total):
+                if total:
+                    self._set(progress=done / total,
+                              log=f"Téléchargement du moteur… {done//(1<<20)}/{total//(1<<20)} Mo")
+            install_engine(progress_cb=cb)
+            self._set(log="Moteur installé ✓", progress=1.0, done=True, busy=False,
+                      result={"type": "engine"})
+        except Exception as e:
+            self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False)
+
+    # --- Génération ---
+    _proc = None
+    _cancel = False
+
+    def _build_queue_item(self, params):
+        from registry import MODELS as _MODELS
+        model_id = params.get("model_id", "")
+        m = _MODELS.get(model_id, {})
+        if params.get("task_kind") == "upscale":
+            u = UPSCALERS.get(params.get("upscaler_id", ""), {})
+            src_name = Path(params.get("source_image") or "?").name
+            return {
+                "queue_id": uuid.uuid4().hex[:8],
+                "params": dict(params),
+                "summary": {
+                    "model_id": f"upscale:{params.get('upscaler_id', '')}",
+                    "model_name": f"🔍 {u.get('name', params.get('upscaler_id', '?'))}",
+                    "quant": f"×{u.get('scale', 4)}",
+                    "prompt": f"Agrandissement de {src_name}",
+                    "batch": 1,
+                    "width": 0,
+                    "height": 0,
+                },
+                "created_at": time.time(),
+            }
+        if params.get("task_kind") == "repair":
+            d = ADETAILERS.get(params.get("detector_id", ""), {})
+            src_name = Path(params.get("source_image") or "?").name
+            return {
+                "queue_id": uuid.uuid4().hex[:8],
+                "params": dict(params),
+                "summary": {
+                    "model_id": f"repair:{params.get('detector_id', '')}",
+                    "model_name": f"🙂 {d.get('name', params.get('detector_id', '?'))}",
+                    "quant": "",
+                    "prompt": f"Réparation visages/mains de {src_name}",
+                    "batch": 1,
+                    "width": 0,
+                    "height": 0,
+                },
+                "created_at": time.time(),
+            }
+        if params.get("task_kind") == "restore_x2":
+            src_name = Path(params.get("source_image") or "?").name
+            return {
+                "queue_id": uuid.uuid4().hex[:8],
+                "params": dict(params),
+                "summary": {
+                    "model_id": "seedvr2",
+                    "model_name": "🩹 SeedVR2 (Restauration ×2)",
+                    "quant": "×2",
+                    "prompt": f"Restauration de {src_name}",
+                    "batch": 1,
+                    "width": 0,
+                    "height": 0,
+                },
+                "created_at": time.time(),
+            }
+        if params.get("task_kind") == "vary":
+            mode = (params.get("vary_mode") or "subtle").lower()
+            strength = float(params.get("strength") or (0.35 if mode == "subtle" else 0.75))
+            strength_label = f"{strength:.2f}".replace(".", ",")
+            src_name = Path(params.get("source_image") or "?").name
+            label = "Variation subtile" if mode == "subtle" else "Variation forte"
+            return {
+                "queue_id": uuid.uuid4().hex[:8],
+                "params": dict(params),
+                "summary": {
+                    "model_id": f"vary:{model_id}",
+                    "model_name": f"🔀 {label} (img2img, force {strength_label})",
+                    "quant": params.get("quant", ""),
+                    "prompt": (params.get("prompt") or "")[:90],
+                    "batch": 1,
+                    "width": int(params.get("width") or 1024),
+                    "height": int(params.get("height") or 1024),
+                },
+                "created_at": time.time(),
+            }
+        if params.get("task_kind") == "pid":
+            bb = (params.get("backbone") or "").strip() or "auto"
+            bb_label = (PID.get("backbones", {}).get(bb, {}) or {}).get("label", bb)
+            src_name = Path(params.get("source_image") or "?").name
+            return {
+                "queue_id": uuid.uuid4().hex[:8],
+                "params": dict(params),
+                "summary": {
+                    "model_id": f"pid_{bb}",
+                    "model_name": f"⬆️ PiD ×4 ({bb_label})",
+                    "quant": "×4",
+                    "prompt": f"Super-résolution PiD de {src_name}",
+                    "batch": 1,
+                    "width": 4096,
+                    "height": 4096,
+                },
+                "created_at": time.time(),
+            }
+        return {
+            "queue_id": uuid.uuid4().hex[:8],
+            "params": dict(params),
+            "summary": {
+                "model_id": model_id,
+                "model_name": m.get("name", model_id),
+                "quant": params.get("quant", ""),
+                "prompt": (params.get("prompt") or "")[:90],
+                "batch": int(params.get("batch") or 1),
+                "width": int(params.get("width") or 1024),
+                "height": int(params.get("height") or 1024),
+            },
+            "created_at": time.time(),
+        }
+
+    def enqueue_generate(self, params):
+        """
+        Si aucune tâche n'est en cours, démarre immédiatement la génération.
+        Sinon (si une génération est déjà en cours), l'ajoute à la file d'attente.
+        """
+        with self._lock:
+            if self.state["busy"] and self.state.get("kind") in ("download", "engine"):
+                raise RuntimeError("Un téléchargement est en cours. Patientez avant de lancer une génération.")
+            if self.state["busy"]:
+                item = self._build_queue_item(params)
+                # le queue_id sert aussi de task_token : corrélation côté client
+                item["token"] = item["queue_id"]
+                self._queue.append(item)
+                return {
+                    "queued": True,
+                    "started": False,
+                    "queue_id": item["queue_id"],
+                    "task_token": item["token"],
+                    "position": len(self._queue),
+                    "queue_size": len(self._queue),
+                    "queue": self._serialize_queue_locked(),
+                }
+        token = uuid.uuid4().hex[:12]
+        self.start_generate(params, token=token)
+        return {
+            "queued": False,
+            "started": True,
+            "queue_id": None,
+            "task_token": token,
+            "position": 0,
+            "queue_size": len(self.list_queue()),
+            "queue": self.list_queue(),
+        }
+
+    @staticmethod
+    def _kind_of(params):
+        tk = params.get("task_kind")
+        if tk in ("upscale", "repair", "restore_x2", "pid", "vary"):
+            return tk
+        return "generate"
+
+    def start_generate(self, params, token=None):
+        if self.is_busy():
+            raise RuntimeError("Une tâche est déjà en cours.")
+        self._reset(self._kind_of(params), token=token)
+        self._cancel = False
+        t = threading.Thread(target=self._run_generate_loop, args=(params,), daemon=True)
+        self._thread = t
+        t.start()
+
+    def _run_generate_loop(self, first_params):
+        current_params = first_params
+        while current_params is not None:
+            tk = current_params.get("task_kind")
+            if tk == "upscale":
+                self._run_upscale(current_params)
+            elif tk == "repair":
+                self._run_repair(current_params)
+            elif tk == "restore_x2":
+                self._run_seedvr2(current_params)
+            elif tk == "pid":
+                self._run_pid(current_params)
+            else:
+                self._run_generate(current_params)
+            with self._lock:
+                if self._queue:
+                    next_item = self._queue.pop(0)
+                    current_params = next_item["params"]
+                    self.state = {
+                        "busy": True,
+                        "kind": self._kind_of(current_params),
+                        "log": f"Démarrage de la tâche suivante en file ({len(self._queue)} restante(s))…",
+                        "progress": 0.0,
+                        "step": 0,
+                        "total_steps": 0,
+                        "error": None,
+                        "done": False,
+                        "result": self.state.get("result"),
+                        "elapsed": 0.0,
+                        "eta": 0.0,
+                        "task_token": next_item.get("token") or uuid.uuid4().hex[:12],
+                    }
+                    self._cancel = False
+                else:
+                    current_params = None
+
+    def cancel(self):
+        self._cancel = True
+        p = self._proc
+        if p:
+            try:
+                p.terminate()
+            except Exception:
+                pass
+
+    def _run_generate(self, p):
+        result_type = "vary" if p.get("task_kind") == "vary" else "generate"
+        try:
+            import db
+            from registry import MODELS as _MODELS
+            model_id = p["model_id"]
+            quant = p["quant"]
+            m = _MODELS[model_id]
+            manifest = load_manifest()
+
+            # vérifs
+            sd = find_sd_cli()
+            if not sd:
+                raise RuntimeError("Le moteur sd-cli n'est pas installé. Allez dans l'onglet Modèles.")
+            if not _model_present(model_id, quant):
+                raise RuntimeError(f"Le modèle {model_id} ({quant}) n'est pas téléchargé.")
+            missing = [d for d in m["deps"] if not _dep_present(d)]
+            if missing:
+                raise RuntimeError("Dépendances manquantes: " + ", ".join(missing))
+
+            # --- Images fournies (refs multiples ou image de depart) ---
+            input_images = [str(x) for x in (p.get("ref_images") or []) if x]
+            if not input_images and p.get("source_image"):
+                input_images = [str(p["source_image"])]
+            input_mode = p.get("input_mode")
+            input_images, input_mode, err = check_images_input(model_id, input_images, input_mode)
+            if err:
+                raise RuntimeError(err)
+            missing_files = [x for x in input_images if not (ROOT / x).exists()]
+            if missing_files:
+                raise RuntimeError(
+                    f"{len(missing_files)} image(s) source(s) introuvable(s) sur le disque : "
+                    + ", ".join(Path(x).name for x in missing_files[:3])
+                )
+            has_refs = input_mode == "ref" and bool(input_images)
+
+            # Certains modeles Qwen-VL exigent le mmproj pour traiter des references.
+            mmproj_dep = m.get("mmproj_dep")
+            if mmproj_dep and has_refs:
+                mmproj_path = _dep_path(manifest, mmproj_dep)
+                if not mmproj_path or not Path(mmproj_path).exists():
+                    raise RuntimeError(
+                        f"Pour éditer avec {m['name']}, le fichier mmproj est requis "
+                        "(encodeur visuel du VLM). Téléchargez-le depuis le bouton "
+                        "'Télécharger mmproj' dans l'interface."
+                    )
+
+            batch = max(1, min(4, int(p["batch"])))
+            batch_id = uuid.uuid4().hex  # identifiant unique, même pour deux lancements rapprochés
+            seed = int(p["seed"]) if p.get("seed") not in (None, "") else int(time.time()) % 1000000
+            # Chaos (approximation « Midjourney ») : >0 → graines indépendantes par image,
+            # graine fixe ignorée. 0 → comportement historique (graines consécutives seed+i).
+            try:
+                chaos = max(0, min(100, int(p.get("chaos") or 0)))
+            except (TypeError, ValueError):
+                chaos = 0
+            img_seeds = [seed + i for i in range(batch)]
+            if chaos > 0:
+                img_seeds = [random.getrandbits(31) for _ in range(batch)]
+
+            # Générer des noms de fichiers intelligents et sûrs
+            # Format: model_motsprompt_001.png (dans output/ directement)
+            model_name = re.sub(r'[^a-zA-Z0-9_]', '_', m["name"].lower())
+            prompt_words = (p["prompt"] or "").strip().lower()
+            clean_prompt = re.sub(r'[^a-zA-Z0-9]', '_', prompt_words)
+            words = [w for w in clean_prompt.split('_') if w][:3]
+            prompt_part = "_".join(words)[:30] if words else "generation"
+
+            # Template de sortie directement dans OUTPUT_DIR
+            output_prefix = f"{model_name}_{prompt_part}_{batch_id}"
+            out_tmpl = str(OUTPUT_DIR / f"{output_prefix}_%03d.png")
+
+            # --- Options Qualité / Détails / Upscaling ---
+            sampler = p.get("sampler")
+            if sampler in ("", "default"):
+                sampler = None
+            scheduler = p.get("scheduler")
+            if scheduler in ("", "default"):
+                scheduler = None
+            vae_tiling = bool(p.get("vae_tiling"))
+            slg_scale = p.get("slg_scale")
+            try:
+                slg_scale = float(slg_scale) if slg_scale not in (None, "", 0, "0") else None
+            except (TypeError, ValueError):
+                slg_scale = None
+            if slg_scale is not None and slg_scale <= 0:
+                slg_scale = None
+            chosen_sampler = sampler or m["defaults"]["sampler"]
+
+            # Upscaling ×4 pendant la génération (ESRGAN/MoSR natif sd-cli)
+            upscale_path = None
+            upscale_id = p.get("upscale_id")
+            if upscale_id:
+                u = UPSCALERS.get(upscale_id)
+                if not u:
+                    raise RuntimeError("Modèle d'agrandissement inconnu. Choisissez-en un dans la section Qualité.")
+                cand = upscaler_path(upscale_id)
+                if not cand or not cand.exists():
+                    raise RuntimeError(
+                        f"« {u['name']} » n'est pas téléchargé. Ouvrez l'onglet Modèles "
+                        "→ section « 🔍 Upscaling ×4 » pour le télécharger (quelques dizaines de Mo)."
+                    )
+                upscale_path = str(cand)
+
+            # ADetailer : détecteur YOLOv8 pour retoucher automatiquement visages/mains
+            adetailer_path_resolved = None
+            adetailer_id = p.get("adetailer_id")
+            if adetailer_id:
+                d = ADETAILERS.get(adetailer_id)
+                if not d:
+                    raise RuntimeError("Détecteur ADetailer inconnu.")
+                cand = adetailer_path(adetailer_id)
+                if not cand or not cand.exists():
+                    raise RuntimeError(
+                        f"Le détecteur « {d['name']} » n'est pas téléchargé. Ouvrez l'onglet "
+                        "Modèles → section « 🙂 ADetailer » pour le télécharger (quelques Mo)."
+                    )
+                adetailer_path_resolved = str(cand)
+
+            # --- Performance : mini-VAE TAE (decodage accélère, modeles Qwen-Image) ---
+            taesd_file = None
+            ta_id = p.get("taesd_id") or ""
+            if ta_id:
+                if ta_id == "auto":
+                    ta_id = taesd_for_model(model_id) or ""
+                t = TAESD.get(ta_id)
+                if t:
+                    cand = taesd_path(ta_id)
+                    if t["vae_dep"] != (m.get("vae_dep") or ("vae_qwen" if m.get("arch") == "qwen_image" else None)):
+                        # TAE incompatible avec le VAE du modele : ignore proprement
+                        t = None
+                    elif cand and cand.exists():
+                        taesd_file = str(cand)
+                    else:
+                        raise RuntimeError(
+                            f"« {t['name']} » n'est pas téléchargé. Ouvrez l'onglet Modèles "
+                            "→ section « ⚡ VAE rapide (TAE) » pour l'installer (~2 Mo).")
+
+            # --- Performance : SageAttention CUDA ---
+            sage_attn = bool(p.get("sage_attn")) or bool(load_settings().get("sage_attn"))
+
+            # --- Apercu en direct pendant l'echantillonnage ---
+            # « auto » (defaut) : mini-VAE si un TAE est installe pour ce modele, sinon
+            # projection des latents (aucun fichier requis). Le mode « vae » n'a jamais
+            # produit d'apercu avec ce binaire (le runner d'apercu est toujours un mini-VAE) :
+            # on le traite comme « tae ».
+            preview_method = (p.get("preview") or load_settings().get("preview") or "none").strip().lower()
+            if preview_method not in ("none", "auto", "proj", "tae", "vae"):
+                preview_method = "none"
+            preview_hint = ""
+            if preview_method == "auto":
+                preview_method = "tae" if taesd_file else "proj"
+                if preview_method == "proj" and m.get("arch") == "qwen_image" and "2.1" not in model_id:
+                    preview_hint = (" — ⚠️ « proj » ne projette pas les latents de Qwen-Image 2512 ; "
+                                    "installez le mini-VAE TAE (Modèles → ⚡ VAE rapide) pour un aperçu réel")
+            elif preview_method == "vae":
+                # Ce binaire ne décode jamais l'aperçu avec le vrai VAE : le runner d'aperçu
+                # est toujours le mini-VAE — on traite « vae » comme « tae ».
+                preview_hint = " — « vae » traité comme « tae » (mini-VAE)"
+                if not taesd_file:
+                    preview_hint += ", TAE absent → repli sur « proj »"
+                    preview_method = "proj"
+                else:
+                    preview_method = "tae"
+            elif preview_method == "tae" and not taesd_file:
+                preview_hint = " — TAE absent, repli sur « proj »"
+                preview_method = "proj"
+            preview_interval = int(p.get("preview_interval") or load_settings().get("preview_interval") or 3)
+            preview_path = None
+            if preview_method not in ("", "none"):
+                # Nettoie les anciens aperçus pour ne pas accumuler
+                try:
+                    for _old in PREVIEW_DIR.glob("live_*.png"):
+                        try:
+                            _old.unlink()
+                        except OSError:
+                            pass
+                except Exception:
+                    pass
+                preview_path = str(PREVIEW_DIR / f"live_{batch_id}_%03d.png")
+                self._set(preview_batch_id=batch_id)
+                self._set(log=(f"Aperçu en direct « {preview_method} » actif : une image toutes "
+                               f"les {preview_interval} étapes (fenêtre LIVE au-dessus des résultats)."
+                               + preview_hint))
+
+            # --- PuLID-FLUX : conservation du visage depuis un portrait ---
+            pulid_w_path = None
+            pulid_emb_path = None
+            pulid_w = None
+            if p.get("pulid_id"):
+                if not supports_pulid(model_id):
+                    raise RuntimeError(
+                        f"{m['name']} ne prend pas en charge PuLID. Choisissez FLUX.1 Schnell, "
+                        "FLUX.1 Dev ou FHDR (arch FLUX) pour conserver un visage de photo.")
+                if not pulid_status()["downloaded"]:
+                    raise RuntimeError(
+                        "Les poids PuLID-FLUX ne sont pas installés (~1,14 Go). Ouvrez l'onglet "
+                        "Modèles → section « 🙂 Visage fidèle (PuLID) ».")
+                emb = portrait_embedding(p.get("pulid_id"))
+                if not emb:
+                    raise RuntimeError(
+                        "Empreinte de portrait introuvable. Créez-la avec l'extracteur "
+                        "d'identité (bouton « 🙂 Visage fidèle » de l'onglet Modèles, outil Python).")
+                pulid_w_path = str(pulid_weights_path())
+                pulid_emb_path = str(emb)
+                try:
+                    pulid_w = float(p.get("pulid_id_weight"))
+                except (TypeError, ValueError):
+                    pulid_w = PULID["default_weight"]
+
+            # Hires Fix : 2e passe img2img à haute résolution (uniquement en génération
+            # pure, sans image de départ, avec un modèle compatible img2img).
+            hires_on = bool(p.get("hires_fix")) and not input_images and m.get("supports_img2img", False)
+            hires_strength = 0.35
+            try:
+                hires_strength = float(p.get("hires_strength") or 0.35)
+            except (TypeError, ValueError):
+                hires_strength = 0.35
+            hires_strength = max(0.1, min(0.8, hires_strength))
+
+            final_quality = {}   # options appliquées sur l'image finale (passe 1 simple ou passe 2 Hires Fix)
+            if not hires_on:
+                if upscale_path:
+                    final_quality["upscale_model"] = upscale_path
+                if adetailer_path_resolved:
+                    final_quality["adetailer_model"] = adetailer_path_resolved
+
+            def build_one(sd_seed, sd_batch, tmpl):
+                return build_command(
+                    model_id, quant, p["prompt"], p.get("negative", ""),
+                    int(p["width"]), int(p["height"]), int(p["steps"]), float(p["cfg"]),
+                    sd_seed, sd_batch, tmpl, str(sd), manifest,
+                    source_image=(input_images[0] if (input_mode == "init" and input_images) else None),
+                    lora_dir=p.get("lora_dir"),
+                    strength=p.get("strength"),
+                    ref_images=input_images if has_refs else None,
+                    input_mode=input_mode,
+                    ref_max_pixels=p.get("ref_max_pixels"),
+                    mask_image=(str(ROOT / p["mask_image"]) if p.get("mask_image") else None),
+                    sampler=sampler, scheduler=scheduler, vae_tiling=vae_tiling,
+                    slg_scale=slg_scale,
+                    taesd_path=taesd_file, sage_attn=sage_attn,
+                    preview_method=preview_method, preview_path=preview_path,
+                    preview_interval=preview_interval,
+                    tae_preview_only=(preview_method == "tae" and bool(taesd_file)),
+                    pulid_weights=pulid_w_path, pulid_id_embedding=pulid_emb_path,
+                    pulid_id_weight=pulid_w,
+                    **final_quality)
+
+            if chaos > 0 and batch > 1:
+                # Un appel sd-cli par image, graines indépendantes — le lot reste séquentiel
+                # mais chaque image part d'une graine distincte (et reproductible via le journal).
+                cmds = [build_one(img_seeds[i], 1,
+                                  str(OUTPUT_DIR / f"{output_prefix}_{i:03d}_%03d.png"))
+                        for i in range(batch)]
+            else:
+                cmds = [build_one(img_seeds[0], batch, out_tmpl)]
+
+            # Vérifier qu'aucun argument n'est None
+            for idx_arg, arg_val in enumerate([a for c in cmds for a in c]):
+                if arg_val is None:
+                    raise RuntimeError(f"Erreur interne : l'argument de commande #{idx_arg} est None.")
+
+            input_label = ""
+            if has_refs:
+                input_label = (f" · {len(input_images)} références" if len(input_images) > 1
+                             else " · 1 référence")
+            elif input_images:
+                input_label = " · image de départ (img2img)"
+            self._set(log=f"Démarrage de la génération…{input_label}",
+                      total_steps=int(p["steps"]), step=0, error=None)
+
+            creationflags = 0
+            if os.name == "nt":
+                creationflags = subprocess.CREATE_NO_WINDOW
+
+            t_start = time.time()          # FIX 3 : chrono du moment où on lance
+
+            def run_cli(cmd_args):
+                """Lance sd-cli avec suivi de progression.
+                Renvoie (code_retour, t_premiere_etape, derniere_etape_vue, dernieres_lignes)."""
+                self._proc = subprocess.Popen(
+                    cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, encoding="utf-8", errors="replace",
+                    bufsize=1, creationflags=creationflags)
+                step_re = re.compile(r"step\s+(\d+)\s+(?:of|/)\s+(\d+)", re.I)
+                pct_re = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+                last_lines = []
+                t_first_step = None
+                last_step_seen = 0
+                for line in self._proc.stdout:
+                    if self._cancel:
+                        break
+                    line = line.rstrip()
+                    if not line:
+                        continue
+                    last_lines.append(line)
+                    last_lines = last_lines[-400:]
+                    prog = self.state.get("progress", 0.0)
+                    sm = step_re.search(line)
+                    if sm:
+                        s, tot = int(sm.group(1)), int(sm.group(2))
+                        if t_first_step is None and s == 1:
+                            t_first_step = time.time()   # debut du denoising
+                        last_step_seen = max(last_step_seen, s)
+                        prog = s / max(1, tot)
+                        elapsed = time.time() - t_start
+                        # estimation du temps restant
+                        eta = (elapsed / s * tot - elapsed) if s > 0 else 0
+                        self._set(step=s, total_steps=tot, progress=prog,
+                                  log=line, result_tail="\n".join(last_lines[-6:]),
+                                  elapsed=elapsed, eta=max(0, eta))
+                    else:
+                        pm = pct_re.search(line)
+                        if pm:
+                            prog = float(pm.group(1)) / 100.0
+                        self._set(log=line, progress=prog,
+                                  elapsed=time.time() - t_start)
+                ret = self._proc.wait()
+                self._proc = None
+                return ret, t_first_step, last_step_seen, last_lines
+
+            def extract_err_summary(last_lines):
+                err_lines = [l for l in last_lines if any(k in l.lower() for k in ("error", "exception", "failed", "unknown", "invalid", "cuda", "cannot", "abort"))]
+                if err_lines:
+                    return "\n".join(err_lines[-6:])
+                return "\n".join(last_lines[-8:]) if last_lines else "Aucun message du moteur."
+
+            ret_code = 0
+            t_first_step = None
+            last_step_seen = 0
+            last_lines = []
+            for ci, c in enumerate(cmds):
+                if self._cancel:
+                    break
+                if len(cmds) > 1:
+                    self._set(log=f"Chaos {chaos} : image {ci + 1}/{len(cmds)} — graine aléatoire indépendante ({img_seeds[ci]})")
+                rc, tfs, lss, ll = run_cli(c)
+                if rc != 0:
+                    ret_code = rc
+                    last_lines = ll
+                    break
+                t_first_step = t_first_step if t_first_step is not None else tfs
+                last_step_seen += lss
+                last_lines = ll
+
+            if self._cancel:
+                self._set(log="Génération annulée.", done=True, busy=False,
+                          result={"type": result_type, "cancelled": True, "images": []})
+                return
+
+            # Vérification du code de retour du processus
+            if ret_code != 0:
+                err_summary = extract_err_summary(last_lines)
+                raise RuntimeError(f"Le moteur sd-cli s'est arrêté avec le code d'erreur {ret_code} :\n{err_summary}")
+
+            # Ne collecter que les fichiers de ce lancement : jamais les autres PNG.
+            produced = sorted(OUTPUT_DIR.glob(f"{output_prefix}_*.png"))
+            produced = [fp for fp in produced if "_hires_" not in fp.name]
+
+            if not produced:
+                produced = [
+                    f for f in OUTPUT_DIR.glob("*.png")
+                    if f.stat().st_mtime >= t_start - 2
+                    and "_hires_" not in f.name and "upscale_" not in f.name
+                ]
+
+            if not produced:
+                err_summary = extract_err_summary(last_lines)
+                raise RuntimeError(f"Aucune image n'a été produite par le moteur sd-cli :\n{err_summary}")
+
+            # ---------- Hires Fix : 2e passe d'enrichissement des détails ----------
+            # La passe 1 définit la composition ; la passe 2 re-détaille chaque image en
+            # haute résolution (img2img doux, force ~0.35) comme en 1 clic dans A1111.
+            if hires_on and produced:
+                hr_scale = min(2.0, 2048.0 / float(max(int(p["width"]), int(p["height"]))))
+                if hr_scale < 1.25:
+                    self._set(log="Hires Fix ignoré : l'image finale dépasse déjà ~2048 px.")
+                else:
+                    hw = round16(int(p["width"]) * hr_scale)
+                    hh = round16(int(p["height"]) * hr_scale)
+                    hires_kwargs = {}
+                    if upscale_path:
+                        hires_kwargs["upscale_model"] = upscale_path
+                    if adetailer_path_resolved:
+                        hires_kwargs["adetailer_model"] = adetailer_path_resolved
+                    if pulid_w_path and pulid_emb_path:
+                        hires_kwargs["pulid_weights"] = pulid_w_path
+                        hires_kwargs["pulid_id_embedding"] = pulid_emb_path
+                        hires_kwargs["pulid_id_weight"] = pulid_w
+                    if sage_attn:
+                        hires_kwargs["sage_attn"] = True
+                    final_files = []
+                    for hf_i, fp in enumerate(produced):
+                        self._set(log=(f"🔍 Hires Fix — passe 2/2 (image {hf_i + 1}/{len(produced)}) : "
+                                       f"enrichissement des détails à {hw}×{hh}…"),
+                                  progress=0.0, step=0)
+                        out_tmpl_hr = str(OUTPUT_DIR / f"{output_prefix}_hires_{hf_i:03d}_%03d.png")
+                        cmd_hr = build_command(
+                            model_id, quant, p["prompt"], p.get("negative", ""),
+                            hw, hh, int(p["steps"]), float(p["cfg"]),
+                            (img_seeds[hf_i] if hf_i < len(img_seeds) else seed + hf_i), 1, out_tmpl_hr, str(sd), manifest,
+                            source_image=str(fp), strength=hires_strength,
+                            input_mode="init",
+                            lora_dir=p.get("lora_dir"),
+                            sampler=sampler, scheduler=scheduler,
+                            vae_tiling=True,  # décodage VAE par tuiles en HR : évite les pics de VRAM
+                            slg_scale=slg_scale, **hires_kwargs)
+                        for idx_arg, arg_val in enumerate(cmd_hr):
+                            if arg_val is None:
+                                raise RuntimeError(f"Erreur interne : argument Hires Fix #{idx_arg} est None.")
+                        ret_hr, _t_first_hr, last_step_hr, last_lines_hr = run_cli(cmd_hr)
+                        last_lines = last_lines_hr
+                        if last_step_hr:
+                            last_step_seen += last_step_hr
+                        if self._cancel:
+                            self._set(log="Génération annulée.", done=True, busy=False,
+                                      result={"type": result_type, "cancelled": True, "images": []})
+                            return
+                        hr_files = sorted(OUTPUT_DIR.glob(f"{output_prefix}_hires_{hf_i:03d}_*.png"))
+                        if ret_hr != 0 or not hr_files:
+                            # Passe 2 en échec : on garde l'image de la passe 1 plutôt que tout perdre.
+                            self._set(log=(f"⚠️ Passe 2 Hires Fix en échec pour l'image {hf_i + 1} "
+                                           f"(code {ret_hr}) — résultat de la passe 1 conservé."))
+                            final_files.append(fp)
+                            continue
+                        try:
+                            fp.unlink(missing_ok=True)  # supprime le brouillon basse résolution
+                        except Exception:
+                            pass
+                        final_files.append(hr_files[0])
+                    produced = final_files
+
+            # ---------- Metadonnees PNG : injection pour les anciens PNG ----------
+            # Les PNG recents portent deja le chunk « parameters » ecrit par sd-cli.
+            # Pour les autres, on injecte la fiche minimale (prompt, seed, modele)
+            # a partir des reglages de cette generation — jamais d'ecrasement.
+            for i, fp in enumerate(produced):
+                try:
+                    txt = _pngmeta.build_webui_text(
+                        prompt=p["prompt"], negative=p.get("negative", ""),
+                        steps=int(p["steps"]), cfg=float(p["cfg"]),
+                        seed=img_seeds[i] if i < len(img_seeds) else seed + i,
+                        width=None, height=None, sampler=chosen_sampler,
+                        model_id=model_id)
+                    _pngmeta.embed_params(fp, txt, only_if_missing=True)
+                except Exception:
+                    pass
+
+            t_end = time.time()
+            total_seconds = t_end - t_start
+            denoise_seconds = (t_end - t_first_step) if t_first_step else total_seconds
+            per_step = (denoise_seconds / max(1, last_step_seen)) if last_step_seen else 0
+
+            images = []
+            for i, fp in enumerate(produced):
+                rel = fp.relative_to(OUTPUT_DIR).as_posix()
+                dims = _png_size(fp)  # dimensions réelles (prises en compte du Hires Fix/x4)
+                out_w, out_h = dims if dims else (int(p["width"]), int(p["height"]))
+                if upscale_path and not hires_on:
+                    out_w, out_h = int(p["width"]) * 4, int(p["height"]) * 4
+                image_id = db.add_image(
+                    batch_id=batch_id, idx=i, model_id=model_id, model_name=m["name"],
+                    quant=quant, prompt=p["prompt"], negative=p.get("negative", ""),
+                    seed=img_seeds[i] if i < len(img_seeds) else seed + i, width=out_w, height=out_h,
+                    steps=int(p["steps"]), cfg=float(p["cfg"]),
+                    sampler=chosen_sampler, filename=rel, batch_size=batch,
+                    gen_time=round(total_seconds / max(1, len(produced)), 1),
+                    source_images=input_images)
+                img_entry = {"url": f"/output/{rel}", "filename": rel,
+                             "seed": img_seeds[i] if i < len(img_seeds) else seed + i, "id": image_id,
+                             "prompt": p.get("prompt")}
+                if result_type == "vary":
+                    img_entry["vary"] = True
+                    img_entry["vary_mode"] = p.get("vary_mode") or "subtle"
+                images.append(img_entry)
+
+            stats = {
+                "total_seconds": round(total_seconds, 1),
+                "denoise_seconds": round(denoise_seconds, 1),
+                "per_step_seconds": round(per_step, 2),
+                "steps": last_step_seen,
+                "batch": batch,
+                "sec_per_image": round(total_seconds / max(1, len(images)), 1),
+                "it_s": round(last_step_seen / denoise_seconds, 2) if denoise_seconds > 0 else 0,
+            }
+            self._set(log=f"Génération terminée ✓ ({len(images)} image(s) en {total_seconds:.1f}s)",
+                      progress=1.0, done=True, busy=False, error=None,
+                      result={"type": result_type, "images": images,
+                              "batch_id": batch_id, "cancelled": False,
+                              "stats": stats})
+        except Exception as e:
+            self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
+                      result={"type": result_type, "images": [], "error": str(e), "cancelled": False})
+
+    # --- Agrandissement ×4 autonome (mode -M upscale de sd-cli) ---
+    def _run_upscale(self, p):
+        try:
+            import db
+            uid = p.get("upscaler_id", "")
+            u = UPSCALERS.get(uid)
+            if not u:
+                raise RuntimeError("Modèle d'agrandissement inconnu.")
+            up_path = upscaler_path(uid)
+            if not up_path or not up_path.exists():
+                raise RuntimeError(
+                    f"« {u['name']} » n'est pas téléchargé. Ouvrez l'onglet Modèles "
+                    "→ section « 🔍 Upscaling ×4 » pour le télécharger.")
+            sd = find_sd_cli()
+            if not sd:
+                raise RuntimeError("Le moteur sd-cli n'est pas installé. Allez dans l'onglet Modèles.")
+            src_rel = p.get("source_image")
+            src = (ROOT / src_rel) if src_rel else None
+            if not src or not src.exists():
+                raise RuntimeError("Image source introuvable sur le disque.")
+
+            scale = int(u.get("scale", 4))
+            src_dims = _png_size(src)
+            stem = re.sub(r"[^a-zA-Z0-9_]", "_", src.stem.lower())[:40] or "image"
+            out_name = f"upscale_x{scale}_{stem}_{uuid.uuid4().hex[:6]}.png"
+            out_path = OUTPUT_DIR / out_name
+            cmd = build_upscale_command(str(sd), str(src), str(out_path), up_path)
+
+            self._set(log=f"🔍 Agrandissement ×{scale} de « {src.name} » avec {u['name']}…",
+                      progress=0.02, step=0, total_steps=0, error=None, done=False)
+
+            creationflags = 0
+            if os.name == "nt":
+                creationflags = subprocess.CREATE_NO_WINDOW
+
+            t_start = time.time()
+            self._proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace",
+                bufsize=1, creationflags=creationflags)
+
+            pct_re = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+            last_lines = []
+            for line in self._proc.stdout:
+                if self._cancel:
+                    break
+                line = line.rstrip()
+                if not line:
+                    continue
+                last_lines.append(line)
+                last_lines = last_lines[-400:]
+                prog = self.state.get("progress", 0.0)
+                pm = pct_re.search(line)
+                if pm:
+                    prog = float(pm.group(1)) / 100.0
+                self._set(log=line, progress=prog, elapsed=time.time() - t_start)
+
+            ret_code = self._proc.wait()
+            self._proc = None
+            total_seconds = time.time() - t_start
+
+            if self._cancel:
+                out_path.unlink(missing_ok=True)
+                self._set(log="Agrandissement annulé.", done=True, busy=False,
+                          result={"type": "upscale", "cancelled": True, "images": []})
+                return
+
+            def _err_summary():
+                err_lines = [l for l in last_lines if any(k in l.lower() for k in (
+                    "error", "exception", "failed", "unknown", "invalid", "cannot", "abort"))]
+                if err_lines:
+                    return "\n".join(err_lines[-6:])
+                return "\n".join(last_lines[-8:]) if last_lines else "Aucun message du moteur."
+
+            if ret_code != 0:
+                raise RuntimeError(
+                    f"Le moteur sd-cli s'est arrêté avec le code d'erreur {ret_code} :\n"
+                    f"{_err_summary()}")
+            if not out_path.exists() or out_path.stat().st_size < 16 * 1024:
+                raise RuntimeError(
+                    f"Aucune image agrandie n'a été produite par le moteur sd-cli :\n{_err_summary()}")
+
+            out_dims = _png_size(out_path)
+            if out_dims:
+                out_w, out_h = out_dims
+            elif src_dims:
+                out_w, out_h = src_dims[0] * scale, src_dims[1] * scale
+            else:
+                out_w = out_h = 0
+
+            image_id = db.add_image(
+                batch_id=uuid.uuid4().hex, idx=0,
+                model_id=f"upscale:{uid}", model_name=f"🔍 {u['name']}",
+                quant=f"×{scale}",
+                prompt=f"Agrandissement ×{scale} de {src.name}",
+                negative="", seed=0, width=out_w, height=out_h,
+                steps=0, cfg=0.0, sampler="upscale", filename=out_name,
+                batch_size=1, gen_time=round(total_seconds, 1),
+                source_images=[src_rel])
+            label = (f"Agrandissement terminé ✓ ({src.name} → {out_w}×{out_h}"
+                     if out_w else "Agrandissement terminé ✓")
+            self._set(log=f"{label} en {total_seconds:.1f}s)", progress=1.0,
+                      done=True, busy=False, error=None,
+                      result={"type": "upscale",
+                              "images": [{"url": f"/output/{out_name}", "filename": out_name,
+                                          "seed": 0, "id": image_id,
+                                          "prompt": f"Agrandissement ×{scale} de {src.name}",
+                                          "upscaled": True, "scale": scale}],
+                              "cancelled": False})
+        except Exception as e:
+            self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
+                      result={"type": "upscale", "images": [], "error": str(e),
+                              "cancelled": False})
+
+    # --- Reparation visages/mains autonome (mode -M adetailer) ---
+    def _run_repair(self, p):
+        try:
+            import db
+            did = p.get("detector_id", "")
+            d = ADETAILERS.get(did)
+            if not d:
+                raise RuntimeError("Détecteur ADetailer inconnu.")
+            det_path = adetailer_path(did)
+            if not det_path or not det_path.exists():
+                raise RuntimeError(
+                    f"Le détecteur « {d['name']} » n'est pas téléchargé. Ouvrez l'onglet "
+                    "Modèles → section « 🙂 ADetailer » pour l'installer (quelques Mo).")
+            sd = find_sd_cli()
+            if not sd:
+                raise RuntimeError("Le moteur sd-cli n'est pas installé. Allez dans l'onglet Modèles.")
+            src_rel = p.get("source_image")
+            src = (ROOT / src_rel) if src_rel else None
+            if not src or not src.exists():
+                raise RuntimeError("Image source introuvable sur le disque.")
+
+            # Modele de generation charge pour re-detailler les zones detectees :
+            # celui de la demande, sinon le meilleur modele pret disponible
+            # (ordre de preference optimise pour la retouche).
+            model_id = p.get("model_id") or ""
+            quant = p.get("quant") or ""
+            if model_id not in MODELS:
+                model_id = ""
+            if not model_id:
+                for cand in ("flux-schnell", "flux-dev", "sd3.5-medium", "sd3.5-large",
+                             "chroma", "qwen-image-2512", "flux-kontext-dev"):
+                    if cand in MODELS and model_status(cand)["ready"]:
+                        model_id = cand
+                        break
+            if not model_id:
+                raise RuntimeError(
+                    "Aucun modèle de génération prêt n'est installé pour la retouche. "
+                    "Téléchargez-en un (ex. FLUX.1 Schnell) dans l'onglet Modèles.")
+            m = MODELS[model_id]
+            if not quant or quant not in m["quants"] or not _model_present(model_id, quant):
+                quant = next((q for q in m["quants"] if _model_present(model_id, q)), None)
+            if not quant:
+                raise RuntimeError(f"Aucun poids de {m['name']} n'est téléchargé.")
+            missing = [d_ for d_ in m["deps"] if not _dep_present(d_)]
+            if missing:
+                raise RuntimeError(
+                    f"Dépendances manquantes pour {m['name']} : " + ", ".join(missing))
+
+            seed = p.get("seed") or 42
+            try:
+                seed = int(seed)
+            except (TypeError, ValueError):
+                seed = 42
+            strength = p.get("strength")
+            try:
+                strength = max(0.1, min(1.0, float(strength))) if strength not in (None, "") else 0.4
+            except (TypeError, ValueError):
+                strength = 0.4
+
+            stem = re.sub(r"[^a-zA-Z0-9_]", "_", src.stem.lower())[:40] or "image"
+            out_name = f"repair_{stem}_{uuid.uuid4().hex[:6]}.png"
+            out_path = OUTPUT_DIR / out_name
+
+            manifest = load_manifest()
+            cmd = build_adetailer_command(
+                model_id, quant, str(src), str(out_path), str(sd), manifest,
+                det_path, prompt=(p.get("prompt") or "").strip() or None,
+                seed=seed, ad_prompt=(p.get("ad_prompt") or "").strip() or None,
+                denoise=strength,
+                taesd_path=(str(taesd_path(taesd_for_model(model_id)))
+                            if p.get("taesd_id") and taesd_for_model(model_id)
+                               and taesd_path(taesd_for_model(model_id))
+                               and taesd_path(taesd_for_model(model_id)).exists() else None),
+                sage_attn=bool(p.get("sage_attn")) or bool(load_settings().get("sage_attn")),
+                lora_dir=None)
+
+            self._set(log=f"🙂 Réparation {d['name']} de « {src.name} » avec {m['name']}…",
+                      progress=0.02, step=0, total_steps=int(m["defaults"]["steps"]),
+                      error=None, done=False)
+
+            creationflags = 0
+            if os.name == "nt":
+                creationflags = subprocess.CREATE_NO_WINDOW
+            t_start = time.time()
+            self._proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace",
+                bufsize=1, creationflags=creationflags)
+
+            step_re = re.compile(r"step\s+(\d+)\s+(?:of|/)\s+(\d+)", re.I)
+            pct_re = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+            last_lines = []
+            for line in self._proc.stdout:
+                if self._cancel:
+                    break
+                line = line.rstrip()
+                if not line:
+                    continue
+                last_lines.append(line)
+                last_lines = last_lines[-400:]
+                prog = self.state.get("progress", 0.0)
+                sm = step_re.search(line)
+                if sm:
+                    s, tot = int(sm.group(1)), int(sm.group(2))
+                    self._set(step=s, total_steps=tot,
+                              progress=min(1.0, s / max(1, tot)),
+                              log=line, elapsed=time.time() - t_start)
+                else:
+                    pm = pct_re.search(line)
+                    if pm:
+                        prog = max(prog, float(pm.group(1)) / 100.0)
+                    self._set(log=line, progress=prog, elapsed=time.time() - t_start)
+
+            ret_code = self._proc.wait()
+            self._proc = None
+            total_seconds = time.time() - t_start
+
+            if self._cancel:
+                out_path.unlink(missing_ok=True)
+                self._set(log="Réparation annulée.", done=True, busy=False,
+                          result={"type": "repair", "cancelled": True, "images": []})
+                return
+
+            def _err_summary():
+                err_lines = [l for l in last_lines if any(k in l.lower() for k in (
+                    "error", "exception", "failed", "unknown", "invalid", "cannot", "abort"))]
+                if err_lines:
+                    return "\n".join(err_lines[-6:])
+                return "\n".join(last_lines[-8:]) if last_lines else "Aucun message du moteur."
+
+            if ret_code != 0:
+                raise RuntimeError(
+                    f"Le moteur sd-cli s'est arrêté avec le code d'erreur {ret_code} :\n"
+                    f"{_err_summary()}")
+            if not out_path.exists() or out_path.stat().st_size < 16 * 1024:
+                raise RuntimeError(
+                    f"Aucune image retouchée n'a été produite :\n{_err_summary()}")
+
+            # Metadonnees : injecter une fiche minimale si le PNG n'en a pas
+            try:
+                txt = _pngmeta.build_webui_text(
+                    prompt=(p.get("prompt") or "").strip(),
+                    negative="", steps=int(m["defaults"]["steps"]), cfg=float(m["defaults"]["cfg"]),
+                    seed=seed, sampler=m["defaults"].get("sampler", "euler"),
+                    model_id=model_id)
+                _pngmeta.embed_params(out_path, txt, only_if_missing=True)
+            except Exception:
+                pass
+
+            out_dims = _png_size(out_path) or (0, 0)
+            image_id = db.add_image(
+                batch_id=uuid.uuid4().hex, idx=0,
+                model_id=f"repair:{did}", model_name=f"🙂 {d['name']} · {m['name']}",
+                quant=quant, prompt=(p.get("prompt") or "").strip(),
+                negative="", seed=seed,
+                width=out_dims[0], height=out_dims[1],
+                steps=int(m["defaults"]["steps"]), cfg=float(m["defaults"]["cfg"]),
+                sampler="adetailer", filename=out_name, batch_size=1,
+                gen_time=round(total_seconds, 1), source_images=[src_rel])
+            self._set(log=f"Réparation terminée ✓ ({src.name}) en {total_seconds:.1f}s",
+                      progress=1.0, done=True, busy=False, error=None,
+                      result={"type": "repair",
+                              "images": [{"url": f"/output/{out_name}", "filename": out_name,
+                                          "seed": seed, "id": image_id,
+                                          "prompt": (p.get("prompt") or "").strip(),
+                                          "repaired": True}],
+                              "cancelled": False})
+        except Exception as e:
+            self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
+                      result={"type": "repair", "images": [], "error": str(e),
+                              "cancelled": False})
+
+    # --- Restauration ×2 par diffusion (mode -M vid_upscale, SeedVR2) ---
+    def _run_seedvr2(self, p):
+        try:
+            import db
+            st = seedvr2_status()
+            if not st["downloaded"]:
+                raise RuntimeError(
+                    "SeedVR2 n'est pas installé. Ouvrez l'onglet Modèles → section "
+                    "« 🩹 Restauration ×2 » (~6,8 Go).")
+            sd = find_sd_cli()
+            if not sd:
+                raise RuntimeError("Le moteur sd-cli n'est pas installé. Allez dans l'onglet Modèles.")
+            src_rel = p.get("source_image")
+            src = (ROOT / src_rel) if src_rel else None
+            if not src or not src.exists():
+                raise RuntimeError("Image source introuvable sur le disque.")
+            diff_path, vae_path = seedvr2_paths()
+
+            seed = p.get("seed") or 42
+            try:
+                seed = int(seed)
+            except (TypeError, ValueError):
+                seed = 42
+
+            stem = re.sub(r"[^a-zA-Z0-9_]", "_", src.stem.lower())[:40] or "image"
+            out_name = f"restore_x2_{stem}_{uuid.uuid4().hex[:6]}.png"
+            out_path = OUTPUT_DIR / out_name
+            cmd = build_seedvr2_command(str(sd), str(src), str(out_path),
+                                        diff_path, vae_path, upscale_factor=2, seed=seed)
+
+            self._set(log=f"🩹 Restauration ×2 de « {src.name} » avec SeedVR2 (lent, ~6.8 Go de modèle)…",
+                      progress=0.02, step=0, total_steps=0, error=None, done=False)
+
+            creationflags = 0
+            if os.name == "nt":
+                creationflags = subprocess.CREATE_NO_WINDOW
+            t_start = time.time()
+            self._proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace",
+                bufsize=1, creationflags=creationflags)
+
+            step_re = re.compile(r"step\s+(\d+)\s+(?:of|/)\s+(\d+)", re.I)
+            pct_re = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+            last_lines = []
+            for line in self._proc.stdout:
+                if self._cancel:
+                    break
+                line = line.rstrip()
+                if not line:
+                    continue
+                last_lines.append(line)
+                last_lines = last_lines[-400:]
+                prog = self.state.get("progress", 0.0)
+                sm = step_re.search(line)
+                if sm:
+                    s, tot = int(sm.group(1)), int(sm.group(2))
+                    self._set(step=s, total_steps=tot,
+                              progress=min(1.0, s / max(1, tot)),
+                              log=line, elapsed=time.time() - t_start)
+                else:
+                    pm = pct_re.search(line)
+                    if pm:
+                        prog = max(prog, float(pm.group(1)) / 100.0)
+                    self._set(log=line, progress=prog, elapsed=time.time() - t_start)
+
+            ret_code = self._proc.wait()
+            self._proc = None
+            total_seconds = time.time() - t_start
+
+            if self._cancel:
+                out_path.unlink(missing_ok=True)
+                self._set(log="Restauration annulée.", done=True, busy=False,
+                          result={"type": "restore_x2", "cancelled": True, "images": []})
+                return
+
+            def _err_summary():
+                err_lines = [l for l in last_lines if any(k in l.lower() for k in (
+                    "error", "exception", "failed", "unknown", "invalid", "cannot", "abort"))]
+                if err_lines:
+                    return "\n".join(err_lines[-6:])
+                return "\n".join(last_lines[-8:]) if last_lines else "Aucun message du moteur."
+
+            if ret_code != 0:
+                raise RuntimeError(
+                    f"Le moteur sd-cli s'est arrêté avec le code d'erreur {ret_code} :\n"
+                    f"{_err_summary()}")
+            if not out_path.exists() or out_path.stat().st_size < 16 * 1024:
+                raise RuntimeError(
+                    f"Aucune image restaurée n'a été produite :\n{_err_summary()}")
+
+            try:
+                txt = _pngmeta.build_webui_text(
+                    prompt=f"Restauration ×2 de {src.name} (SeedVR2)", negative="",
+                    steps=None, cfg=None, seed=seed, sampler="seedvr2",
+                    model_id="seedvr2-3b")
+                _pngmeta.embed_params(out_path, txt, only_if_missing=True)
+            except Exception:
+                pass
+
+            out_dims = _png_size(out_path) or (0, 0)
+            image_id = db.add_image(
+                batch_id=uuid.uuid4().hex, idx=0,
+                model_id="seedvr2", model_name="🩹 SeedVR2 (Restauration ×2)",
+                quant="×2", prompt=f"Restauration ×2 de {src.name}",
+                negative="", seed=seed,
+                width=out_dims[0], height=out_dims[1],
+                steps=0, cfg=0.0, sampler="seedvr2", filename=out_name, batch_size=1,
+                gen_time=round(total_seconds, 1), source_images=[src_rel])
+            self._set(log=f"Restauration ×2 terminée ✓ ({src.name}) en {total_seconds:.1f}s",
+                      progress=1.0, done=True, busy=False, error=None,
+                      result={"type": "restore_x2",
+                              "images": [{"url": f"/output/{out_name}", "filename": out_name,
+                                          "seed": seed, "id": image_id,
+                                          "prompt": f"Restauration ×2 de {src.name}",
+                                          "upscaled": True, "scale": 2}],
+                              "cancelled": False})
+        except Exception as e:
+            self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
+                      result={"type": "restore_x2", "images": [], "error": str(e),
+                              "cancelled": False})
+
+    def _run_pid(self, p):
+        try:
+            import db
+            st = pid_status()
+            if not st["downloaded"]:
+                raise RuntimeError(
+                    "PiD n'est pas installé. Ouvrez l'onglet Modèles → section "
+                    "« ⬆️ PiD ×4 » (socle commun ~5,4 Go + ~1,6 Go par backbone).")
+            sd = find_sd_cli()
+            if not sd:
+                raise RuntimeError("Le moteur sd-cli n'est pas installé. Allez dans l'onglet Modèles.")
+            src_rel = p.get("source_image")
+            src = (ROOT / src_rel) if src_rel else None
+            if not src or not src.exists():
+                raise RuntimeError("Image source introuvable sur le disque.")
+
+            # --- Retrouve l'image d'origine dans l'historique (prompt + famille) ---
+            img_id = p.get("image_id")
+            src_image = None
+            if img_id not in (None, ""):
+                try:
+                    src_image = db.get_image(int(img_id))
+                except Exception:
+                    src_image = None
+
+            # --- Choix du backbone : explicite > famille du modèle source > premier dispo ---
+            backbone = (p.get("backbone") or "").strip()
+            if backbone and backbone not in PID["backbones"]:
+                raise RuntimeError(f"Backbone PiD inconnu : {backbone}")
+            ready = st["ready_backbones"]
+            if backbone:
+                if not st["backbones"][backbone]["ready"]:
+                    bb = st["backbones"][backbone]
+                    missing = []
+                    if not st["shared"]["ready"]:
+                        missing.append("socle commun (Gemma 2 2B + tokenizer)")
+                    if not bb["model"]:
+                        missing.append("modèle int8 du backbone")
+                    if not bb["vae"]:
+                        missing.append(f"VAE « {bb['vae_dep']} »")
+                    raise RuntimeError(
+                        "PiD (" + backbone + ") n'est pas complet : il manque "
+                        + ", ".join(missing) + ". Ouvrez l'onglet Modèles → « ⬆️ PiD ×4 ».")
+            else:
+                arch = None
+                if src_image:
+                    src_model = MODELS.get(src_image.get("model_id") or "")
+                    arch = (src_model or {}).get("arch")
+                pref = pid_backbone_for_arch(arch)
+                backbone = pref if (pref and pref in ready) else (ready[0] if ready else None)
+                if not backbone:
+                    raise RuntimeError(
+                        "Aucun backbone PiD utilisable n'est installé. Ouvrez l'onglet Modèles → « ⬆️ PiD ×4 ».")
+
+            bb = PID["backbones"][backbone]
+            vae_path = pid_vae_path(backbone)
+            if not vae_path or not vae_path.exists() or vae_path.stat().st_size < 1024 * 1024:
+                raise RuntimeError(
+                    f"VAE requis introuvable : {vae_path}. Relancez le téléchargement « ⬆️ PiD ×4 » "
+                    "dans l'onglet Modèles (ou installez le modèle de la famille correspondante).")
+
+            # --- Prompt : explicite > historique (descriptif) > défaut qualité ---
+            prompt, prompt_source = resolve_pid_prompt(p.get("prompt"), src_image,
+                                                       pid_default_prompt())
+            if src_image and prompt_source.startswith("generic_") and (p.get("prompt") or "").strip() == "":
+                self._set(log=("⬆️ PiD — le prompt de l'image ressemblait à une instruction "
+                               "d'édition/retouche : utilisation de la description générique "
+                               "(PiD reconstruit d'après le prompt ; décrivez le contenu)."))
+
+            seed = p.get("seed") or 42
+            try:
+                seed = int(seed)
+            except (TypeError, ValueError):
+                seed = 42
+
+            out_size = int(PID.get("output_size") or 4096)
+            stem = re.sub(r"[^a-zA-Z0-9_]", "_", src.stem.lower())[:40] or "image"
+            out_name = f"pid_{backbone}_{stem}_{uuid.uuid4().hex[:6]}.png"
+            out_path = OUTPUT_DIR / out_name
+            cmd = build_pid_command(str(sd), str(src), str(out_path),
+                                    pid_model_path(backbone), pid_gemma_path(),
+                                    pid_tokenizer_path(), vae_path,
+                                    bb["vae_format"], prompt, seed=seed,
+                                    width=out_size, height=out_size)
+
+            self._set(log=f"⬆️ PiD ×4 de « {src.name} » ({bb['label']}, 4 étapes, sortie {out_size}×{out_size})…",
+                      progress=0.02, step=0, total_steps=0, error=None, done=False)
+
+            creationflags = 0
+            if os.name == "nt":
+                creationflags = subprocess.CREATE_NO_WINDOW
+            t_start = time.time()
+            self._proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace",
+                bufsize=1, creationflags=creationflags)
+
+            step_re = re.compile(r"step\s+(\d+)\s+(?:of|/)\s+(\d+)", re.I)
+            pct_re = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+            last_lines = []
+            for line in self._proc.stdout:
+                if self._cancel:
+                    break
+                line = line.rstrip()
+                if not line:
+                    continue
+                last_lines.append(line)
+                last_lines = last_lines[-400:]
+                prog = self.state.get("progress", 0.0)
+                sm = step_re.search(line)
+                if sm:
+                    s, tot = int(sm.group(1)), int(sm.group(2))
+                    self._set(step=s, total_steps=tot,
+                              progress=min(1.0, s / max(1, tot)),
+                              log=line, elapsed=time.time() - t_start)
+                else:
+                    pm = pct_re.search(line)
+                    if pm:
+                        prog = max(prog, float(pm.group(1)) / 100.0)
+                    self._set(log=line, progress=prog, elapsed=time.time() - t_start)
+
+            ret_code = self._proc.wait()
+            self._proc = None
+            total_seconds = time.time() - t_start
+
+            if self._cancel:
+                out_path.unlink(missing_ok=True)
+                self._set(log="PiD annulée.", done=True, busy=False,
+                          result={"type": "pid", "cancelled": True, "images": []})
+                return
+
+            def _err_summary():
+                err_lines = [l for l in last_lines if any(k in l.lower() for k in (
+                    "error", "exception", "failed", "unknown", "invalid", "cuda", "cannot", "abort"))]
+                if err_lines:
+                    return "\n".join(err_lines[-6:])
+                return "\n".join(last_lines[-8:]) if last_lines else "Aucun message du moteur."
+
+            if ret_code != 0:
+                raise RuntimeError(
+                    f"Le moteur sd-cli s'est arrêté avec le code d'erreur {ret_code} :\n"
+                    f"{_err_summary()}\n\n💡 PiD décode en {out_size}×{out_size} (pixel-space) : "
+                    "si la VRAM est insuffisante, utilisez plutôt 🩹 Restaurer ×2 (SeedVR2) ou 🔍 Agrandir ×4.")
+            if not out_path.exists() or out_path.stat().st_size < 16 * 1024:
+                raise RuntimeError(
+                    f"Aucune image PiD n'a été produite :\n{_err_summary()}")
+
+            try:
+                txt = _pngmeta.build_webui_text(
+                    prompt=prompt, negative="",
+                    steps=4, cfg=1.0, seed=seed, sampler="pid",
+                    model_id=f"pid_{backbone}")
+                _pngmeta.embed_params(out_path, txt, only_if_missing=True)
+            except Exception:
+                pass
+
+            out_dims = _png_size(out_path) or (out_size, out_size)
+            image_id = db.add_image(
+                batch_id=uuid.uuid4().hex, idx=0,
+                model_id=f"pid_{backbone}", model_name=f"⬆️ PiD ×4 ({bb['label']})",
+                quant="×4", prompt=prompt,
+                negative="", seed=seed,
+                width=out_dims[0], height=out_dims[1],
+                steps=4, cfg=1.0, sampler="pid", filename=out_name, batch_size=1,
+                gen_time=round(total_seconds, 1), source_images=[src_rel])
+            self._set(log=f"PiD ×4 terminée ✓ ({src.name} → {bb['label']}) en {total_seconds:.1f}s",
+                      progress=1.0, done=True, busy=False, error=None,
+                      result={"type": "pid",
+                              "backbone": backbone,
+                              "images": [{"url": f"/output/{out_name}", "filename": out_name,
+                                          "seed": seed, "id": image_id,
+                                          "prompt": prompt,
+                                          "upscaled": True, "scale": 4}],
+                              "cancelled": False})
+        except Exception as e:
+            self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
+                      result={"type": "pid", "images": [], "error": str(e),
+                              "cancelled": False})
+
+
+# instance globale
+tasks = TaskManager()
+
+
+# =========================================================================== #
+#  llama.cpp officiel (ggml-org) — légendeurs d'image (VLM → prompt)
+# =========================================================================== #
+LLAMA_REPO_API_LIST = "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=30"
+LLAMA_MIN_BUILD = 11556          # release minimale pour le runtime Hadamard (Bonsai-2 Q2_0)
+LLAMA_MIN_SEMVER = (0, 8, 0)     # équivalent actuel (tags vX.Y.Z depuis 2026)
+_LLAMA_STATUS_CACHE = {"tag": None, "assets": [], "checked": 0.0}
+
+
+def _llama_mtmd_candidates():
+    return ("llama-mtmd-cli.exe", "llama-mtmd-cli")
+
+
+def _llama_server_candidates():
+    return ("llama-server.exe", "llama-server")
+
+
+def _find_llama_bin(root, names):
+    if not root or not Path(root).exists():
+        return None
+    for name in names:
+        hits = list(Path(root).rglob(name))
+        if hits:
+            return hits[0]
+    return None
+
+
+def _find_llama_mtmd(root):
+    return _find_llama_bin(root, _llama_mtmd_candidates())
+
+
+def _find_llama_server(root):
+    return _find_llama_bin(root, _llama_server_candidates())
+
+
+def _llama_roots(home=None):
+    """Dossiers candidats pour un llama.cpp compilé sur la machine (build from source).
+
+    Le chemin varie surtout par le NOM D'UTILISATEUR Windows — on passe par Path.home(),
+    donc « C:\\Users\\<n'importe qui>\\llama.cpp\\build\\bin\\Release » est trouvé
+    tel quel. rglob couvre Release/Debug/RelWithDebInfo. On ajoute aussi quelques
+    emplacements usuels où le dépôt est cloné (git/dev/src…), profondeur bornée.
+    """
+    home = Path(home) if home else Path.home()
+    roots = [
+        Path("C:/llama.cpp"), Path("C:/llama"), Path("C:/tools/llama.cpp"),
+        Path("C:/Program Files/llama.cpp"), Path("C:/Program Files (x86)/llama.cpp"),
+        home / "llama.cpp", home / "llama",
+        home / "llama.cpp" / "build",          # rglob : bin/Release/Debug… et binaires directement dedans
+        home / ".local" / "bin",
+        home / "AppData" / "Local" / "llama.cpp",
+        home / "AppData" / "Local" / "Programs" / "llama.cpp",
+    ]
+    for pattern in ("*/llama.cpp/build", "*/git/llama.cpp/build", "*/src/llama.cpp/build",
+                    "*/dev/llama.cpp/build", "*/projects/llama.cpp/build", "*/code/llama.cpp/build"):
+        try:
+            roots.extend(sorted(home.glob(pattern)))
+        except Exception:
+            pass
+    uniq, seen = [], set()
+    for r in roots:
+        key = str(r).lower()
+        if key not in seen:
+            seen.add(key)
+            uniq.append(r)
+    return uniq
+
+
+def _llama_bin_version(binpath):
+    """Version du binaire : ("b", 11862, raw) / ("semver", (0, 8, 0), raw) / ("unknown", None, raw) / None (erreur)."""
+    try:
+        proc = subprocess.run([str(binpath), "--version"], capture_output=True,
+                              text=True, timeout=15)
+        raw = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+    except Exception:
+        return None
+    if not raw.strip():
+        return ("unknown", None, "")
+    m = re.search(r"\bb(\d{3,})\b", raw)
+    if m:
+        return ("b", int(m.group(1)), raw.strip().splitlines()[-1][:120])
+    m = re.search(r"[vV]?(\d+)\.(\d+)(?:\.(\d+))?", raw)
+    if m:
+        grp = tuple(int(x) for x in m.groups() if x is not None)
+        return ("semver", grp, raw.strip().splitlines()[-1][:120])
+    return ("unknown", None, raw.strip().splitlines()[-1][:120])
+
+
+def _llama_version_status(ver):
+    """(ok, reason) — ok=True si utilisable ; reason expliqué sinon (ou avertissement si inconnue)."""
+    if ver is None:
+        return False, "version illisible (binaire introuvable ou --version sans réponse)"
+    kind, val, raw = ver
+    if kind == "unknown":
+        return True, "version inconnue — supposée récente ; si les légendes sont incohérentes, mettez llama.cpp à jour"
+    if kind == "b":
+        if val >= LLAMA_MIN_BUILD:
+            return True, None
+        return False, (f"build b{val} trop ancien (b{LLAMA_MIN_BUILD}+ requis — runtime Hadamard, "
+                       "sinon Bonsai-2 sort des descriptions fausses sans erreur)")
+    if val >= LLAMA_MIN_SEMVER:
+        return True, None
+    return False, (f"version v{'.'.join(str(x) for x in val)} trop ancienne — "
+                   f"v{'.'.join(str(x) for x in LLAMA_MIN_SEMVER)}+ requise")
+
+
+def llama_version_ok(ver):
+    return _llama_version_status(ver)[0]
+
+
+def installed_llama_cpp():
+    """llama.cpp installé dans l'app (bin/llama/) via le manifeste, ou découvert sur disque."""
+    mf = load_manifest()
+    info = mf.get("llama_cpp") or {}
+    p = info.get("path")
+    if p and Path(p).exists():
+        return {"flavor": info.get("flavor", "official"),
+                "version": info.get("version"), "path": p,
+                "installed_at": info.get("installed_at"),
+                "kind": info.get("kind", "cli"),
+                "backend_label": "llama-mtmd-cli"}
+    found = _find_llama_mtmd(LLAMA_DIR)
+    if found:
+        ver = _llama_bin_version(found)
+        tag = (f"b{ver[1]}" if ver and ver[0] == "b" else
+               f"v{'.'.join(str(x) for x in ver[1])}" if ver and ver[0] == "semver" else None)
+        return {"flavor": "official", "version": tag, "path": str(found), "installed_at": None,
+                "kind": "cli", "backend_label": "llama-mtmd-cli"}
+    return None
+
+
+def host_llama_cpp():
+    """Cherche un llama.cpp sur la machine de l'utilisateur (PATH + build from source).
+
+    N'installe rien. Détecte DEUX portes d'entrée — dans cet ordre de préférence :
+      1. `llama-mtmd-cli` (exécution directe, idéale) ;
+      2. `llama-server` (build sans l'outil CLI multimodal — l'app le lance alors en
+         sous-processus HTTP local pour la durée d'une légende).
+    Retourne None si rien trouvé, sinon {path, kind, cli_path, server_path,
+    backend_label, version, ok, reason} — `path`/`kind` = le binaire retenu.
+    """
+    entries = []  # (Path, kind)
+    for tool in ("llama-mtmd-cli", "llama-mtmd-cli.exe"):
+        found = shutil.which(tool)
+        if found:
+            entries.append((Path(found), "cli"))
+    for tool in ("llama-server", "llama-server.exe"):
+        found = shutil.which(tool)
+        if found:
+            entries.append((Path(found), "server"))
+    for base in _llama_roots():
+        if not Path(base).exists():
+            continue
+        cli = _find_llama_mtmd(base)
+        if cli:
+            entries.append((cli, "cli"))
+        srv = _find_llama_server(base)
+        if srv:
+            entries.append((srv, "server"))
+    seen, uniq = set(), []
+    for c, kind in entries:
+        try:
+            key = str(c.resolve()).lower()
+        except Exception:
+            key = str(c).lower()
+        if key not in seen:
+            seen.add(key)
+            uniq.append((c, kind))
+    if not uniq:
+        return None
+
+    def _entry(c, kind):
+        ver = _llama_bin_version(c)
+        ok, reason = _llama_version_status(ver)
+        tag = (f"b{ver[1]}" if ver and ver[0] == "b" else
+               f"v{'.'.join(str(x) for x in ver[1])}" if ver and ver[0] == "semver" else
+               "inconnue" if ver else None)
+        return {"path": str(c), "kind": kind, "version": tag, "ok": ok, "reason": reason}
+
+    results = [_entry(c, k) for c, k in uniq]
+    cli_path = next((r["path"] for r in results if r["kind"] == "cli"), None)
+    server_path = next((r["path"] for r in results if r["kind"] == "server"), None)
+    # priorité : binaire « ok », et à égalité CLI (plus simple) plutôt que server
+    results.sort(key=lambda r: ((not r["ok"]), (r["kind"] != "cli")))
+    best = results[0]
+    best["cli_path"] = cli_path
+    best["server_path"] = server_path
+    best["backend_label"] = "llama-mtmd-cli" if best["kind"] == "cli" else "llama-server"
+    return best
+
+
+def llama_available():
+    """llama.cpp utilisable pour les légendes : celui de l'app en priorité, sinon l'hôte vérifié."""
+    app = installed_llama_cpp()
+    if app and app.get("path"):
+        return "app", app
+    host = host_llama_cpp()
+    if host and host.get("ok"):
+        return "host", host
+    return None, None
+
+
+_LLAMA_BINARY_EXTS = (".zip", ".tar.gz", ".tar.xz", ".7z", ".msi", ".dmg", ".deb", ".rpm", ".apk")
+
+
+def _is_binary_asset(a):
+    n = str(a.get("name", "")).lower()
+    return bool(n) and not n.endswith(".txt") and n.endswith(_LLAMA_BINARY_EXTS)
+
+
+def llama_latest_release_info(use_cache=True):
+    """Dernière release officielle AVEC des binaires (tag, assets).
+
+    ⚠️ /releases/latest pointe parfois sur une release « vitrine » sans binaires
+    (ex. v1.0.0 — 1 asset `nightly-tag.txt`), les binaires étant publiés en
+    nightlies « bNNNNN ». On choisit : la plus récente release avec AUSSI des
+    binaires, en préférant les releases stables aux prereleases. (tag, assets) ou
+    (None, []) hors-ligne.
+    """
+    now = time.time()
+    if use_cache and _LLAMA_STATUS_CACHE["tag"] and (now - _LLAMA_STATUS_CACHE["checked"]) < 600:
+        return _LLAMA_STATUS_CACHE["tag"], _LLAMA_STATUS_CACHE.get("assets") or []
+    tag, assets = None, []
+    try:
+        data = _gh_get(LLAMA_REPO_API_LIST)
+        releases = [r for r in (data or []) if not r.get("draft")]
+        with_bins = []
+        for r in releases:
+            bins = [a for a in (r.get("assets") or []) if _is_binary_asset(a)]
+            if bins:
+                with_bins.append((r, bins))
+        stable = [(r, bins) for r, bins in with_bins if not r.get("prerelease")]
+        chosen = stable[0] if stable else (with_bins[0] if with_bins else None)
+        if chosen:
+            r, bins = chosen
+            tag, assets = (r.get("tag_name") or "").strip(), bins
+    except Exception:
+        pass
+    _LLAMA_STATUS_CACHE["tag"] = tag
+    _LLAMA_STATUS_CACHE["assets"] = assets
+    _LLAMA_STATUS_CACHE["checked"] = now
+    return tag, assets
+
+
+def llama_latest_tag(use_cache=True):
+    """Tag de la dernière release officielle avec binaires (mis en cache 10 min)."""
+    tag, _ = llama_latest_release_info(use_cache=use_cache)
+    return tag
+
+
+def llama_update_status():
+    app = installed_llama_cpp()
+    latest = llama_latest_tag()
+    update_available = None
+    if app and app.get("version") and latest:
+        update_available = (str(app["version"]) != str(latest))
+    return {"app": app, "host": host_llama_cpp(), "latest": latest,
+            "update_available": update_available,
+            "effective": ("app" if app else ("host" if (host_llama_cpp() or {}).get("ok") else None))}
+
+
+def pick_llama_windows_asset(assets):
+    """Choisit l'archive Windows la plus adaptée parmi les assets d'une release llama.cpp.
+
+    Ordre de préférence :
+      1. `cudart-…win-cuda-…-x64.zip` — embarque le runtime CUDA (fonctionne sans
+         installation NVIDIA/CUDA sur le poste) ; version CUDA la plus récente ;
+      2. `llama-…win-cuda-…-x64.zip` — CUDA le plus récent, nécessite CUDA sur le poste ;
+      3. `…win-cpu-x64.zip` — repli procésseur (aucune GPU requise, plus lent).
+    Retourne l'asset (dict) ou None.
+    """
+    zips = [a for a in assets or [] if str(a.get("name", "")).lower().endswith(".zip")]
+    win = [a for a in zips
+           if "-win-" in str(a.get("name", "")).lower() and "x64" in str(a.get("name", "")).lower()]
+    if not win:
+        return None
+
+    def cuda_ver(a):
+        m = re.search(r"cuda-(\d+)", str(a.get("name", "")).lower())
+        return tuple(int(x) for x in m.group(1).split(".")) if m else (0,)
+
+    cudart = sorted((a for a in win if "cudart" in str(a.get("name", "")).lower()
+                     and "cuda" in str(a.get("name", "")).lower()), key=cuda_ver)
+    if cudart:
+        return cudart[-1]
+    cuda = sorted((a for a in win if "cuda" in str(a.get("name", "")).lower()), key=cuda_ver)
+    if cuda:
+        return cuda[-1]
+    cpu = [a for a in win if "-cpu-" in str(a.get("name", "")).lower()]
+    return cpu[-1] if cpu else win[0]
+
+
+def latest_llama_windows_asset():
+    tag, assets = llama_latest_release_info(use_cache=False)
+    asset = pick_llama_windows_asset(assets)
+    if not tag or not asset:
+        raise RuntimeError("Aucun asset Windows (CUDA ou avx2) trouvé dans les releases llama.cpp. "
+                           "Consultez https://github.com/ggml-org/llama.cpp/releases")
+    return tag, asset.get("browser_download_url"), asset.get("name")
+
+
+def install_llama_cpp(progress_cb=None):
+    """Télécharge la dernière release OFFICIELLE (ggml-org/llama.cpp) et l'installe dans bin/llama/."""
+    if not _IS_WIN:
+        raise RuntimeError("Téléchargement automatique disponible uniquement sous Windows pour l'instant. "
+                           "Sous Linux/macOS : compilez llama.cpp (github.com/ggml-org/llama.cpp) — "
+                           "l'app détectera votre build via le PATH.")
+    tag, url, name = latest_llama_windows_asset()
+    LLAMA_DIR.mkdir(parents=True, exist_ok=True)
+    archive = LLAMA_DIR / name
+    if progress_cb:
+        progress_cb(0, 0)
+    _download(url, archive, progress_cb)
+    with zipfile.ZipFile(archive) as z:
+        z.extractall(LLAMA_DIR)
+    archive.unlink(missing_ok=True)
+    binpath = _find_llama_mtmd(LLAMA_DIR)
+    if not binpath:
+        raise RuntimeError("Archive llama.cpp téléchargée mais llama-mtmd-cli est introuvable dedans.")
+    manifest = load_manifest()
+    manifest["llama_cpp"] = {"flavor": "official", "version": tag, "path": str(binpath),
+                             "installed_at": time.strftime("%Y-%m-%d %H:%M")}
+    save_manifest(manifest)
+    return manifest["llama_cpp"]
+
+
+# ------------------------------ légende VLM ------------------------------- #
+LLAMA_CAPTION_TIMEOUT = 240  # s — au-delà, le modèle est trop lourd pour la machine
+
+_CAPTION_THINK_RE = re.compile(r"<think>.*?</think>", re.S | re.I)
+_CAPTION_LOG_RE = re.compile(
+    r"^\s*(llama_|common_|ggml|print_info|system_info|load:|main:|sampler|build:|create_|"
+    r"^-\s|^;|^\[|^warn|^info:|^debug)", re.I)
+
+
+def build_caption_command(llama_bin, model, mmproj, image, prompt, max_tokens=384):
+    """Ligne de commande llama-mtmd-cli pour légender une image (une seule passe)."""
+    return [str(llama_bin), "-m", str(model), "--mmproj", str(mmproj),
+            "-ngl", "99", "--image", str(image),
+            "-p", str(prompt), "-n", str(int(max_tokens)),
+            "--temp", "0.7", "--top-p", "0.8", "--top-k", "20",
+            "--presence-penalty", "1.5", "--no-display-prompt", "--log-disable"]
+
+
+def parse_caption_output(text):
+    """Extrait la description du stdout de llama-mtmd-cli (lignes de log, blocs <think>…)."""
+    txt = _CAPTION_THINK_RE.sub("", text or "")
+    lines = []
+    for raw in txt.splitlines():
+        ln = raw.rstrip()
+        if not ln.strip():
+            continue
+        if _CAPTION_LOG_RE.match(ln):
+            continue
+        lines.append(ln.strip())
+    out = re.sub(r"\s+", " ", " ".join(lines)).strip().strip('"').strip("`").strip()
+    if len(out) < 10:
+        raise ValueError("Le modèle n'a pas renvoyé de description exploitable.\n\n"
+                         "Sortie brute :\n" + (text or "")[-800:])
+    return out
+
+
+def run_caption(image_path, captioner_id, prompt, max_tokens=384):
+    """Légende une image avec le VLM choisi. Retourne (caption, captioner_id, backend)."""
+    if captioner_id not in CAPTIONER_MODELS:
+        raise RuntimeError(f"Légendeur inconnu : {captioner_id}")
+    model, mmproj = captioner_files(captioner_id)  # lève une RuntimeError explicite si absent
+    source, info = llama_available()
+    if not source:
+        raise RuntimeError(
+            "llama.cpp est introuvable (ni dans l'app ni sur cette machine). "
+            "Installez-le dans la page Modèles → « 📦 llama.cpp » — officiel, un seul clic — "
+            "ou placez un llama-mtmd-cli récent dans le PATH.")
+    if captioner_id.startswith("bonsai2_"):
+        # Bonsai-2 (runtime Hadamard, b11556+) sort des descriptions FAUSSES sans
+        # erreur sous un llama.cpp trop ancien — on refuse net plutôt que de mentir.
+        ok, reason = _llama_version_status(_llama_bin_version(info.get("path")))
+        if not ok:
+            raise RuntimeError(
+                f"llama.cpp trop ancien pour Bonsai-2 : {reason}. "
+                "Mettez à jour dans la page Modèles → « 📦 llama.cpp » → « 🔄 Mettre à jour », "
+                "ou choisissez un autre légendeur (ex. Qwen3.5 4B).")
+    if info.get("kind") == "server":
+        caption = run_caption_via_server(info["path"], model, mmproj, image_path, prompt,
+                                         max_tokens=max_tokens)
+        label = "llama-server"
+    else:
+        cmd = build_caption_command(info["path"], model, mmproj, str(image_path), prompt, max_tokens)
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=LLAMA_CAPTION_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(
+                f"La description a dépassé {LLAMA_CAPTION_TIMEOUT}s — essayez un légendeur plus petit "
+                "(Bonsai-2 2B/4B) ou passez sur un GPU.")
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or "").strip()[-1200:]
+            raise RuntimeError(f"llama-mtmd-cli a échoué (code {proc.returncode}) :\n{tail}")
+        caption = parse_caption_output(proc.stdout or "")
+        label = "llama-mtmd-cli"
+    backend = (("app (llama.cpp)" if source == "app" else f"machine ({info.get('version') or 'version inconnue'})")
+               + f" · {label}")
+    return caption, captioner_id, backend
+
+
+# -------------------- llama-server (backend HTTP local, sans mtmd-cli) -------------------- #
+LLAMA_SERVER_START_TIMEOUT = 300  # s — chargement du modèle au démarrage (gros GGUF sur CPU)
+# localhost ne doit JAMAIS passer par un proxy d'entreprise (urllib le respecte sinon)
+_LOCAL_OPENER = None
+
+
+def _local_urlopen(req, timeout):
+    global _LOCAL_OPENER
+    if _LOCAL_OPENER is None:
+        from urllib.request import build_opener, ProxyHandler
+        _LOCAL_OPENER = build_opener(ProxyHandler({}))
+    return _LOCAL_OPENER.open(req, timeout=timeout)
+
+
+_IMAGE_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+               ".webp": "image/webp", ".gif": "image/gif"}
+
+
+def _pick_free_port():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+    finally:
+        s.close()
+
+
+def _guess_image_mime(image_path):
+    ext = Path(image_path).suffix.lower()
+    if ext in _IMAGE_MIME:
+        return _IMAGE_MIME[ext]
+    head = Path(image_path).read_bytes()[:16]
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head[:4] == b"RIFF":
+        return "image/webp"
+    if head.startswith(b"GIF8"):
+        return "image/gif"
+    return "image/png"
+
+
+def run_caption_via_server(server_path, model, mmproj, image_path, prompt, max_tokens=384):
+    """Légende une image via `llama-server` lancé en sous-processus HTTP local.
+
+    Utile pour les builds llama.cpp sans `llama-mtmd-cli` (CUDA/source : souvent seuls
+    llama-server & llama-cli sont produits) — le serveur est démarré, attendu sur /health,
+    interrogé en POST /v1/chat/completions (image en data URL base64), puis arrêté.
+    """
+    port = _pick_free_port()
+    cmd = [str(server_path), "-m", str(model), "--mmproj", str(mmproj),
+           "-ngl", "99", "--host", "127.0.0.1", "--port", str(port)]
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, errors="replace")
+    except Exception as e:
+        raise RuntimeError(f"Impossible de lancer {server_path} : {e}")
+
+    def _tail():
+        try:
+            if proc.stdout:
+                return proc.stdout.read()[-1500:]
+        except Exception:
+            pass
+        return ""
+
+    try:
+        deadline = time.time() + LLAMA_SERVER_START_TIMEOUT
+        ready = False
+        while time.time() < deadline:
+            rc = proc.poll()
+            if rc is not None:
+                raise RuntimeError("llama-server s'est arrêté au démarrage "
+                                   f"(code {rc}) :\n{_tail().strip()[-1200:]}")
+            try:
+                req = Request(f"http://127.0.0.1:{port}/health",
+                              headers={"User-Agent": "local-image-studio"})
+                with _local_urlopen(req, 2) as r:
+                    if r.status == 200:
+                        ready = True
+                        break
+            except Exception:
+                time.sleep(0.5)
+        if not ready:
+            raise RuntimeError(f"llama-server n'a pas chargé le modèle en {LLAMA_SERVER_START_TIMEOUT}s "
+                               "— essayez un légendeur plus petit ou passez sur un GPU.")
+
+        raw = Path(image_path).read_bytes()
+        b64 = base64.b64encode(raw).decode("ascii")
+        mime = _guess_image_mime(image_path)
+        body = json.dumps({
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+            "max_tokens": int(max_tokens),
+            "temperature": 0.7, "top_p": 0.8, "top_k": 20,
+            "presence_penalty": 1.5,
+            "stream": False,
+        }).encode("utf-8")
+        req = Request(f"http://127.0.0.1:{port}/v1/chat/completions", data=body,
+                      headers={"Content-Type": "application/json",
+                               "User-Agent": "local-image-studio"},
+                      method="POST")
+        try:
+            with _local_urlopen(req, LLAMA_CAPTION_TIMEOUT) as r:
+                data = json.loads(r.read().decode("utf-8"))
+        except Exception as e:
+            raise RuntimeError(f"llama-server a refusé la requête de légende : {e}")
+        content = ""
+        choices = data.get("choices") or []
+        if choices:
+            content = (((choices[0] or {}).get("message") or {}).get("content")) or ""
+        return parse_caption_output(content)
+    finally:
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass

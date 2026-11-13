@@ -1,0 +1,440 @@
+{% extends "base.html" %}
+{% block title %}Modèles · Local Image Studio{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <div class="panel-head">
+    <h2>Modèles & moteur</h2>
+    <div id="engine-card" class="engine-card">
+      <div>
+        <strong>Moteur sd-cli</strong>
+        <p class="muted">stable-diffusion.cpp (CUDA) — gère tous les modèles.</p>
+      </div>
+      <div class="engine-actions">
+        <span id="engine-state" class="badge {% if engine_ready %}badge-ok{% else %}badge-warn{% endif %}">
+          {% if engine_ready %}installé ✓{% else %}non installé{% endif %}
+        </span>
+        <button id="install-engine" class="btn {% if engine_ready %}ghost{% else %}primary{% endif %}">
+          {% if engine_ready %}Réinstaller{% else %}Installer le moteur{% endif %}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Infos VRAM -->
+  {% if vram_gb %}
+  <div class="gpu-banner">
+    <span class="badge badge-ok">VRAM</span>
+    <strong>{{ gpu_name }}</strong>
+    <span class="muted">— {{ vram_gb }} Go détectés.
+    {% if vram_gb >= 12 %}Tous les modèles passent en Q5/Q6. ✓
+    {% elif vram_gb >= 8 %}La plupart des modèles passent. Préférez Q4_K_M pour les gros modèles.
+    {% elif vram_gb >= 6 %}Utilisez Q4_K_M et activez l'offload CPU.
+    {% else %}VRAM limitée — utilisez Q4 et l'offload CPU obligatoire.
+    {% endif %}
+    </span>
+  </div>
+  {% endif %}
+
+  <div id="task-banner" class="banner" hidden>
+    <div class="progress-bar"><div id="banner-fill"></div></div>
+    <div class="banner-text"><span id="banner-text">…</span></div>
+  </div>
+
+  <div class="models-toolbar">
+    <label class="history-sort-wrap" title="Filtre les cartes par état de disponibilité">
+      <span class="sr-only">Filtrer</span>
+      <select id="models-filter" class="history-sort" aria-label="Filtrer les modèles">
+        <option value="all">🗂️ Tous les modèles</option>
+        <option value="ready">✅ Prêts à l'emploi</option>
+        <option value="missing">⬇️ À télécharger</option>
+        <option value="token">🔑 Token requis</option>
+      </select>
+    </label>
+    <span class="muted small" id="models-visible-count"></span>
+  </div>
+
+  <div class="model-grid" id="model-grid-main">
+    {% for mid, m in models.items() %}
+    {% set st = statuses[mid] %}
+    <div class="model-card" data-id="{{ mid }}" data-ready="{{ '1' if st.ready else '0' }}" data-token="{{ '1' if m.needs_token else '0' }}">
+      <div class="mc-head">
+        <h3>{{ m.name }}{% if m.supports_ref_images %}<span class="edit-badge" title="Édition par références multiples (jusqu'à {{ m.max_ref_images }} images)">✂️ ×{{ m.max_ref_images }}</span>{% endif %}</h3>
+        {% if m.needs_token %}<span class="tag tag-warn">token requis</span>{% endif %}
+        {% if st.ready %}<span class="tag tag-ok">prêt</span>{% else %}<span class="tag">à télécharger</span>{% endif %}
+      </div>
+      <p class="muted mc-desc">{{ m.desc }}</p>
+
+      <!-- VRAM recommandée -->
+      <p class="mc-vram {% if not vram_gb or vram_gb >= (m.vram_min_gb or 0) %}ok{% else %}warn{% endif %}">
+        VRAM min: ~{{ m.vram_min_gb or '?' }} Go
+        {% if vram_gb %}
+          {% if vram_gb >= (m.vram_min_gb or 0) %} ✓{% else %} ⚠ (vous: {{ vram_gb }} Go){% endif %}
+        {% endif %}
+      </p>
+      {% if quant_recs and quant_recs.get(mid) %}
+      <p class="mc-quant-rec">💡 Quant recommandé pour vos {{ vram_gb }} Go : <strong>{{ quant_recs[mid] }}</strong></p>
+      {% endif %}
+
+      <!-- Licence -->
+      {% if m.license %}
+      <p class="mc-license">📄 {{ m.license }}</p>
+      {% endif %}
+
+      <!-- Lien HF -->
+      {% if m.hf_url %}
+      <p class="mc-hf-link"><a href="{{ m.hf_url }}" target="_blank" rel="noopener">🔗 Page du modèle ↗</a></p>
+      {% endif %}
+
+      <div class="mc-quants">
+        {% for q in m.quants %}
+        <span class="quant {% if st.quants.get(q) %}have{% endif %}">
+          {{ q }} · {{ m.size_gb.get(q, '?') }} Go
+        </span>
+        {% endfor %}
+      </div>
+      <div class="mc-deps">
+        <small class="muted">Dépendances :</small>
+        {% for d in m.deps %}
+        <span class="dep {% if st.deps.get(d) %}have{% else %}miss{% endif %}">{{ d }}</span>
+        {% endfor %}
+      </div>
+      <div class="mc-actions">
+        <select class="dl-quant">
+          {% for q in m.quants %}
+          <option value="{{ q }}" data-have="{{ '1' if st.quants.get(q) else '0' }}" {% if q==m.default_quant %}selected{% endif %}>
+            {{ q }} ({{ m.size_gb.get(q, '?') }} Go){% if st.quants.get(q) %} ✓ téléchargé{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+        <button class="btn {% if st.ready %}ghost{% else %}primary{% endif %} dl-btn" data-model="{{ mid }}">
+          {% if st.ready %}Re-télécharger{% elif st.quants.get(m.default_quant) %}Télécharger dépendances{% else %}Télécharger{% endif %}
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- ==================================================== Upscaling ×4 -->
+  <div class="aux-header">
+    <h2>🔍 Agrandissement ×4 <span class="muted small">(super-résolution)</span></h2>
+    <p class="muted">
+      Ces modèles ultra-légers (17–64&nbsp;Mo) multiplient la résolution d'une image par 4
+      (ex. 1024×1024 → 4096×4096) en renforçant la netteté. Une fois installés, un bouton
+      «&nbsp;🔍&nbsp;Agrandir&nbsp;×4&nbsp;» apparaît sur chaque image générée et dans l'historique,
+      et vous pouvez agrandir automatiquement pendant la génération via la section
+      «&nbsp;✨&nbsp;Qualité, Détails &amp; Agrandissement&nbsp;».
+    </p>
+  </div>
+  <div class="model-grid">
+    {% for u in upscalers %}
+    <div class="model-card" data-id="up-{{ u.id }}">
+      <div class="mc-head">
+        <h3>{{ u.name }}</h3>
+        <span class="tag">×{{ u.scale }}</span>
+        {% if u.status.downloaded %}<span class="tag tag-ok">installé ✓</span>{% endif %}
+      </div>
+      <p class="muted mc-desc">{{ u.desc }}</p>
+      <p class="mc-hf-link"><a href="https://huggingface.co/leejet/stable-diffusion.cpp/blob/master/docs/esrgan.md" target="_blank" rel="noopener">📖 Doc technique (esrgan.md) ↗</a></p>
+      <div class="mc-actions">
+        <button class="btn {% if u.status.downloaded %}ghost{% else %}primary{% endif %} dl-upscale-btn" data-upscaler="{{ u.id }}">
+          {% if u.status.downloaded %}Re-télécharger{% else %}Télécharger (~{{ u.size_mb }} Mo){% endif %}
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- ==================================================== ADetailer -->
+  <div class="aux-header">
+    <h2>🙂 ADetailer <span class="muted small">(retouche automatique visages &amp; mains)</span></h2>
+    <p class="muted">
+      Ces détecteurs YOLOv8 (6–22&nbsp;Mo) repèrent les visages ou les mains d'une image générée,
+      puis le moteur re-détaille juste ces zones avec votre modèle. On les choisit dans la section
+      «&nbsp;✨&nbsp;Qualité, Détails &amp; Agrandissement&nbsp;» des pages Générer et Édition.
+      Poids issus de <code>Bingsu/adetailer</code>, convertis en safetensors pour sd-cli.
+    </p>
+  </div>
+  <div class="model-grid">
+    {% for d in adetailers %}
+    <div class="model-card" data-id="ad-{{ d.id }}">
+      <div class="mc-head">
+        <h3>{{ d.name }}</h3>
+        {% if d.status.downloaded %}<span class="tag tag-ok">installé ✓</span>{% endif %}
+      </div>
+      <p class="muted mc-desc">{{ d.desc }}</p>
+      <p class="mc-hf-link"><a href="https://huggingface.co/{{ d.repo }}" target="_blank" rel="noopener">🔗 {{ d.repo }} ↗</a></p>
+      <div class="mc-actions">
+        <button class="btn {% if d.status.downloaded %}ghost{% else %}primary{% endif %} dl-ad-btn" data-detector="{{ d.id }}">
+          {% if d.status.downloaded %}Re-télécharger{% else %}Télécharger (~{{ d.size_mb }} Mo){% endif %}
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- ==================================================== SeedVR2 -->
+  <div class="aux-header">
+    <h2>🩹 Restauration ×2 <span class="muted small">(SeedVR2 — diffusion, détails fidèles)</span></h2>
+    <p class="muted">
+      Contrairement à un simple agrandissement, SeedVR2 <em>reconstruit la matière</em> (grain de peau,
+      tissus, texte sur les panneaux) et double la résolution d'une image existante
+      (ex. 1024×1024 → 2048×2048). Deux fichiers (~6,8&nbsp;Go au total) : le modèle de
+      restauration int8 et le VAE FP16. Une fois installé, le bouton «&nbsp;🩹&nbsp;Restaurer&nbsp;×2&nbsp;»
+      apparaît sur chaque image et dans l'historique. <strong>Expérimental — exige ~10&nbsp;Go de VRAM</strong>
+      (fonctionne aussi en offload CPU, plus lentement).
+    </p>
+  </div>
+  <div class="model-grid">
+    <div class="model-card" data-id="seedvr2">
+      <div class="mc-head">
+        <h3>{{ seedvr2.name }}</h3>
+        {% if seedvr2.status.downloaded %}<span class="tag tag-ok">installé ✓</span>
+        {% elif seedvr2.status.diffusion or seedvr2.status.vae %}<span class="tag tag-warn">partiel</span>
+        {% else %}<span class="tag">à télécharger</span>{% endif %}
+      </div>
+      <p class="muted mc-desc">{{ seedvr2.desc }}</p>
+      <p class="mc-hf-link"><a href="{{ seedvr2.hf_url }}" target="_blank" rel="noopener">🔗 Comfy-Org/SeedVR2 sur Hugging Face ↗</a></p>
+      <p class="muted small">
+        SeedVR2-3B int8 : {{ '%.1f'|format(seedvr2.files.diffusion.size_mb / 1024) }} Go · VAE FP16 : {{ '%.0f'|format(seedvr2.files.vae.size_mb) }} Mo
+      </p>
+      <div class="mc-actions">
+        <button class="btn {% if seedvr2.status.downloaded %}ghost{% else %}primary{% endif %} dl-seedvr2-btn">
+          {% if seedvr2.status.downloaded %}Re-télécharger (~6,8 Go){% else %}Télécharger (~6,8 Go){% endif %}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================================================== PiD -->
+  <div class="aux-header">
+    <h2>⬆️ PiD <span class="muted small">(NVIDIA Pixel Diffusion — super-résolution générative ×4, 1024→4096)</span></h2>
+    <p class="muted">
+      Contrairement à RealESRGAN (lissage) ou SeedVR2 (restauration ×2), PiD <em>ré-encode l'image avec le VAE
+      de son backbone</em> puis la décode directement en <strong>pixels 4096×4096</strong>, en seulement
+      <strong>4 étapes</strong>, <strong>conditionnée par le prompt</strong> de l'image (repris automatiquement
+      depuis l'historique). Idéal pour recréer de la matière crédible : peau, tissu, texte, végétation.
+      Backbones : <strong>FLUX.1</strong>, <strong>FLUX.2</strong>, <strong>Qwen-Image</strong> (int8_convrot, ~1,6 Go chacun).
+      Socle commun : encodeur <strong>Gemma 2 2B bf16</strong> (~5,4 Go) + tokenizer (~18 Mo) — dépôts
+      <strong>non-gated</strong> (Comfy-Org/PixelDiT + unsloth/gemma-2-2b-it), aucun compte Google requis.
+      <br>⚠️ <strong>Licence NSCLv1 : recherche / évaluation non-commerciale uniquement.</strong>
+      Requiert le binaire <strong>sd-cli ≥ 2026-05-31</strong>. Une fois installé, le bouton
+      «&nbsp;⬆️&nbsp;PiD&nbsp;×4&nbsp;» apparaît sur chaque image et dans l'historique (sortie 4096×4096).
+      <br>Note : pour <strong>Qwen-Image 2.1</strong> (latents 64 canaux), préférez 🩹 SeedVR2.
+    </p>
+  </div>
+  <div class="model-grid">
+    {% for b in pid.backbone_cards %}
+    <div class="model-card" data-id="pid-{{ b.id }}">
+      <div class="mc-head">
+        <h3>{{ b.label_long }}</h3>
+        {% if b.status.ready %}<span class="tag tag-ok">installé ✓</span>
+        {% elif b.status.model or pid.status.shared.gemma %}<span class="tag tag-warn">partiel</span>
+        {% else %}<span class="tag">à télécharger</span>{% endif %}
+      </div>
+      <p class="muted mc-desc">
+        Modèle PiD 1.5 <em>int8_convrot</em> (1024→4096, 4 étapes) + VAE «&nbsp;{{ b.vae_format }}&nbsp;».
+        {% if not pid.status.shared.ready %}Le socle commun (Gemma 2 2B + tokenizer, ~5,4 Go) sera téléchargé automatiquement avec le premier backbone.{% endif %}
+      </p>
+      <p class="mc-hf-link"><a href="{{ pid.hf_url }}" target="_blank" rel="noopener">🔗 Comfy-Org/PixelDiT sur Hugging Face ↗</a></p>
+      <p class="muted small">Modèle&nbsp;: {{ '%.1f'|format(b.size_mb / 1024) }} Go · VAE&nbsp;: {{ b.vae_dep }} · socle commun&nbsp;: ~5,4 Go (une seule fois)</p>
+      <div class="mc-actions">
+        <button class="btn {% if b.status.ready %}ghost{% else %}primary{% endif %} dl-pid-btn" data-backbone="{{ b.id }}">
+          {% if b.status.ready %}Ré-télécharger (~{{ '%.1f'|format(b.size_mb / 1024) }} Go)
+          {% else %}Télécharger (~{{ '%.1f'|format((b.size_mb + (0 if pid.status.shared.ready else pid.gemma.size_mb + pid.tokenizer.size_mb)) / 1024) }} Go){% endif %}
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- ==================================================== Légendeurs d'image -->
+  <div class="aux-header captioners-section" id="captioners">
+    <h2>🧠 Légendeurs d'image <span class="muted small">(image → prompt, VLM local)</span></h2>
+    <p class="muted">
+      Un <strong>VLM local</strong> lit l'image et rédige le prompt qui permettrait de la reproduire —
+      parfait pour une image qu'<em>on a trouvée</em> (bouton « 🔎 Image → Prompt » sur Générer / Édition),
+      ou pour pré-remplir le prompt de ⬆️ PiD (bouton « 🧠 Décrire l'image » dans la modale PiD).
+      Aucune donnée ne part sur internet après le téléchargement des poids.
+      La description reste <strong>toujours éditable</strong> avant envoi — rien n'est lancé d'office.
+    </p>
+
+    <div class="engine-card llama-card" id="llama-card">
+      <div>
+        <strong>📦 llama.cpp <span class="muted small">(requis par les légendeurs)</span></strong>
+        <p class="muted">
+          Uniquement la version <strong>officielle</strong> de
+          <a href="https://github.com/ggml-org/llama.cpp" target="_blank" rel="noopener">github.com/ggml-org/llama.cpp</a>
+          — dernière release, build <strong>Windows CUDA</strong> (repli avx2/CPU).
+          C'est le runtime de <code>llama-mtmd-cli</code>, l'exécutable qui légende les images.
+        </p>
+        <p class="muted small" id="llama-status-lines">
+          Dans l'app&nbsp;: <strong id="llama-app-state">{% if llama.app.installed %}installé ✓{% if llama.app.version %} ({{ llama.app.version }}){% endif %}{% else %}non installé{% endif %}</strong>
+          &nbsp;·&nbsp;sur la machine&nbsp;: <strong id="llama-host-state">{% if llama.host.found %}{{ llama.host.path }}{% if llama.host.version %} ({{ llama.host.version }}){% endif %}{% if llama.host.ok %} — utilisable ✓ via {{ llama.host.backend_label or ('llama-' + llama.host.kind) }}{% else %} — {{ llama.host.reason }}{% endif %}{% else %}rien de détecté{% endif %}</strong>
+        </p>
+      </div>
+      <div class="engine-actions">
+        <button id="install-llama" class="btn {% if llama.app.installed %}ghost{% else %}primary{% endif %}">
+          {% if llama.app.installed %}Réinstaller llama.cpp{% else %}Installer llama.cpp (officiel){% endif %}
+        </button>
+        <button id="update-llama" class="btn ghost" title="Vérifie la dernière release sur GitHub et réinstalle si besoin — ou réinstalle la même version si vous le demandez">🔄 Mettre à jour</button>
+      </div>
+    </div>
+    <p class="muted small">
+      ℹ️ &nbsp;Bonsai-2 exige un llama.cpp ≥ b11556 (ou ≥ v0.8.0) : plus ancien, il produit des
+      descriptions fausses <em>sans erreur</em>. « 🔄 Mettre à jour » règle ça (dernière release officielle).
+      Une installation présente sur la machine (PATH, <code>C:\Users\&lt;vous&gt;\llama.cpp\build\bin\Release</code>…) est réutilisée si elle est assez récente —
+      le nom d'utilisateur n'a pas d'importance. Les builds « source » qui ne produisent que
+      <code>llama-server</code> (sans <code>llama-mtmd-cli</code>) sont aussi détectés : l'app lance alors
+      un petit serveur local éphémère pour la durée de la légende.
+    </p>
+
+    <div class="model-grid">
+      {% for c in captioners %}
+      <div class="model-card" data-id="cap-{{ c.id }}">
+        <div class="mc-head">
+          <h3>{{ c.name }}{% if c.recommended %} <span class="tag tag-ok">recommandé</span>{% endif %}{% if c.license_warn %} <span class="tag tag-warn" title="Licence LiquidAI LFM 1.0 — usage soumis à ses conditions (voir le lien Hugging Face)">⚠️ licence custom lfm1.0</span>{% endif %}</h3>
+          {% if c.ready %}<span class="tag tag-ok">installé ✓</span>
+          {% elif c.missing|length < c.dep_count %}<span class="tag tag-warn">partiel</span>
+          {% else %}<span class="tag">à télécharger</span>{% endif %}
+        </div>
+        <p class="muted mc-desc">{{ c.desc }}</p>
+        <p class="mc-hf-link"><a href="{{ c.hf_url }}" target="_blank" rel="noopener">🔗 Hugging Face ↗</a></p>
+        <p class="muted small">
+          Licence&nbsp;: {{ c.license }}{% if c.reuses_installed %} · réutilise des fichiers déjà installés{% endif %} · ~{{ '%.1f'|format(c.size_gb) }} Go · VRAM ~{{ c.vram_gb }} Go
+        </p>
+        <div class="mc-actions">
+          <button class="btn {% if c.ready %}ghost{% else %}primary{% endif %} dl-captioner-btn" data-captioner="{{ c.id }}">
+            {% if c.ready %}Ré-télécharger{% else %}Télécharger (~{{ '%.1f'|format(c.size_gb) }} Go){% endif %}
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- ==================================================== Mini-VAE TAE -->
+  <div class="aux-header">
+    <h2>⚡ VAE rapide (TAE) <span class="muted small">(décodage final accéléré)</span></h2>
+    <p class="muted">
+      Un mini-VAE allégé (~2&nbsp;Mo) qui remplace le décodage complet du VAE par défaut&nbsp;:
+      la toute fin de la génération (et l'aperçu en direct «&nbsp;tae&nbsp;») devient quasi instantanée,
+      au prix d'un très léger adoucissement. Compatible <strong>uniquement avec les modèles Qwen-Image</strong>
+      (VAE Wan 2.1 / Qwen-Image 2.1). Activez-le dans la section «&nbsp;✨&nbsp;Qualité&nbsp;→&nbsp;⚡&nbsp;Performance&nbsp;»
+      des pages Générer et Édition.
+    </p>
+  </div>
+  <div class="model-grid">
+    {% for t in taesd %}
+    <div class="model-card" data-id="taesd-{{ t.id }}">
+      <div class="mc-head">
+        <h3>{{ t.name }}</h3>
+        {% if t.status.downloaded %}<span class="tag tag-ok">installé ✓</span>{% else %}<span class="tag">à télécharger</span>{% endif %}
+      </div>
+      <p class="muted mc-desc">{{ t.desc }}</p>
+      <p class="mc-hf-link"><a href="https://huggingface.co/{{ t.repo }}" target="_blank" rel="noopener">🔗 {{ t.repo }} ↗</a></p>
+      <div class="mc-actions">
+        <button class="btn {% if t.status.downloaded %}ghost{% else %}primary{% endif %} dl-taesd-btn" data-taesd="{{ t.id }}">
+          {% if t.status.downloaded %}Re-télécharger{% else %}Télécharger (~{{ t.size_mb }} Mo){% endif %}
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- ==================================================== PuLID -->
+  <div class="aux-header">
+    <h2>🎭 Visage fidèle (PuLID) <span class="muted small">(arch FLUX — conserver le visage d'une photo)</span></h2>
+    <p class="muted">
+      PuLID injecte l'empreinte du visage d'une photo de référence dans la génération
+      <strong>sans toucher au reste de l'image</strong> (contrairement à une LoRA d'identité).
+      Fonctionne avec <strong>FLUX.1 Schnell, FLUX.1 Dev et FLUX.1 FHDR</strong> (et uniquement eux
+      pour l'instant dans sd-cli). Il faut&nbsp;: (1)&nbsp;les poids PuLID (~1,14&nbsp;Go) ci-dessous,
+      (2)&nbsp;une empreinte d'identité par portrait (fichier <code>.pulidembd</code>, créée une fois
+      avec <code>scripts/pulid_extract_id.py</code> — pile PyTorch externe requise), puis
+      (3)&nbsp;choisir le portrait dans la section «&nbsp;✨&nbsp;Qualité&nbsp;→&nbsp;🎭&nbsp;Visage fidèle&nbsp;».
+    </p>
+  </div>
+  <div class="model-grid">
+    <div class="model-card pulid-card" data-id="pulid">
+      <div class="mc-head">
+        <h3>Poids PuLID-FLUX</h3>
+        {% if pulid.status.downloaded %}<span class="tag tag-ok">installé ✓</span>
+        {% else %}<span class="tag">à télécharger</span>{% endif %}
+      </div>
+      <p class="muted mc-desc">Poids officiels PuLID v0.9.1 pour FLUX (guozinan/PuLID). v0.9.x uniquement —
+        les poids v1.1 ne sont pas pris en charge par sd-cli.</p>
+      <p class="mc-hf-link"><a href="{{ pulid.weights_url }}" target="_blank" rel="noopener">🔗 guozinan/PuLID sur Hugging Face ↗</a></p>
+      <div class="mc-actions">
+        <button class="btn {% if pulid.status.downloaded %}ghost{% else %}primary{% endif %} dl-pulid-btn">
+          {% if pulid.status.downloaded %}Re-télécharger (~1,14 Go){% else %}Télécharger (~1,14 Go){% endif %}
+        </button>
+      </div>
+
+      <div class="pulid-portraits">
+        <h4>Empreintes de portraits <small class="muted">({{ pulid.portraits|length }})</small></h4>
+        {% if pulid.portraits %}
+        <ul class="pulid-portrait-list">
+          {% for pt in pulid.portraits %}
+          <li>
+            {% if pt.url %}<img class="pulid-thumb" src="{{ pt.url }}" alt="{{ pt.name }}" loading="lazy">{% endif %}
+            <code>{{ pt.name }}</code><span class="muted small">{{ pt.size_kb }} Ko</span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="muted small">Aucune empreinte pour l'instant.</p>
+        {% endif %}
+
+        <details class="q-sub pulid-extract">
+          <summary>➕ Créer une empreinte depuis une photo</summary>
+          <ol class="muted small pulid-steps">
+            <li>Photo d'identité nette, visage de face, bien éclairé (JPEG/PNG).</li>
+            <li>Installez la pile externe une fois&nbsp;:
+              <code>pip install torch torchvision insightface facexlib eva-clip opencv-python gguf huggingface_hub</code>
+            </li>
+            <li>Lancez l'extraction&nbsp;:
+              <code>python scripts/pulid_extract_id.py --portrait photo.jpg --out portraits/prenom.pulidembd</code>
+            </li>
+            <li>Rechargez cette page&nbsp;: l'empreinte apparaît dans la section Qualité → 🎭 Visage fidèle.</li>
+          </ol>
+          <button type="button" class="btn small copy-extract-cmd"
+                  data-cmd="python scripts/pulid_extract_id.py --portrait photo.jpg --pulid-weights models/pulid/pulid_flux_v0.9.1.safetensors --out portraits/prenom.pulidembd">
+            📋 Copier la commande complète
+          </button>
+          <p class="muted small">Les empreintes restent sur votre machine (dossier <code>portraits/</code>).</p>
+        </details>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.PAGE = "models";
+{% if token_set %}window.TOKEN_SET = true;{% endif %}
+</script>
+<script>
+// --- Filtre des cartes modèles (principal) ---
+const modelsFilter = document.getElementById('models-filter');
+const modelsGrid = document.getElementById('model-grid-main');
+const modelsCount = document.getElementById('models-visible-count');
+modelsFilter?.addEventListener('change', () => {
+  if (!modelsGrid) return;
+  const mode = modelsFilter.value;
+  const cards = [...modelsGrid.querySelectorAll('.model-card')];
+  let visible = 0;
+  cards.forEach(card => {
+    const ok = mode === 'all'
+      || (mode === 'ready'   && card.dataset.ready === '1')
+      || (mode === 'missing' && card.dataset.ready !== '1')
+      || (mode === 'token'   && card.dataset.token === '1');
+    card.hidden = !ok;
+    if (ok) visible++;
+  });
+  if (modelsCount) modelsCount.textContent = mode === 'all' ? '' : `${visible} / ${cards.length} modèle(s)`;
+});
+</script>
+<script src="{{ url_for('static', filename='models.js', v=static_v) }}"></script>
+{% endblock %}

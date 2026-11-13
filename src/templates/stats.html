@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}Statistiques · Local Image Studio{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <h2>Statistiques</h2>
+  <div id="stats-loading" class="muted">Chargement des statistiques…</div>
+  <div id="stats-content" hidden>
+
+    {% if not empty %}
+    <!-- Cartes de résumé -->
+    <div class="stat-cards">
+      <div class="stat-card">
+        <div class="sc-val" id="s-total-img">-</div>
+        <div class="sc-label">Images générées</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-val" id="s-total-gen">-</div>
+        <div class="sc-label">Générations</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-val" id="s-total-time">-</div>
+        <div class="sc-label">Temps total de génération</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-val" id="s-avg-time">-</div>
+        <div class="sc-label">Temps moyen / image</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-val" id="s-fav-res">-</div>
+        <div class="sc-label">Résolution préférée</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-val" id="s-favorites">-</div>
+        <div class="sc-label">Images favorites ⭐</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-val" id="s-last7">-</div>
+        <div class="sc-label">Images ces 7 derniers jours</div>
+      </div>
+    </div>
+
+    <!-- Tableau par modèle -->
+    <h3 style="margin-top:24px">Détails par modèle</h3>
+    <div class="table-wrap">
+      <table class="stats-table" id="model-table">
+        <thead>
+          <tr>
+            <th scope="col">Modèle</th>
+            <th scope="col">Images</th>
+            <th scope="col">Générations</th>
+            <th scope="col">Temps moyen</th>
+            <th scope="col">Temps min</th>
+            <th scope="col">Temps max</th>
+            <th scope="col">Temps total</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- Mini graphique des dernières générations -->
+    <h3 style="margin-top:24px">20 dernières générations (temps)</h3>
+    <div id="chart" class="chart" role="img" aria-label="Hauteur des barres proportionnelle au temps de chaque génération"></div>
+    <p class="muted small">Chaque barre = temps d'une génération (la plus récente à droite). Survolez pour les détails.</p>
+
+    <!-- Actions -->
+    <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
+      <a class="btn ghost" href="{{ url_for('history') }}">📚 Voir l'historique</a>
+      <a class="btn ghost" href="{{ url_for('generate') }}">✨ Générer une image</a>
+    </div>
+    {% else %}
+    <div class="empty">
+      <p>Aucune image générée pour l'instant.</p>
+      <p class="muted small" style="margin:8px 0 14px">Les statistiques apparaîtront dès votre première génération.</p>
+      <a class="btn primary" href="{{ url_for('generate') }}">✨ Générer ma première image</a>
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+<script>
+function fmtTime(s) {
+  if (!s || s <= 0) return '—';
+  if (s < 60) return s.toFixed(1) + ' s';
+  const m = Math.floor(s / 60), r = Math.round(s % 60);
+  return m + ' min ' + String(r).padStart(2, '0') + ' s';
+}
+const CHART_COLORS = ['#7c5cff','#36c98a','#f0a93b','#e0566b','#3a6ea5','#d8b56d','#b73a3a','#5ba37a'];
+function modelColor(model) {
+  let hash = 0;
+  for (let i = 0; i < (model || '').length; i++) hash = model.charCodeAt(i) + ((hash << 5) - hash);
+  return CHART_COLORS[Math.abs(hash) % CHART_COLORS.length];
+}
+
+async function loadStats() {
+  const loading = document.getElementById('stats-loading');
+  try {
+    const r = await fetch('/api/stats');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+
+    const content = document.getElementById('stats-content');
+    content.hidden = false;
+    loading.hidden = true;
+
+    if (document.getElementById('model-table') === null) return; // état vide : rien d'autre à remplir
+
+    document.getElementById('s-total-img').textContent = d.total_images;
+    document.getElementById('s-total-gen').textContent = d.total_generations;
+    document.getElementById('s-total-time').textContent = fmtTime(d.total_time_sec);
+    document.getElementById('s-avg-time').textContent = fmtTime(d.avg_time_sec);
+    document.getElementById('s-fav-res').textContent = d.fav_resolution || '—';
+    document.getElementById('s-favorites').textContent = d.favorites ?? '—';
+    document.getElementById('s-last7').textContent = d.last7_days ?? '—';
+
+    // Tableau par modèle
+    const tbody = document.querySelector('#model-table tbody');
+    tbody.innerHTML = '';
+    if (!d.per_model.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9aa0ad">Aucun modèle encore utilisé.</td></tr>';
+    } else {
+      d.per_model.forEach(m => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><strong>${m.model_name}</strong><br><span class="muted small">${m.model}</span></td>
+          <td>${m.img_count}</td>
+          <td>${m.gen_count}</td>
+          <td>${fmtTime(m.avg_time)}</td>
+          <td>${fmtTime(m.min_time)}</td>
+          <td>${fmtTime(m.max_time)}</td>
+          <td>${fmtTime(m.total_time)}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Mini graphique : la plus récente à droite, libellé + infobulle détaillée
+    const chart = document.getElementById('chart');
+    chart.innerHTML = '';
+    if (d.recent.length) {
+      const maxTime = Math.max(...d.recent.map(r => r.gen_time), 1);
+      d.recent.slice().reverse().forEach(r => {
+        const bar = document.createElement('div');
+        bar.className = 'chart-bar';
+        bar.style.height = Math.max(2, (r.gen_time / maxTime) * 100) + '%';
+        bar.style.background = modelColor(r.model);
+        const dateStr = r.created ? new Date(r.created).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+        bar.title = `${r.model_name} · ${fmtTime(r.gen_time)}${dateStr ? ' · ' + dateStr : ''}`;
+        chart.appendChild(bar);
+      });
+      const legend = document.createElement('div');
+      legend.className = 'chart-legend muted small';
+      const seen = new Map();
+      d.recent.forEach(r => { if (!seen.has(r.model)) seen.set(r.model, r.model_name); });
+      legend.innerHTML = [...seen].map(([m, n]) =>
+        `<span><i style="background:${modelColor(m)}"></i>${n}</span>`).join(' ');
+      chart.appendChild(legend);
+    } else {
+      chart.innerHTML = '<p class="muted small">Pas encore de temps mesuré (les temps apparaissent après une génération terminée).</p>';
+    }
+  } catch (e) {
+    loading.textContent = 'Impossible de charger les statistiques. Vérifiez que le serveur fonctionne, puis rechargez la page.';
+    loading.style.color = 'var(--danger, #e0566b)';
+  }
+}
+loadStats();
+</script>
+{% endblock %}

@@ -109,7 +109,7 @@ echo   +  Chrome s ouvre automatiquement sur http://127.0.0.1:7860
 echo      (sinon, ouvrez l adresse a la main dans votre navigateur)
 echo   +  Fermez cette fenetre pour arreter l application
 echo.
-".venv\Scripts\python.exe" app.py
+".venv\Scripts\python.exe" src\app.py
 
 echo.
 echo Application arretee.

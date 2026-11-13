@@ -1,0 +1,715 @@
+{% extends "base.html" %}
+{% block title %}Historique · Local Image Studio{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <div class="panel-head">
+    <h2>Historique</h2>
+    <div class="filters">
+      <a class="chip {% if not model_filter %}active{% endif %}" href="{{ url_for('history') }}">Tous</a>
+      {% for mid, m in models.items() %}
+      <a class="chip {% if model_filter==mid %}active{% endif %}" href="{{ url_for('history', model=mid) }}">{{ m.name }}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="history-toolbar">
+    <div class="history-search-wrap">
+      <input type="search" id="history-search" class="history-search"
+             placeholder="🔎 Rechercher par mot-clé du prompt, modèle, quant ou seed…"
+             value="{{ search_query or '' }}">
+    </div>
+    <button type="button" class="btn small ghost history-fav-filter {% if fav_only %}active{% endif %}"
+            id="history-fav-filter" title="Afficher uniquement vos images favorites ⭐">
+      ⭐ Favoris uniquement
+    </button>
+    <label class="history-sort-wrap" title="Réordonne les cartes affichées (sans recharger la page)">
+      <span class="sr-only">Trier</span>
+      <select id="history-sort" class="history-sort" aria-label="Trier l'historique">
+        <option value="recent">🕐 Les plus récentes</option>
+        <option value="oldest">🕰️ Les plus anciennes</option>
+        <option value="model">🏷️ Modèle (A → Z)</option>
+        <option value="seed">🎲 Seed croissant</option>
+        <option value="pixels">📐 Dimensions croissantes</option>
+      </select>
+    </label>
+    {% if repair_ready %}
+    <span class="muted small upscale-hint" title="Cliquez « 🙂 Réparer » sur une image pour re-détailler automatiquement visages et mains. La version réparée est ajoutée à l'historique.">🙂 réparation prête</span>
+    {% else %}
+    <a class="muted small upscale-hint" href="{{ url_for('models_page') }}"
+       title="Installez un détecteur ADetailer (quelques Mo) pour activer le bouton « 🙂 Réparer » sur chaque image">💡 Installer le détecteur de visages/mains →</a>
+    {% endif %}
+    <span class="muted small" id="history-visible-count"></span>
+  </div>
+
+  <p class="muted">{{ count }} image(s) au total · enregistrées dans <code>output/</code> · 300 entrées les plus récentes affichées · les images ⭐ sont protégées contre la suppression</p>
+
+  <!-- Bandeau de suivi en direct des opérations auxiliaires (🔍⬆️🙂🩹) -->
+  <div id="aux-banner" class="banner" hidden>
+    <div class="banner-line">
+      <strong id="aux-title">Opération en cours…</strong>
+      <button type="button" class="btn small ghost" id="aux-cancel" title="Annuler l'opération en cours">✕ Annuler</button>
+    </div>
+    <div class="progress-bar" style="margin-top:8px"><div id="aux-fill"></div></div>
+    <div class="banner-meta"><span id="aux-detail">démarrage…</span><span id="aux-elapsed"></span></div>
+    <div class="banner-detail" id="aux-log" title="Dernière ligne du moteur sd-cli"></div>
+  </div>
+
+  {% if images %}
+  <div class="gallery" id="history-gallery">
+    {% for im in images %}
+    {% set editable = models.get(im.model, {}).get('supports_ref_images', False) %}
+    {% set sources = [] %}
+    {% for p in im.source_images_list %}
+      {% set _ = sources.append({'filename': p, 'url': '/source-images/' ~ p.split('/')|last}) %}
+    {% endfor %}
+    <div class="card {% if im.favorite %}is-favorite{% endif %}"
+         data-id="{{ im.id }}"
+         data-favorite="{{ '1' if im.favorite else '0' }}"
+         data-search="{{ (im.prompt ~ ' ' ~ im.model_name ~ ' ' ~ im.quant ~ ' ' ~ im.seed ~ ' ' ~ im.width ~ 'x' ~ im.height)|lower|e }}"
+         data-model="{{ im.model_name|lower|e }}"
+         data-seed="{{ im.seed if im.seed is not none else 0 }}"
+         data-pixels="{{ (im.width or 0) * (im.height or 0) }}"
+         data-output-url="{{ url_for('serve_output', filename=im.filename) }}"
+         data-label="{{ im.model_name }} · seed {{ im.seed }}"
+         data-sources='{{ sources | tojson }}'>
+      <div class="thumb" style="background-image:url('{{ url_for('serve_output', filename=im.filename) }}')">
+        <button type="button" class="fav-btn {% if im.favorite %}active{% endif %}"
+                data-id="{{ im.id }}"
+                title="{{ 'Retirer des favoris (déverrouiller la suppression)' if im.favorite else 'Ajouter aux favoris ⭐ (protège contre la suppression)' }}">
+          {{ '⭐' if im.favorite else '☆' }}
+        </button>
+      </div>
+      {% if sources %}
+      <div class="card-sources" title="{{ sources|length }} image(s) fournie(s) au modèle">
+        {% for s in sources %}<img src="{{ s.url }}" alt="source">{% endfor %}
+        <span class="src-label">{{ sources|length }} en entrée</span>
+      </div>
+      {% endif %}
+      <div class="card-body">
+        <div class="card-title">{{ im.model_name }} <span class="tag">{{ im.quant }}</span></div>
+        <p class="card-prompt" title="{{ im.prompt }}">{{ im.prompt }}</p>
+        <div class="card-meta">
+          {{ im.width }}×{{ im.height }} · {{ im.steps }} ét. · cfg {{ im.cfg }} · seed {{ im.seed }}
+        </div>
+        <div class="card-actions">
+          <a class="link" href="{{ url_for('serve_output', filename=im.filename) }}" download>Télécharger</a>
+          <button class="link reuse" data-editable="{{ '1' if editable else '0' }}"
+                  data-prompt="{{ im.prompt|e }}"
+                  data-neg="{{ im.negative|e }}" data-model="{{ im.model }}"
+                  data-w="{{ im.width }}" data-h="{{ im.height }}"
+                  data-steps="{{ im.steps }}" data-cfg="{{ im.cfg }}" data-seed="{{ im.seed }}"
+                  data-sources='{{ sources | tojson }}'>{{ 'Rééditer' if editable and sources else 'Réutiliser' }}</button>
+          <button type="button" class="link copy-prompt"
+                  title="📋 Copier le prompt de cette image dans le presse-papier">📋 Copier le prompt</button>
+          {% if upscaler_ready %}
+          <button type="button" class="link postprocess-link" data-id="{{ im.id }}"
+                  data-url="{{ url_for('serve_output', filename=im.filename) }}"
+                  data-filename="{{ im.filename }}" data-prompt="{{ im.prompt|e }}"
+                  title="🎛️ Post-traitement : exposition, contraste, luminosité, chaleur, clarté, saturation, vibrance — puis enregistrer ou passer en édition">🎛️ Ajuster</button>
+          <button type="button" class="link upscale-link" data-id="{{ im.id }}"
+                  title="🔍 Agrandir cette image ×4 (super-résolution) — la grande version est ajoutée à l'historique">🔍 ×4</button>
+          {% endif %}
+          {% if repair_ready %}
+          <button type="button" class="link repair-link" data-id="{{ im.id }}"
+                  title="🙂 Re-détailler automatiquement les visages et les mains de cette image — la version réparée est ajoutée à l'historique">🙂 Réparer</button>
+          {% endif %}
+          {% if seedvr2_ready %}
+          <button type="button" class="link restore-link" data-id="{{ im.id }}"
+                  title="🩹 Restaurer ×2 par diffusion (SeedVR2, lent, ~10 Go de VRAM) — la version restaurée est ajoutée à l'historique">🩹 ×2</button>
+          {% endif %}
+          {% if pid_ready %}
+          <button type="button" class="link pid-link" data-id="{{ im.id }}"
+                  title="⬆️ Super-résolution générative PiD (NVIDIA Pixel Diffusion, 4 étapes, sortie 4096×4096) — le prompt de reconstruction vous sera demandé avant le lancement ; la grande version est ajoutée à l'historique">⬆️ PiD</button>
+          {% endif %}
+          {% if im.model in vary_models and (im.width or 0) <= 1536 and (im.height or 0) <= 1536 %}
+          <button type="button" class="link vary-link" data-id="{{ im.id }}" data-mode="subtle"
+                  title="🔀 Variation subtile façon Midjourney : re-génère l'image (img2img, force 0,35, nouvelle graine) — la variante est ajoutée à l'historique">🔀 Subtil</button>
+          <button type="button" class="link vary-link" data-id="{{ im.id }}" data-mode="strong"
+                  title="🔀 Variation forte façon Midjourney : re-génère l'image (img2img, force 0,75, nouvelle graine) — la variante est ajoutée à l'historique">🔀 Fort</button>
+          {% endif %}
+          <button class="link danger del {% if im.favorite %}locked{% endif %}"
+                  data-id="{{ im.id }}"
+                  title="{{ 'Image protégée en Favori ⭐ — cliquez sur l’étoile pour déverrouiller' if im.favorite else 'Supprimer (double clic de sécurité)' }}">
+            {{ '🔒 Favori' if im.favorite else 'Supprimer' }}
+          </button>
+        </div>
+        <div class="card-edit-actions">
+          <button type="button" class="btn small use-in-edit" data-mode="canvas"
+                  data-id="{{ im.id }}" data-filename="{{ im.filename }}"
+                  title="Utiliser cette image générée comme image à modifier (Canvas) dans le Studio d'édition">
+            ✂️ Utiliser comme source (Édition)
+          </button>
+          <button type="button" class="btn small ghost use-in-edit" data-mode="ref"
+                  data-id="{{ im.id }}" data-filename="{{ im.filename }}"
+                  title="Ajouter cette image comme référence supplémentaire dans le Studio d'édition">
+            ＋ Réf.
+          </button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">
+    <p>Aucune image pour le moment.</p>
+    <a class="btn primary" href="{{ url_for('generate') }}">← Générer une image</a>
+  </div>
+  {% endif %}
+</section>
+
+<script src="{{ url_for('static', filename='quality.js', v=static_v) }}"></script>
+<script>
+// --- Suivi en direct des opérations auxiliaires (upscale / repair / restore / pid) ---
+const AUX_META = {
+  upscale:    { icon: '🔍', label: 'Agrandissement ×4' },
+  repair:     { icon: '🙂', label: 'Réparation visages & mains' },
+  restore_x2: { icon: '🩹', label: 'Restauration ×2 (SeedVR2)' },
+  pid:        { icon: '⬆️', label: 'PiD ×4 (super-résolution générative)' },
+  vary:       { icon: '🔀', label: 'Variation (img2img)' },
+};
+const auxBanner  = document.getElementById('aux-banner');
+const auxTitle   = document.getElementById('aux-title');
+const auxFill    = document.getElementById('aux-fill');
+const auxDetail  = document.getElementById('aux-detail');
+const auxElapsed = document.getElementById('aux-elapsed');
+const auxLog     = document.getElementById('aux-log');
+const auxCancel  = document.getElementById('aux-cancel');
+let auxTimer = null;
+let auxAmbiguousPolls = 0;   // compteur de polls « introuvable côté serveur »
+
+const auxExpected = () => window.__lisAwaitToken || null;
+
+function fmtElapsed(s) {
+  s = Math.max(0, Math.floor(Number(s) || 0));
+  const m = Math.floor(s / 60);
+  return (m > 0 ? m + 'min ' : '') + String(s % 60).padStart(2, '0') + 's';
+}
+
+function auxSetMode(kind, mode, queuedPos) {
+  const meta = AUX_META[kind] || { icon: '⚙️', label: kind };
+  auxBanner.hidden = false;
+  auxBanner.classList.toggle('ok', mode === 'ok');
+  auxBanner.classList.toggle('error', mode === 'error');
+  if (mode === 'run') {
+    auxTitle.textContent = meta.icon + ' ' + meta.label + ' — en cours…';
+    auxCancel.hidden = false;
+    auxCancel.textContent = '✕ Annuler';
+    auxCancel.title = "Annuler l'opération en cours";
+  } else if (mode === 'queued') {
+    auxTitle.textContent = meta.icon + ' ' + meta.label + ' — en file d’attente';
+    auxCancel.hidden = false;
+    auxCancel.textContent = '✕ Retirer de la file';
+    auxCancel.title = "Retirer cette opération de la file d'attente";
+  } else if (mode === 'ok') {
+    auxTitle.textContent = '✅ ' + meta.label + ' terminée';
+    auxCancel.hidden = false;
+    auxCancel.textContent = 'Fermer';
+    auxCancel.title = 'Masquer ce bandeau';
+  } else if (mode === 'error') {
+    auxTitle.textContent = '❌ ' + meta.label + ' — échec';
+    auxCancel.hidden = false;
+    auxCancel.textContent = 'Fermer';
+    auxCancel.title = 'Masquer ce bandeau';
+  }
+}
+
+function auxFinish() {           // arrête le poll et réinitialise l'état du bouton
+  clearInterval(auxTimer);
+  auxTimer = null;
+  auxAmbiguousPolls = 0;
+  window.__lisAwaitToken = null;
+}
+
+function auxFinalize(j) {
+  const res = j.result || {};
+  const type = AUX_META[res.type] ? res.type : null;
+  if (type && res.error) {
+    auxSetMode(type, 'error');
+    auxFill.style.width = '0%';
+    auxDetail.textContent = 'Le moteur sd-cli a renvoyé une erreur (la tâche est terminée).';
+    auxElapsed.textContent = j.elapsed ? fmtElapsed(j.elapsed) : '';
+    auxLog.textContent = String(res.error);
+    if (window.showToast) window.showToast('❌ ' + type + ' — échec, détail dans le bandeau.');
+    if (window.LisQuality) window.LisQuality._done([], type); // réactive les boutons
+  } else if (type && res.cancelled) {
+    auxBanner.hidden = true;
+    if (window.showToast) window.showToast('Opération annulée.');
+    if (window.LisQuality) window.LisQuality._done([], type);
+  } else if (type) {
+    auxSetMode(type, 'ok');
+    auxFill.style.width = '100%';
+    auxDetail.textContent = 'Terminée — enregistrement dans l’historique…';
+    auxElapsed.textContent = j.elapsed ? fmtElapsed(j.elapsed) : '';
+    auxLog.textContent = String(j.log || '');
+    if (window.LisQuality) window.LisQuality._done(res.images || [], type); // → toast + reload
+  } else {
+    auxBanner.hidden = true;
+    if (window.LisQuality) window.LisQuality._done([], null);
+  }
+  auxFinish();
+}
+
+function auxGiveUp() {
+  auxBanner.hidden = true;
+  if (window.showToast) window.showToast('ℹ️ État de l’opération introuvable côté serveur (redémarrage ?). La liste va se recharger.');
+  if (window.LisQuality) window.LisQuality._done([], null);
+  auxFinish();
+  setTimeout(() => location.reload(), 800);
+}
+
+async function pollAux() {
+  let j;
+  try {
+    const r = await fetch('/api/status');
+    j = await r.json();
+  } catch (e) {
+    return; // réseau : on réessaie au prochain cycle
+  }
+  const expected = auxExpected();
+  window.__lisLastQueue = Array.isArray(j.queue) ? j.queue : [];
+
+  // --- Cas 1 : on connaît le token de notre tâche (clic sur cette page) ---
+  if (expected) {
+    const queue = Array.isArray(j.queue) ? j.queue : [];
+    const pos = queue.findIndex(q => q.queue_id === expected);
+    if (j.busy && j.task_token === expected) {
+      auxAmbiguousPolls = 0;
+      const kind = AUX_META[j.kind] ? j.kind : 'pid';
+      auxSetMode(kind, 'run');
+      const pct = Math.round((j.progress || 0) * 100);
+      auxFill.style.width = pct + '%';
+      const step = (j.total_steps > 0) ? ' · étape ' + j.step + '/' + j.total_steps : '';
+      auxDetail.textContent = pct + ' %' + step;
+      auxElapsed.textContent = fmtElapsed(j.elapsed);
+      auxLog.textContent = String(j.log || '').split('\n').map(x => x.trim()).filter(Boolean).slice(-1)[0] || 'démarrage…';
+      return;
+    }
+    if (pos >= 0) {
+      auxAmbiguousPolls = 0;
+      // Retrouver le type via le summary de la file si possible
+      const qitem = queue[pos];
+      const model = String((qitem && qitem.model_id) || '');
+      let queuedKind = model.split(':')[0];
+      if (queuedKind === 'seedvr2') queuedKind = 'restore_x2';
+      if (queuedKind.startsWith('pid')) queuedKind = 'pid';
+      if (!AUX_META[queuedKind]) queuedKind = 'upscale';
+      auxSetMode(queuedKind, 'queued');
+      auxFill.style.width = '0%';
+      auxDetail.textContent = 'Position #' + (pos + 1) + ' dans la file · ' + (queue.length - pos - 1) + ' tâche(s) derrière · démarrera automatiquement';
+      auxElapsed.textContent = '';
+      auxLog.textContent = (qitem && qitem.prompt) ? qitem.prompt : '';
+      return;
+    }
+    if (!j.busy && j.task_token === expected) { auxFinalize(j); return; }
+    // Ni en cours, ni dans la file, ni terminée → tâche introuvable (redémarrage serveur ?)
+    auxAmbiguousPolls += 1;
+    if (auxAmbiguousPolls > 120) auxGiveUp();   // ~2 min d'ambiguïté
+    return;
+  }
+
+  // --- Cas 2 : page chargée pendant une opération (aucun token) — affichage générique ---
+  if (j.busy && AUX_META[j.kind]) {
+    auxSetMode(j.kind, 'run');
+    const pct = Math.round((j.progress || 0) * 100);
+    auxFill.style.width = pct + '%';
+    const step = (j.total_steps > 0) ? ' · étape ' + j.step + '/' + j.total_steps : '';
+    auxDetail.textContent = pct + ' %' + step;
+    auxElapsed.textContent = fmtElapsed(j.elapsed);
+    auxLog.textContent = String(j.log || '').split('\n').map(x => x.trim()).filter(Boolean).slice(-1)[0] || 'démarrage…';
+    return;
+  }
+  if (!j.busy) {
+    // Résultat éventuellement présenté une fois, puis on s'arrête.
+    auxFinalize(j);
+  }
+}
+
+function startAuxPoll() {
+  if (auxTimer) return;
+  auxTimer = setInterval(pollAux, 1000);
+  pollAux();
+}
+
+auxCancel.addEventListener('click', async () => {
+  const expected = auxExpected();
+  // Fermer (état ok/erreur) : masque simplement le bandeau.
+  if (auxBanner.classList.contains('error') || auxBanner.classList.contains('ok')) {
+    auxBanner.hidden = true;
+    return;
+  }
+  // Retrait de la file d'attente
+  const queue = window.__lisLastQueue || [];
+  const inQueue = expected && queue.some(q => q.queue_id === expected);
+  try {
+    if (inQueue) {
+      const r = await fetch('/api/queue/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queue_id: expected }),
+      });
+      const j = await r.json();
+      if (window.showToast) window.showToast(j.ok ? 'Opération retirée de la file.' : ('❌ ' + (j.error || 'Retrait impossible.')));
+      auxBanner.hidden = true;
+      if (window.LisQuality) window.LisQuality._done([], null);
+      auxFinish();
+    } else {
+      await fetch('/api/cancel', { method: 'POST' });
+      if (window.showToast) window.showToast('Annulation demandée…');
+    }
+  } catch (e) { /* on réessaiera au prochain clic */ }
+});
+
+window.__lisPagePoll = startAuxPoll;
+
+// Au chargement : une opération auxiliaire lancée depuis une autre page tourne peut-être déjà.
+(async function initAuxBanner() {
+  try {
+    const r = await fetch('/api/status');
+    const j = await r.json();
+    window.__lisLastQueue = Array.isArray(j.queue) ? j.queue : [];
+    if (j.busy && AUX_META[j.kind]) startAuxPoll();
+  } catch (e) { /* silencieux */ }
+})();
+
+// --- Recherche instantanée & filtre Favoris ---
+let favOnlyFilter = {{ 'true' if fav_only else 'false' }};
+const searchInput = document.getElementById('history-search');
+const favFilterBtn = document.getElementById('history-fav-filter');
+const visibleCountEl = document.getElementById('history-visible-count');
+
+function applyHistoryFilter() {
+  const q = (searchInput ? searchInput.value : '').trim().toLowerCase();
+  const cards = [...document.querySelectorAll('.card')];
+  let visible = 0;
+  cards.forEach(card => {
+    const isFav = card.dataset.favorite === '1';
+    const haystack = card.dataset.search || '';
+    const matchFav = !favOnlyFilter || isFav;
+    const matchQ = !q || haystack.includes(q);
+    const show = matchFav && matchQ;
+    card.hidden = !show;
+    if (show) visible++;
+  });
+  if (visibleCountEl) {
+    visibleCountEl.textContent = (q || favOnlyFilter)
+      ? `${visible} / ${cards.length} affichée(s)`
+      : '';
+  }
+}
+
+// --- Tri de la galerie ---
+const sortSelect = document.getElementById('history-sort');
+const galleryEl = document.getElementById('history-gallery');
+const originalCardOrder = galleryEl ? [...galleryEl.querySelectorAll('.card')] : [];
+sortSelect?.addEventListener('change', () => {
+  if (!galleryEl) return;
+  const mode = sortSelect.value;
+  const cards = [...galleryEl.querySelectorAll('.card')];
+  const byNum = (k) => (a, b) => (parseFloat(a.dataset[k]) || 0) - (parseFloat(b.dataset[k]) || 0);
+  let sorted;
+  if (mode === 'recent')   sorted = originalCardOrder;
+  else if (mode === 'oldest') sorted = [...originalCardOrder].reverse();
+  else if (mode === 'model')  sorted = [...cards].sort((a, b) => (a.dataset.model || '').localeCompare(b.dataset.model || '', 'fr'));
+  else if (mode === 'seed')   sorted = [...cards].sort(byNum('seed'));
+  else if (mode === 'pixels') sorted = [...cards].sort(byNum('pixels'));
+  else sorted = cards;
+  sorted.forEach(card => galleryEl.appendChild(card));
+  applyHistoryFilter();
+});
+
+searchInput?.addEventListener('input', applyHistoryFilter);
+favFilterBtn?.addEventListener('click', () => {
+  favOnlyFilter = !favOnlyFilter;
+  favFilterBtn.classList.toggle('active', favOnlyFilter);
+  applyHistoryFilter();
+});
+applyHistoryFilter();
+
+// --- Favoris ⭐ & Protection contre la suppression ---
+document.querySelectorAll('.fav-btn').forEach(btn => {
+  btn.addEventListener('click', async e => {
+    e.stopPropagation();
+    const card = btn.closest('.card');
+    const id = btn.dataset.id;
+    try {
+      const r = await fetch('/api/toggle-favorite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const j = await r.json();
+      if (!j.ok) return;
+      const fav = Boolean(j.favorite);
+      card.dataset.favorite = fav ? '1' : '0';
+      card.classList.toggle('is-favorite', fav);
+      btn.classList.toggle('active', fav);
+      btn.textContent = fav ? '⭐' : '☆';
+      btn.title = fav
+        ? 'Retirer des favoris (déverrouiller la suppression)'
+        : 'Ajouter aux favoris ⭐ (protège contre la suppression)';
+
+      const delBtn = card.querySelector('.del');
+      if (delBtn) {
+        delBtn.dataset.confirming = '';
+        delBtn.classList.toggle('locked', fav);
+        delBtn.textContent = fav ? '🔒 Favori' : 'Supprimer';
+        delBtn.title = fav
+          ? 'Image protégée en Favori ⭐ — cliquez sur l’étoile pour déverrouiller'
+          : 'Supprimer (double clic de sécurité)';
+      }
+      applyHistoryFilter();
+    } catch (_) {}
+  });
+});
+
+// --- Corbeille sécurisée (protection Favori + confirmation en 2 clics) ---
+document.querySelectorAll('.del').forEach(b => {
+  let resetTimer = null;
+  b.addEventListener('click', async () => {
+    const card = b.closest('.card');
+    if (card && card.dataset.favorite === '1') {
+      if (window.showToast) {
+        window.showToast('⭐ Cette image est protégée dans vos Favoris. Cliquez sur l’étoile pour déverrouiller sa suppression.');
+      } else {
+        alert('Cette image est protégée dans vos Favoris ⭐. Retirez-la des favoris avant de la supprimer.');
+      }
+      return;
+    }
+
+    if (b.dataset.confirming !== '1') {
+      b.dataset.confirming = '1';
+      b.textContent = '⚠️ Confirmer ?';
+      if (resetTimer) clearTimeout(resetTimer);
+      resetTimer = setTimeout(() => {
+        b.dataset.confirming = '';
+        if (card?.dataset.favorite !== '1') b.textContent = 'Supprimer';
+      }, 3500);
+      return;
+    }
+
+    if (resetTimer) clearTimeout(resetTimer);
+    b.disabled = true;
+    b.textContent = '…';
+    const r = await fetch('/api/delete-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: b.dataset.id }),
+    });
+    const j = await r.json();
+    if (!j.ok) {
+      b.disabled = false;
+      b.dataset.confirming = '';
+      b.textContent = card?.dataset.favorite === '1' ? '🔒 Favori' : 'Supprimer';
+      alert(j.error || 'Suppression refusée.');
+      return;
+    }
+    card.remove();
+    applyHistoryFilter();
+  });
+});
+
+document.querySelectorAll('.card').forEach(card => {
+  const thumb = card.querySelector('.thumb');
+  const openCardLightbox = (startOnSourceIdx = null) => {
+    let sources = [];
+    try { sources = JSON.parse(card.dataset.sources || '[]'); } catch (e) {}
+    if (sources.length) {
+      const items = [
+        ...sources.map((s, idx) => ({
+          src: s.url,
+          downloadUrl: s.url,
+          label: idx === 0 ? 'Image source (Avant)' : `Référence ${idx + 1}`,
+          role: idx === 0 ? 'source' : 'ref',
+          badge: idx === 0 ? 'AVANT (SOURCE)' : `RÉF #${idx + 1}`,
+        })),
+        {
+          src: card.dataset.outputUrl,
+          downloadUrl: card.dataset.outputUrl,
+          label: card.dataset.label || '',
+          role: 'result',
+          badge: 'APRÈS (MODIFIÉE)',
+        },
+      ];
+      const startIdx = startOnSourceIdx !== null ? startOnSourceIdx : items.length - 1;
+      openLightbox(items, startIdx, { lastResultIndex: items.length - 1 });
+      return;
+    }
+    const visibleCards = [...document.querySelectorAll('.card')].filter(c => !c.hidden);
+    const items = visibleCards.map((c, idx) => ({
+      src: c.dataset.outputUrl,
+      downloadUrl: c.dataset.outputUrl,
+      label: c.dataset.label || `Image ${idx + 1}`,
+      role: 'result',
+      badge: `HISTORIQUE ${idx + 1}/${visibleCards.length}`,
+    }));
+    const idx = Math.max(0, visibleCards.indexOf(card));
+    openLightbox(items, idx);
+  };
+  if (thumb) {
+    thumb.style.cursor = 'zoom-in';
+    thumb.addEventListener('click', e => {
+      if (e.target.closest('.fav-btn')) return;
+      openCardLightbox(null);
+    });
+  }
+  card.querySelectorAll('.card-sources img').forEach((imgEl, sIdx) => {
+    imgEl.style.cursor = 'zoom-in';
+    imgEl.addEventListener('click', () => openCardLightbox(sIdx));
+  });
+});
+
+document.querySelectorAll('.use-in-edit').forEach(b => {
+  b.addEventListener('click', async () => {
+    const mode = b.dataset.mode || 'canvas';
+    const orig = b.textContent;
+    b.disabled = true;
+    b.textContent = '…';
+    try {
+      const r = await fetch('/api/use-output-as-source', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: b.dataset.id, filename: b.dataset.filename }),
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        alert(j.error || "Impossible d'envoyer l'image vers le Studio d'édition.");
+        b.disabled = false;
+        b.textContent = orig;
+        return;
+      }
+      sessionStorage.setItem('edit_incoming_source', JSON.stringify({
+        mode,
+        file: { filename: j.filename, url: j.url, name: j.name },
+      }));
+      window.location.href = "{{ url_for('edit') }}";
+    } catch (e) {
+      alert('Erreur: ' + e.message);
+      b.disabled = false;
+      b.textContent = orig;
+    }
+  });
+});
+
+// --- 📋 Copie rapide du prompt (un clic, avec repli si l'API Clipboard est indisponible) ---
+document.querySelectorAll('.copy-prompt').forEach(b => {
+  if (window.LisQuality && typeof LisQuality.bindCopyPrompt === 'function') {
+    LisQuality.bindCopyPrompt(b, {});
+  }
+});
+
+document.querySelectorAll('.reuse').forEach(b => {
+  b.addEventListener('click', async () => {
+    const p = b.dataset;
+    let sources = [];
+    try { sources = JSON.parse(p.sources || '[]'); } catch (e) {}
+    if (p.editable === '1' && sources.length) {
+      sessionStorage.setItem('edit_reuse', JSON.stringify({
+        model: p.model, prompt: p.prompt, neg: p.neg, negative: p.neg,
+        steps: p.steps, cfg: p.cfg, seed: p.seed, source_images: sources
+      }));
+      window.location.href = "{{ url_for('edit') }}";
+      return;
+    }
+    sessionStorage.setItem('reuse', JSON.stringify(p));
+    window.location.href = "{{ url_for('generate') }}";
+  });
+});
+
+// --- 🎛️ Post-traitement (modal partagé, voir static/postprocess.js) ---
+document.querySelectorAll('.postprocess-link').forEach(b => {
+  b.addEventListener('click', () => {
+    if (window.LisPost) {
+      window.LisPost.open({ url: b.dataset.url, filename: b.dataset.filename,
+                            id: Number(b.dataset.id), prompt: b.dataset.prompt || '' });
+    }
+  });
+});
+
+// --- 🔍 Agrandissement ×4 / 🙂 Réparation / 🩹 Restauration ×2 / ⬆️ PiD ×4 en 1 clic ---
+// Une fois la tâche auxiliaire terminée, on recharge la page pour montrer le résultat.
+window.__lisOnUpscaleDone = imgs => {
+  if (imgs && imgs.length) setTimeout(() => location.reload(), 1600);
+};
+document.querySelectorAll('.upscale-link').forEach(b => {
+  b.addEventListener('click', async () => {
+    b.disabled = true;
+    const orig = b.textContent;
+    b.textContent = '🔍 …';
+    const ok = window.LisQuality
+      ? await LisQuality.startUpscale({ imageId: parseInt(b.dataset.id, 10) })
+      : false;
+    if (!ok) {
+      b.disabled = false;
+      b.textContent = orig;
+    } else {
+      b.textContent = '🔍 en cours…';
+    }
+  });
+});
+document.querySelectorAll('.repair-link').forEach(b => {
+  b.addEventListener('click', async () => {
+    b.disabled = true;
+    const orig = b.textContent;
+    b.textContent = '🙂 …';
+    const ok = window.LisQuality
+      ? await LisQuality.startRepair({ imageId: parseInt(b.dataset.id, 10) })
+      : false;
+    if (!ok) {
+      b.disabled = false;
+      b.textContent = orig;
+    } else {
+      b.textContent = '🙂 en cours…';
+    }
+  });
+});
+document.querySelectorAll('.restore-link').forEach(b => {
+  b.addEventListener('click', async () => {
+    b.disabled = true;
+    const orig = b.textContent;
+    b.textContent = '🩹 …';
+    const ok = window.LisQuality
+      ? await LisQuality.startRestoreX2({ imageId: parseInt(b.dataset.id, 10) })
+      : false;
+    if (!ok) {
+      b.disabled = false;
+      b.textContent = orig;
+    } else {
+      b.textContent = '🩹 en cours…';
+    }
+  });
+});
+document.querySelectorAll('.pid-link').forEach(b => {
+  b.addEventListener('click', async () => {
+    b.disabled = true;
+    const orig = b.textContent;
+    b.textContent = '⬆️ …';
+    const ok = window.LisQuality && LisQuality.askPidPrompt
+      ? await LisQuality.askPidPrompt({ imageId: parseInt(b.dataset.id, 10) })
+      : false;
+    if (!ok) {
+      b.disabled = false;
+      b.textContent = orig;
+    } else {
+      b.textContent = '⬆️ en cours…';
+    }
+  });
+});
+document.querySelectorAll('.vary-link').forEach(b => {
+  b.addEventListener('click', async () => {
+    b.disabled = true;
+    const orig = b.textContent;
+    b.textContent = '🔀 …';
+    const ok = window.LisQuality
+      ? await LisQuality.startVary({ imageId: parseInt(b.dataset.id, 10), mode: b.dataset.mode })
+      : false;
+    if (!ok) {
+      b.disabled = false;
+      b.textContent = orig;
+    } else {
+      b.textContent = '🔀 en cours…';
+    }
+  });
+});
+</script>
+{% endblock %}

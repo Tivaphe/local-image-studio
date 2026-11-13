@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}Paramètres · Local Image Studio{% endblock %}
+
+{% block content %}
+<section class="panel narrow">
+  <h2>Paramètres</h2>
+
+  <label class="field">
+    <span>Token Hugging Face <em>(requis pour les dépôts protégés : FHDR, FLUX.2-klein-9B)</em></span>
+    <input type="password" id="hf_token" value="{{ settings.hf_token }}" placeholder="hf_xxxxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+    <small class="muted">Créez un token gratuit sur
+      <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener">huggingface.co/settings/tokens</a>
+      (type « Read »). Acceptez aussi les conditions du modèle sur sa page.</small>
+  </label>
+
+  <label class="field checkbox-field">
+    <input type="checkbox" id="open_browser" {% if settings.open_browser %}checked{% endif %}>
+    <span>Ouvrir <strong>Google Chrome</strong> automatiquement au démarrage
+      <em>(sinon le navigateur par défaut)</em></span>
+    <small class="muted">Décochez si vous préférez ouvrir l'adresse à la main,
+      ou lancez <code>python app.py --no-browser</code>.</small>
+  </label>
+
+  <label class="field">
+    <span>Aperçu en direct — une image toutes les <em>N</em> étapes</span>
+    <select id="preview_interval">
+      {% for n in [1, 2, 3, 5, 8, 12] %}
+      <option value="{{ n }}" {% if settings.preview_interval|default(3)|int == n %}selected{% endif %}>Toutes les {{ n }} étape{{ 's' if n > 1 else '' }}</option>
+      {% endfor %}
+    </select>
+    <small class="muted">Utilisé par l'aperçu en direct de la page Générer (mode « Auto » / « Projeté » / « TAESD » de la section Qualité). 1 = très fluide mais coûteux.</small>
+  </label>
+
+  <hr>
+  <h3>🧠 Légende d'image (image → prompt)</h3>
+  <p class="muted">
+    Prompt envoyé au VLM local quand vous cliquez <strong>« 🧠 Décrire l'image »</strong> (modale PiD) ou
+    <strong>« 🔎 Image → Prompt »</strong> (Générer / Édition). En anglais recommandé — meilleure compréhension
+    par les VLM. Le résultat reste éditable avant usage, rien n'est envoyé sans votre relecture.
+  </p>
+  <label class="field">
+    <span>Prompt de légende <em>(éditable — restauration possible)</em></span>
+    <textarea id="image_caption_prompt" rows="7">{{ settings.image_caption_prompt if settings and settings.image_caption_prompt else caption_default_prompt }}</textarea>
+  </label>
+  <button id="restore-caption-prompt" class="btn ghost small" type="button">↺ Restaurer le prompt par défaut</button>
+
+  <label class="field">
+    <span>Modèle de légende par défaut</span>
+    <select id="captioner_model">
+      <option value="">(automatique — premier légendeur installé)</option>
+    </select>
+    <small class="muted">La liste est alimentée par la page Modèles → « 🧠 Légendeurs d'image »
+      (les légendeurs non installés n'apparaissent pas ici).</small>
+  </label>
+
+  <button id="save-settings" class="btn primary">Enregistrer</button>
+  <p id="set-msg" class="muted"></p>
+
+  <hr>
+  <h3>Enrichissement de prompt</h3>
+  <p class="muted">
+    Réutilise <strong>Qwen3-4B</strong> (déjà téléchargé avec Z-Image ou FLUX.2-klein-4B) pour enrichir
+    ou reformuler vos prompts. Aucun téléchargement supplémentaire. Tourne sur CPU.
+  </p>
+  <div class="enhancer-row">
+    <span id="enhancer-state" class="badge badge-warn">vérification…</span>
+    <span class="muted" id="enhancer-msg"></span>
+  </div>
+
+  <hr>
+  <h3>À propos</h3>
+  <p class="muted">
+    Les images sont enregistrées dans <code>output/</code> et l'historique dans <code>history.db</code>.
+    Les poids des modèles sont dans <code>models/</code>.
+    Moteur : stable-diffusion.cpp (leejet) — exécutable local, aucune donnée n'est envoyée sur internet
+    (hors téléchargement initial des modèles).
+  </p>
+</section>
+
+<script>
+document.getElementById('save-settings').addEventListener('click', async ()=>{
+  const tok = document.getElementById('hf_token').value.trim();
+  const openBrowser = document.getElementById('open_browser').checked;
+  const previewInterval = document.getElementById('preview_interval').value;
+  const captionPrompt = document.getElementById('image_caption_prompt').value;
+  const captionerModel = document.getElementById('captioner_model').value;
+  const r = await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hf_token:tok, open_browser:openBrowser, preview_interval: previewInterval, image_caption_prompt: captionPrompt, captioner_model: captionerModel})});
+  const j = await r.json();
+  let msg = j.token_set ? 'Token enregistré ✓' : 'Token vidé.';
+  msg += openBrowser
+    ? ' Chrome s’ouvrira au prochain démarrage.'
+    : ' Ouverture automatique du navigateur désactivée.';
+  msg += ` Aperçu : une image toutes les ${j.preview_interval ?? previewInterval} étape(s).`;
+  msg += ' Légende d’image enregistrée ✓';
+  document.getElementById('set-msg').textContent = msg;
+});
+
+// --- légendeurs : alimentation du sélecteur + restauration du prompt défaut ---
+const CAPTION_SELECT = document.getElementById('captioner_model');
+const CAPTION_PROMPT = document.getElementById('image_caption_prompt');
+(async function loadCaptioners(){
+  try {
+    const r = await fetch('/api/captioners');
+    const j = await r.json();
+    const saved = j.selected || '';
+    for (const c of (j.captioners || [])) {
+      if (!c.ready) continue;
+      const o = document.createElement('option');
+      o.value = c.id;
+      o.textContent = c.name + (c.recommended ? ' ⭐' : '') + (c.license_warn ? ' ⚠️ licence custom' : '');
+      CAPTION_SELECT.appendChild(o);
+    }
+    CAPTION_SELECT.value = saved;
+  } catch (e) { /* la liste reste sur « automatique » */ }
+})();
+document.getElementById('restore-caption-prompt').addEventListener('click', async ()=>{
+  try {
+    const r = await fetch('/api/settings');
+    const j = await r.json();
+    if (j.default_caption_prompt) CAPTION_PROMPT.value = j.default_caption_prompt;
+  } catch (e) {}
+});
+
+// --- enrichisseur : check de disponibilite ---
+async function refreshEnhancer(){
+  try {
+    const r = await fetch('/api/enhancer-status');
+    const j = await r.json();
+    const el = document.getElementById('enhancer-state');
+    if (j.downloaded) {
+      el.textContent = 'disponible ✓ (Qwen3-4B)';
+      el.className = 'badge badge-ok';
+    } else {
+      el.textContent = 'indisponible';
+      el.className = 'badge badge-warn';
+      document.getElementById('enhancer-msg').textContent = 'Téléchargez Z-Image ou FLUX.2-klein-4B dans l\'onglet Modèles pour l\'activer.';
+    }
+  } catch(e){}
+}
+refreshEnhancer();
+</script>
+{% endblock %}

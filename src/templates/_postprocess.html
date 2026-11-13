@@ -1,0 +1,46 @@
+<!-- ===== Post-traitement photo (partagé Générer / Édition / Historique) ===== -->
+<div class="pp-modal" id="postprocess-modal" hidden role="dialog" aria-modal="true" aria-labelledby="pp-title">
+  <div class="pp-backdrop" data-pp-close></div>
+  <div class="pp-panel">
+    <div class="pp-head">
+      <div>
+        <h3 id="pp-title">🎛️ Post-traitement</h3>
+        <p class="muted small" id="pp-src">Ajustez la photo — les modifications sont appliquées localement sur votre machine.</p>
+      </div>
+      <button type="button" class="link pp-close-x" id="pp-close" title="Fermer" aria-label="Fermer">✕</button>
+    </div>
+    <div class="pp-body">
+      <div class="pp-preview">
+        <canvas id="pp-canvas"></canvas>
+        <p class="muted small pp-preview-hint" id="pp-loading">Chargement de l'image…</p>
+      </div>
+      <div class="pp-sliders">
+        <label class="pp-slider"><span>Exposition <b id="pp-exposure-val">0,00 EV</b></span>
+          <input type="range" id="pp-exposure" min="-2" max="2" step="0.05" value="0"></label>
+        <label class="pp-slider"><span>Contraste <b id="pp-contrast-val">0</b></span>
+          <input type="range" id="pp-contrast" min="-100" max="100" step="1" value="0"></label>
+        <label class="pp-slider"><span>Luminosité <b id="pp-brightness-val">0</b></span>
+          <input type="range" id="pp-brightness" min="-100" max="100" step="1" value="0"></label>
+        <label class="pp-slider"><span>Chaleur <b id="pp-warmth-val">0</b></span>
+          <input type="range" id="pp-warmth" min="-100" max="100" step="1" value="0"></label>
+        <label class="pp-slider"><span>Clarté <b id="pp-clarity-val">0</b></span>
+          <input type="range" id="pp-clarity" min="-100" max="100" step="1" value="0"></label>
+        <label class="pp-slider"><span>Saturation <b id="pp-saturation-val">0</b></span>
+          <input type="range" id="pp-saturation" min="-100" max="100" step="1" value="0"></label>
+        <label class="pp-slider"><span>Vibrance <b id="pp-vibrance-val">0</b></span>
+          <input type="range" id="pp-vibrance" min="-100" max="100" step="1" value="0"></label>
+        <button type="button" class="btn ghost small" id="pp-reset">↺ Réinitialiser les réglages</button>
+        <p class="muted small pp-note">
+          Vibrance = saturation intelligente (renforce surtout les zones peu saturées, préserve les carnations).
+          Clarté = micro-contraste (relief local). Tout est appliqué en pixels sur votre machine — aucune image n'est envoyée ailleurs.
+        </p>
+      </div>
+    </div>
+    <div class="pp-foot">
+      <button type="button" class="btn ghost" data-pp-close>Fermer sans enregistrer</button>
+      <button type="button" class="btn" id="pp-save">💾 Enregistrer dans l'historique</button>
+      <button type="button" class="btn primary" id="pp-save-edit" title="Enregistre la version ajustée puis l'ouvre comme image de départ du Studio d'édition">💾 Enregistrer → ✂️ Éditer</button>
+    </div>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='postprocess.js', v=static_v) }}"></script>

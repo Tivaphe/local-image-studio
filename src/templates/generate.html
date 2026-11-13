@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+{% block title %}Générer · Local Image Studio{% endblock %}
+
+{% block content %}
+<div class="gen-grid">
+
+  <!-- Colonne réglages -->
+  <section class="panel form-panel gen-panel">
+    <div class="panel-title-row">
+      <h2>Nouvelle image</h2>
+      <div class="row" style="gap:8px;">
+        <button type="button" id="restore-png-btn" class="btn ghost small"
+                title="Glissez-déposez un PNG précédemment généré, ou cliquez pour en choisir un : prompt, seed, modèle, format et qualité sont restaurés">
+          📥 Restaurer depuis un PNG
+        </button>
+        <button type="button" id="reset-gen-draft-btn" class="btn ghost small"
+                title="Réinitialiser le formulaire et vider le brouillon sauvegardé">
+          🧹 Nouveau / Vider le brouillon
+        </button>
+        <input type="file" id="restore-png-input" accept="image/png" hidden>
+      </div>
+    </div>
+
+    <div class="field preprompts-field">
+      <span>📋 Pré-prompts adaptés au modèle</span>
+      <div class="preprompts-bar">
+        <select id="gen-preprompt-select">
+          <option value="">→ Choisir un pré-prompt adapté au modèle ←</option>
+        </select>
+        <button type="button" id="save-gen-preprompt-btn" class="btn ghost small" title="Enregistrer le prompt actuel dans vos pré-prompts">💾 Sauver</button>
+        <button type="button" id="del-gen-preprompt-btn" class="btn danger small" hidden title="Supprimer ce pré-prompt personnalisé">🗑</button>
+      </div>
+    </div>
+
+    <label class="field">
+      <span>Description (prompt)</span>
+      <textarea id="prompt" rows="4" placeholder="ex: a cyberpunk fox in a neon-lit alley, cinematic, highly detailed"></textarea>
+      <div class="prompt-tools">
+        <button id="imagetoprompt-btn" class="btn ghost small" title="Une image que vous voulez reproduire ? Un VLM local (page Modèles → 🧠 Légendeurs) rédige le prompt — éditable">🔎 Image → Prompt</button>
+        <button id="enrich-btn" class="btn ghost small" title="Enrichir le prompt avec un LLM">✨ Enrichir</button>
+        <button id="rephrase-btn" class="btn ghost small" title="Reformuler differemment">🔄 Reformuler</button>
+        <button id="translate-btn" class="btn ghost small" title="Traduire en anglais">🌐 Traduire EN</button>
+        <span id="enrich-status" class="muted small"></span>
+      </div>
+    </label>
+
+    <label class="field">
+      <span>Prompt négatif <em>(optionnel)</em></span>
+      <textarea id="negative" rows="2" placeholder="ce qu'il faut éviter : blurry, low quality, extra fingers"></textarea>
+    </label>
+
+    <!-- ✨ Style Midjourney (approximations expliquées) -->
+    <details class="advanced mj-box" id="mj-box" open>
+      <summary>✨ Style Midjourney <small class="muted">— approximations expliquées</small></summary>
+      <p class="hint mj-hint">Midjourney n'expose pas ses réglages internes : voici des <strong>équivalents approximatifs, traduits en vrais contrôles locaux</strong> (texte du prompt, étapes, CFG, échantillonneur, graines). Tout reste modifiable à la main.</p>
+
+      <div class="field">
+        <span>Styles rapides <em>(clic = ajoute / retire un suffixe visible au prompt)</em></span>
+        <div class="mj-chips" id="mj-style-chips"></div>
+        <small class="muted">Le suffixe apparaît en clair à la fin du prompt — rien n'est caché ni envoyé silencieusement.</small>
+      </div>
+
+      <div class="mj-slider">
+        <div class="mj-slider-head">
+          <label for="mj-stylize">Stylisation <span class="mj-val" id="mj-stylize-val">100</span></label>
+          <small class="muted">0 = très littéral · 100 = neutre · 1000 = très artistique</small>
+        </div>
+        <input type="range" id="mj-stylize" min="0" max="1000" step="10" value="100" aria-label="Stylisation (approximation de « stylize »)">
+        <p class="hint">≈ « stylize » MJ : ajuste <strong>Étapes</strong> et <strong>CFG</strong> au-dessus de la présélection active (0 = reste littéral, 100 = présélection inchangée, 1000 = pousse nettement plus haut).</p>
+      </div>
+
+      <div class="mj-slider">
+        <div class="mj-slider-head">
+          <label for="mj-weird">Weirdness <span class="mj-val" id="mj-weird-val">0</span></label>
+          <small class="muted">0 = inchangé (réglages Qualité) · 3000 = expérimental</small>
+        </div>
+        <input type="range" id="mj-weird" min="0" max="3000" step="50" value="0" aria-label="Weirdness (approximation de « weird »)">
+        <p class="hint">≈ « weird » MJ : à 0, vos réglages Qualité (échantillonneur/planificateur) sont repris tels quels ; plus vous montez, plus le moteur s'éloigne de ses réglages sûrs — <span id="mj-weird-desc">réglages Qualité inchangés (reprise tels quels)</span>. Vous pouvez toujours ajuster l'échantillonneur/planificateur directement dans la section Qualité.</p>
+      </div>
+
+      <div class="mj-slider">
+        <div class="mj-slider-head">
+          <label for="mj-chaos">Chaos <span class="mj-val" id="mj-chaos-val">0</span></label>
+          <small class="muted">0 = graines consécutives (cohérent) · 100 = graines indépendantes dans le lot</small>
+        </div>
+        <input type="range" id="mj-chaos" min="0" max="100" step="5" value="0" aria-label="Chaos (approximation de « chaos »)">
+        <p class="hint">≈ « chaos » MJ : au-dessus de 0, la graine fixe est ignorée et <strong>chaque image du lot reçoit une graine aléatoire indépendante</strong> ; à 0, les images partagent des graines consécutives (variantes proches).</p>
+      </div>
+    </details>
+
+    <!-- Image de depart pour l'img2img (1 image + force). L'edition multi-images a sa page. -->
+    <details class="advanced" id="img2img-box">
+      <summary>Image de départ (img2img)</summary>
+      <div class="img-source-row">
+        <label class="field">
+          <span>Uploader une image</span>
+          <div class="file-upload" id="file-upload-area">
+            <input type="file" id="source-image-input" accept="image/png,image/jpeg,image/webp" hidden>
+            <div class="upload-placeholder" id="upload-placeholder">
+              <i class="icon">📁</i>
+              <span>Cliquez, glissez ou collez (<kbd>Ctrl+V</kbd>) une image</span>
+              <small class="muted">PNG, JPG, WEBP — une seule image, régénérée partiellement</small>
+            </div>
+            <div class="upload-preview hidden" id="upload-preview">
+              <img id="preview-img" alt="Aperçu">
+              <div class="preview-info">
+                <span id="preview-name"></span>
+                <button id="remove-image" class="btn ghost small">Retirer</button>
+              </div>
+            </div>
+          </div>
+        </label>
+        <input type="hidden" id="source-image-path">
+      </div>
+      <label class="field" id="strength-field" style="display:none;">
+        <span>Force (strength)</span>
+        <input type="number" id="strength" min="0" max="1" step="0.05" placeholder="0.75" value="0.75">
+        <small class="muted">0 = image originale conservée, 1 = régénérer complètement</small>
+      </label>
+      <p class="hint">
+        Ici le modèle <strong>re-dénouise</strong> votre image : la composition change plus ou moins
+        selon la <strong>force</strong>. Supporté par <strong>Stable Diffusion 3.5</strong>.
+        <br>Pour <strong>éditer</strong> une image (et en combiner plusieurs : vêtement, objet, style…),
+        utilisez le <a href="{{ url_for('edit') }}">✂️ Studio d'édition</a> — Qwen-Image 2.1 / 2.1 Turbo
+        et FLUX.2 / FLUX.3 Klein acceptent jusqu'à 10 images.
+      </p>
+      <div id="mmproj-status" class="mmproj-notice hidden">
+        <span id="mmproj-msg">Vérification...</span>
+        <button id="mmproj-download-btn" class="btn small primary">
+          Télécharger mmproj (requis pour l'édition)
+        </button>
+      </div>
+    </details>
+
+    <div class="row">
+      <label class="field grow">
+        <span>Modèle</span>
+        <select id="model"></select>
+      </label>
+      <label class="field">
+        <span>Quant.</span>
+        <select id="quant"></select>
+      </label>
+    </div>
+
+    <!-- Sélection du preset -->
+    <div class="field">
+      <span>Présélection</span>
+      <select id="preset">
+        <option value="default">→ Config par défaut ←</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <span>Format</span>
+      <div class="ratios" id="ratios"></div>
+      <small id="original-ratio-info" class="muted" hidden></small>
+    </div>
+
+    <div class="row">
+      <label class="field grow">
+        <span>Batch (nombre d'images)</span>
+        <input type="range" id="batch" min="1" max="4" value="1">
+        <small id="batch-val">1 image</small>
+      </label>
+    </div>
+
+    <details class="advanced">
+      <summary>Avancé (étapes, guidance, seed)</summary>
+      <div class="row">
+        <label class="field"><span>Étapes</span><input type="number" id="steps" min="1" max="50"></label>
+        <label class="field"><span>Guidance (CFG)</span><input type="number" id="cfg" step="0.1"></label>
+        <label class="field"><span>Seed</span><input type="number" id="seed" placeholder="aléatoire"></label>
+      </div>
+    </details>
+
+    <!-- Lot de prompts : une image par ligne -->
+    <details class="advanced" id="batch-prompts-box">
+      <summary>🗂️ Lot de prompts — une image par ligne</summary>
+      <label class="field">
+        <span>Prompts (un par ligne, 16 max)</span>
+        <textarea id="batch-prompts" rows="5" placeholder="a lighthouse at dawn, watercolor&#10;a lighthouse in a storm, oil painting&#10;a lighthouse on a cliff, pixel art"></textarea>
+      </label>
+      <div class="row" style="align-items:center;gap:10px;">
+        <button type="button" id="batch-run-btn" class="btn small primary">🗂️ Générer le lot (file d'attente)</button>
+        <span class="muted small" id="batch-status"></span>
+      </div>
+      <small class="muted">
+        Chaque ligne est générée comme une image indépendante avec les réglages actuels du formulaire
+        (modèle, format, qualité, seed aléatoire). Tout est mis dans la file d'attente — vous pouvez
+        continuer à utiliser l'interface pendant ce temps.
+      </small>
+    </details>
+
+    <!-- Duel / comparaison -->
+    <details class="advanced" id="compare-box">
+      <summary>⚔️ Duel &amp; comparaison</summary>
+      <div class="row" style="align-items:center;gap:10px;flex-wrap:wrap;">
+        <button type="button" id="duel-seeds-btn" class="btn small">⚔️ Duel de seeds (×2)</button>
+        <span class="muted small">Même prompt, même réglages, 2 seeds consécutifs — 2 jobs dans la file.</span>
+      </div>
+      <div class="row" style="align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;">
+        <label class="field grow" style="margin:0;">
+          <span>Comparer avec le modèle…</span>
+          <select id="compare-model"></select>
+        </label>
+        <button type="button" id="compare-models-btn" class="btn small">🥊 Lancer la comparaison</button>
+      </div>
+      <small class="muted">Les deux images atterrissent dans l'historique côte à côte (même prompt, même seed de départ).</small>
+    </details>
+
+    <!-- Section Qualité / Détails / Agrandissement (rendue par quality.js) -->
+    <div id="quality-section"></div>
+
+    <!-- Section LoRA -->
+    <details class="advanced">
+      <summary>LoRA (modularités)</summary>
+      <div class="lora-section">
+        <label class="field">
+          <span>Dossier LoRA</span>
+          <input type="text" id="lora-dir" placeholder="./models/loras" value="./models/loras">
+          <small class="muted">Chemin du dossier contenant les fichiers .safetensors LoRA</small>
+        </label>
+        <label class="field">
+          <span>Prompt avec LoRA</span>
+          <textarea id="lora-prompt" rows="2" placeholder="ex: a cat &lt;lora:realism:0.8&gt; &lt;lora:detail:1.2&gt;"></textarea>
+          <small class="muted">
+            Syntaxe: &lt;lora:nom_fichier_sans_extension:contribution&gt;<br>
+            Le dossier LoRA doit contenir les fichiers .safetensors
+          </small>
+        </label>
+        <p class="hint">
+          <strong>Note:</strong> Les LoRA fonctionnent principalement avec FLUX (format safetensors).
+          Pour Qwen-Image 2.1 (modèle DiT), les LoRA SD 1.5 classiques ne sont pas compatibles.
+        </p>
+      </div>
+    </details>
+
+    <div class="actions">
+      <button id="generate-btn" class="btn primary big">✨ Générer</button>
+      <button id="cancel-btn" class="btn danger" hidden>Annuler</button>
+    </div>
+
+    <p id="gen-error" class="error" hidden></p>
+  </section>
+
+  <!-- Colonne résultat -->
+  <section class="panel result-panel">
+    <div class="progress-wrap" id="progress-wrap" hidden>
+      <div class="progress-bar"><div id="progress-fill"></div></div>
+      <div class="progress-meta"><span id="progress-text">en cours…</span></div>
+    </div>
+
+    <div class="live-preview-wrap" id="live-preview-wrap" hidden>
+      <div class="live-preview-waiting" id="live-preview-waiting">En attente du premier aperçu…</div>
+      <img id="live-preview-img" alt="Aperçu en direct de la génération" hidden>
+      <span class="live-preview-badge">LIVE</span>
+    </div>
+
+    <div class="queue-box" id="queue-box" hidden>
+      <div class="queue-head">
+        <span>⏳ File d'attente (<span id="queue-count">0</span>)</span>
+        <button type="button" class="link danger" id="queue-clear-btn">Vider la file</button>
+      </div>
+      <div class="queue-list" id="queue-list"></div>
+    </div>
+
+    <div id="results" class="results"></div>
+
+    <div id="stats-box" class="stats-box" hidden>
+      <div class="stats-head">Statistiques de generation</div>
+      <div class="stats-grid">
+        <div class="stat"><span class="stat-label">Temps total</span><span class="stat-val" id="st-total">-</span></div>
+        <div class="stat"><span class="stat-label">Denoising</span><span class="stat-val" id="st-denoise">-</span></div>
+        <div class="stat"><span class="stat-label">Par etape</span><span class="stat-val" id="st-perstep">-</span></div>
+        <div class="stat"><span class="stat-label">Vitesse</span><span class="stat-val" id="st-its">-</span></div>
+        <div class="stat"><span class="stat-label">Batch</span><span class="stat-val" id="st-batch">-</span></div>
+        <div class="stat"><span class="stat-label">Par image</span><span class="stat-val" id="st-perimg">-</span></div>
+      </div>
+    </div>
+
+    <div class="log-box">
+      <div class="log-head">Journal <button id="log-toggle" class="link">afficher/masquer</button></div>
+      <pre id="log" class="log" hidden></pre>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.RATIOS = {{ ratios | tojson }};
+window.PAGE = "generate";
+</script>
+<script src="{{ url_for('static', filename='quality.js', v=static_v) }}"></script>
+<script src="{{ url_for('static', filename='generate.js', v=static_v) }}"></script>
+{% endblock %}

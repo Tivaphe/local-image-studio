@@ -4,9 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Local Image Studio{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script>
+  // Thème clair/sombre : applique la préférence avant le premier rendu (évite le flash)
+  (function () {
+    try {
+      var t = localStorage.getItem('lis-theme');
+      if (t !== 'light' && t !== 'dark') t = 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  })();
+  </script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=static_v) }}">
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Aller au contenu</a>
   <header class="topbar">
     <div class="brand">
       <span class="logo">◆</span> Local Image Studio
@@ -17,16 +30,24 @@
       <a href="{{ url_for('history') }}" class="{% if request.endpoint=='history' %}active{% endif %}">Historique</a>
       <a href="{{ url_for('stats_page') }}" class="{% if request.endpoint=='stats_page' %}active{% endif %}">Stats</a>
       <a href="{{ url_for('models_page') }}" class="{% if request.endpoint=='models_page' %}active{% endif %}">Modèles</a>
+      <a href="{{ url_for('styles_page') }}" class="{% if request.endpoint=='styles_page' %}active{% endif %}">Styles</a>
       <a href="{{ url_for('settings_page') }}" class="{% if request.endpoint=='settings_page' %}active{% endif %}">Paramètres</a>
     </nav>
+    <button type="button" id="theme-toggle" class="theme-toggle"
+            title="Basculer entre le thème sombre et le thème clair"
+            aria-label="Basculer entre le thème sombre et le thème clair">🌙</button>
     <div id="engine-badge" class="badge badge-warn" title="État du moteur sd-cli">moteur…</div>
   </header>
 
-  <main class="container">
+  <main class="container" id="main-content">
     {% block content %}{% endblock %}
   </main>
 
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script src="{{ url_for('static', filename='app.js', v=static_v) }}"></script>
+  <script src="{{ url_for('static', filename='caption.js', v=static_v) }}"></script>
+  {% include "_postprocess.html" %}
+  {% include "_pid_prompt.html" %}
+  {% include "_caption.html" %}
   {% block scripts %}{% endblock %}
 </body>
 </html>

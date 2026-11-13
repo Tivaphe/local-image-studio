@@ -22,6 +22,17 @@ Interface web simple pour générer des images avec les modèles d'IA les plus r
 
 **Aucune image, aucun prompt ne quitte votre ordinateur.** Tout tourne sur votre GPU local.
 
+## 📸 Aperçu de l'interface
+
+| Générer — thème sombre | Générer — thème clair (☀️/🌙 dans la barre du haut) |
+|---|---|
+| ![Générer, thème sombre](docs/screenshots/generate-dark.jpg) | ![Générer, thème clair](docs/screenshots/generate-light.jpg) |
+| ![Édition, thème sombre](docs/screenshots/edit-dark.jpg) | ![Historique, thème sombre](docs/screenshots/history-dark.jpg) |
+| ![Modèles, thème sombre](docs/screenshots/models-dark.jpg) | ![Paramètres, thème clair](docs/screenshots/settings-light.jpg) |
+
+> 🖼️ Les JPG se génèrent en une commande sur votre machine : `python3 scripts/take-screenshots.py`
+> (voir [`docs/screenshots/README.md`](docs/screenshots/README.md)).
+
 ---
 
 ## 🖥️ Configuration requise
@@ -49,15 +60,22 @@ Interface web simple pour générer des images avec les modèles d'IA les plus r
 5. C'est tout : **Google Chrome s'ouvre automatiquement** sur `http://127.0.0.1:7860`
    (si Chrome n'est pas installé, c'est votre navigateur par défaut qui s'ouvre)
 
+> 🔄 **Mise à jour** : double-cliquez sur **`update.bat`** — il détecte automatiquement votre cas :
+> **clone Git** (avance rapide + stash des modifications locales sur confirmation) ou **archive ZIP**
+> (sans git : télécharge le ZIP de la branche choisie, fait une sauvegarde du code puis remplace
+> les fichiers de l'application — idéal si vous avez téléchargé le ZIP GitHub). Dans les deux cas :
+> choix de la branche (`main` ou autres), vos modèles, images, historique et réglages **jamais
+> touchés**, et **réinstallation des dépendances dans `.venv`** automatiquement.
+
 ### Option B : En ligne de commande
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-python app.py                 # ouvre Chrome automatiquement sur le bon port
-python app.py --no-browser    # ...ou pas de navigateur du tout
-python app.py --port 7861     # ...ou un autre port
+python src/app.py              # ouvre Chrome automatiquement sur le bon port
+python src/app.py --no-browser # ...ou pas de navigateur du tout
+python src/app.py --port 7861  # ...ou un autre port
 ```
 
 ---
@@ -108,7 +126,7 @@ gardez l'onglet **Générer** → *Image de départ* (SD 3.5).
 
 ---
 
-## 🧠 Modèles disponibles (20)
+## 🧠 Modèles disponibles (25)
 
 | Modèle | Vitesse | Licence | Idéal pour |
 |---|---|---|---|
@@ -132,8 +150,24 @@ gardez l'onglet **Générer** → *Image de départ* (SD 3.5).
 | **MOSS-Image SFT** (GGUF) | 50 étapes, CFG 3 | Apache 2.0 ✅ | Génération standard, texte dans l'image |
 | **MOSS-Image Base** (GGUF) | 50 étapes, CFG 3 | Apache 2.0 ✅ | Base non ajustée, pour LoRA entraînés sur Base |
 | **Krea 2 Turbo** (GGUF) | ⚡ 8 étapes, CFG 1 | Krea Community ⚠️ | Rendu photoréaliste rapide |
+| **FLUX.1 Dev** (GGUF) | 24 étapes | FLUX [dev] ⚠️ | Haute finesse (mains, peau, lumière), img2img + LoRA |
+| **FLUX.1 Kontext Dev** (GGUF) | 24 étapes | FLUX [dev] ⚠️ | Édition contextuelle : modifier sans casser l'identité |
+| **Chroma Unlocked** (GGUF) | 26 étapes, CFG 4 | Apache 2.0 ✅ | Prompt négatif + textures organiques (anti « peau plastique ») |
+| **Chroma1-Radiance** (GGUF) | 26 étapes, CFG 4 | Apache 2.0 ✅ | Espace pixel sans VAE : piqué remarquable, prompt négatif |
+| **LongCat-Image** (GGUF) | 28 étapes, CFG 5 | Apache 2.0 ✅ | Photoréalisme + texte exact entre «guillemets» |
 
 > ✅ = usage commercial autorisé · ⚠️ = usage personnel/non-commercial
+>
+> Les 5 derniers modèles **réutilisent les dépendances existantes** : FLUX.1 Dev / Kontext utilisent
+> `vae_flux`, `clip_l` et `t5xxl` ; Chroma utilise `vae_flux` + `t5xxl` ; Chroma1-Radiance n'a besoin
+> que de `t5xxl` ; LongCat-Image réutilise `vae_flux` et l'encodeur **Qwen2.5-VL-7B** (déjà utilisé
+> par Qwen-Image 2512). Si vous avez déjà FLUX.1 schnell ou Qwen-Image, aucun gros téléchargement
+> supplémentaire n'est nécessaire.
+>
+> **Notes dépôts Chroma** : Chroma Unlocked pointe sur le dernier v40 amont, qui ne publie que
+> **Q4_0** (5,4 Go) et **Q8_0** (9,7 Go) ; Chroma1-Radiance pointe sur **v0.3** (Q4_K_S → Q8_0),
+> la v0.4 n'ayant plus que BF16 et Q8_0. Le VAE `vae_flux` (dépôt FLUX gated) bascule
+> automatiquement sur le miroir public Comfy-Org si le téléchargement échoue (401).
 >
 > **Qwen-Image 2.1 Turbo** nécessite `sd-cli` `c150a6b` ou plus récent (8 étapes, CFG 1).
 > **FLUX.3 Image Klein** nécessite `sd-cli` `8cd731e` (15 oct. 2026) ou plus récent ; ses GGUF sont convertis avec ce même moteur (pics VRAM documentés : 6,8 Go en Q3_K à 9,8 Go en Q8_0) et il réutilise le VAE FLUX.2 et l'encodeur **Qwen3-VL-4B** (déjà téléchargés avec FLUX.2 Klein / Iris-3B).
@@ -151,8 +185,146 @@ gardez l'onglet **Générer** → *Image de départ* (SD 3.5).
 - **Édition d'images ?** → onglet **Édition** : **Qwen-Image 2.1 / 2.1 Turbo** (édition sémantique,
   jusqu'à 10 images), **FLUX.2 / FLUX.3 Klein** (édition par position, jusqu'à 10 images) ou **Fibo 2.0 Edit Turbo** (4 étapes)
 - **Img2img classique ?** → **SD 3.5 Medium/Large** (contrôle de la force)
-- **Texte lisible dans l'image ?** → **ERNIE-Image Turbo** ou **Ideogram 4**
+- **Texte lisible dans l'image ?** → **ERNIE-Image Turbo**, **Ideogram 4** ou **LongCat-Image**
+- **Éditer sans casser l'identité ?** → **FLUX.1 Kontext Dev** (changer le texte, la lumière, le décor)
+- **Mains et textures réalistes ?** → **Chroma Unlocked** (vrai prompt négatif) + **ADetailer**
 - **Le plus léger ?** → **SD 3.5 Medium** (~2 Go)
+
+---
+
+## ✨ Qualité, Détails & Agrandissement (1 clic, explications intégrées)
+
+Sur les pages **Générer** et **Édition**, une section repliable « ✨ Qualité, Détails &
+Agrandissement » regroupe toutes les options avancées, chacune avec une **explication en français** :
+
+| Option | Effet | Où ? |
+|---|---|---|
+| **🔍 Agrandissement ×4** | Super-résolution dédiée (1024→4096 px). Choix : **RealESRGAN ×4** (photo), **4× Nomos2 MoSR** (textures naturelles), **4× UltraSharp** (détails & netteté), **4× UltraMix Balanced** (UltraSharp adouci), **4× Remacri** (grain photo naturel), **RealESRGAN Anime 6B** (illustration) | Pendant la génération (case option) **ou** après coup : bouton « 🔍 Agrandir ×4 » sur chaque résultat et dans l'historique |
+| **🏗️ Hires Fix (2 passes)** | 1ʳᵉ passe : composition à taille choisie ; 2ᵉ passe : re-détaillage doux en haute résolution (jusqu'à ×2, ≤ ~2048 px) | Génération pure, modèles compatibles img2img (SD 3.5, FLUX.1 Dev, Chroma) |
+| **🙂 ADetailer** | Détecteur YOLOv8 qui repère **visages/mains** puis les re-détaille automatiquement — aussi en 1 clic après coup sur n'importe quelle image | Pages Générer & Édition (après installation du détecteur dans Modèles) |
+| **🎛️ Post-traitement** | Petit labo photo intégré : **Exposition** (±2 EV, en lumière linéaire), **Contraste**, **Luminosité**, **Chaleur**, **Clarté** (micro-contraste local), **Saturation** et **Vibrance** (saturation intelligente, préserve les carnations) — ajustements par pixels, aperçu en direct, sans envoi réseau | Bouton « 🎛️ Ajuster » sur chaque résultat (Générer & Édition) et dans l'historique — **💾 Enregistrer** dans l'historique ou **💾 Enregistrer → ✂️ Éditer** pour l'utiliser comme image de départ du Studio d'édition |
+| **⚡ Mini-VAE (TAE)** | Décodage final Quasi instantané pour les modèles Qwen-Image (~2 Mo) | Section Qualité → ⚡ Performance |
+| **⚡ SageAttention CUDA** | Attention plus rapide et moins de VRAM sur GPU NVIDIA (SM80+, pilotes récents) — aucune installation Python | Section Qualité → ⚡ Performance |
+| **📡 Aperçu en direct** | Fenêtre « LIVE » : voyez l'image se débruiter pas à pas (**activé par défaut, mode « Auto »** : mini-VAE si installé, sinon projection des latents) | Section Qualité → ⚡ Performance |
+| **🎭 Visage fidèle (PuLID)** | Conserve le visage d'une photo (FLUX.1 Schnell/Dev/FHDR uniquement) | Section Qualité → 🎭 Visage fidèle — voir `docs/PULID_FR.md` |
+| **⬆️ PiD ×4** | Super-résolution **générative** ×4 (1024→4096 en 4 étapes), conditionnée par un prompt **confirmé par vous** (modale avant lancement — le prompt de l'image est pré-rempli mais modifiable ; les instructions d'édition sont déconseillées) — reconstruit la matière là où ESRGAN lisse | Bouton « ⬆️ PiD ×4 » sur chaque résultat / dans l'historique (voir `docs/PID_FR.md`, licence NSCLv1) |
+| **🔀 Varier (subtil / fort)** | Variation façon Midjourney : re-génère l'image en img2img avec une **nouvelle graine** — subtil = force 0,35 (léger), fort = force 0,75 (franc) ; le prompt et les réglages sont repris de l'image | Boutons « 🔀 Varier » sur chaque résultat / dans l'historique (modèles img2img uniquement : SD 3.5, FLUX.1 Dev, Chroma) |
+
+Sur la page **Générer**, une section « ✨ Style Midjourney » regroupe des **approximations
+locales honnêtes** des contrôles esthétiques de Midjourney — tous les réglages restent
+modifiables ensuite :
+
+| Option | Approximation | Effet réel |
+|---|---|---|
+| **🎭 Pré-prompts Styles & rendus** | 24 styles complets (🎬 Cinéma anamorphique, 📷 Portra 400, 🖼️ Impressionnisme, 🎨 Aquarelle, ✏️ Encre & fusain, 🌸 Ukiyo-e, 🧸 3D Blender, 👾 Pixel art, 🔺 Low-poly, 🎞️ Film noir, ⬜ Flat/vectoriel, 🎭 Mucha, 🌀 Dalí, 📖 Livre pour enfants + **10 styles digitaux** : 🖌️ Speedpaint, 💡 Concept art / Matte painting, 🖼️ Photobash, 🌆 Synthwave, 🎲 Isométrique game art, 🌀 Cel-shading / anime, 💎 Octane 3D photoréaliste, 🌸 Vaporwave, 🟣 Glitch / datamosh, 🌊 Art génératif) | Menu « 🎭 Styles & rendus » du sélecteur de pré-prompts (Générer) et « 🎭 Styles — garder le sujet » (Édition : 16 styles avec {img1}, jeton de référence du modèle) |
+| **Styles rapides** | 12 chips (🎬 Cinéma, 📷 Photo, 🖼️ Huile, 🎨 Aquarelle, ⛩️ Anime, 👾 Pixel art, 🔺 Low-poly, 🌆 Cyberpunk, ⚙️ Steampunk, ⬜ Minimaliste, 💡 Néon, 🕶️ Noir) | Chaque clic ajoute/retire un suffixe **visible** dans le prompt |
+| **Stylisation (0–1000)** | ≈ « stylize », 100 = présélection inchangée | Ajuste **Étapes** et **CFG** par-dessus la présélection active |
+| **Weirdness (0–3000)** | ≈ « weird », 0 = réglages Qualité inchangés | 0 → rien ; 1–999 → Euler A + Karras ; 1000–1999 → DPM++ 2M + Beta ; 2000–3000 → LCM + SGM Uniform |
+| **Chaos (0–100)** | ≈ « chaos », 0 = graines consécutives | Au-dessus de 0 : graine fixe ignorée, **graine aléatoire indépendante par image** dans le lot |
+| **🎛️ Sampler / Scheduler** | Choix de l'échantillonneur (euler, heun, dpm++2m, euler_a, lcm) et du planificateur (karras, beta, exponential…) | Pages Générer & Édition |
+| **⚙️ VAE Tiling** | Décodage par tuiles — économise la VRAM sur grandes images | Réglages experts |
+| **⚙️ SLG (Skip Layer Guidance)** | Améliore le respect du prompt sur les modèles DiT (valeur conseillée : 3) | Réglages experts |
+
+Les modèles d'agrandissement (17–64 Mo) et les détecteurs ADetailer (6–22 Mo) se téléchargent
+en **1 clic** depuis la page **Modèles** (sections dédiées en bas de page).
+
+> 💡 **Aperçu en direct — comment ça marche** : le binaire sd-cli écrit une image d'aperçu toutes les
+> N étapes (`--preview-interval`) dans `.preview_cache/`, et l'interface l'affiche dans la fenêtre
+> « LIVE » au-dessus des résultats (pages Générer et Édition). Trois modes : **Auto** (défaut) =
+> mini-VAE si un TAE est installé pour ce modèle, sinon **proj** (projection des latents, instantanée,
+> sans fichier) ; la projection est connue pour SD1.x/XL, SD 3.5, FLUX (Schnell/Dev/FHDR/Chroma/Kontext),
+> FLUX.2 et Qwen-Image-2.1. Sur **Qwen-Image 2512**, seul le mini-VAE (Modèles → ⚡ VAE rapide) produit
+> un aperçu. L'ancienne option « vae » n'a jamais décodé avec le vrai VAE dans ce binaire (le runner
+> d'aperçu est toujours le mini-VAE) — elle est traitée comme « tae ». Avec le mini-VAE, le décodage
+> **final** reste fait par le vrai VAE (`--taesd-preview-only`). Aucune image d'aperçu avec un modèle
+> sans projection connue ni TAE : normal, l'image finale est inchangée.
+
+> ⚠️ **Licences des nouveaux agrandisseurs** — **4× UltraSharp**, **4× UltraMix Balanced** et
+> **4× Remacri** sont publiés en **CC-BY-NC-SA-4.0** (Kim2091 pour les deux premiers ; Remacri par
+> FoolhardyVEVO, fourni ici en GGUF converti par stable-diffusion.cpp lui-même, licence inchangée) :
+> **usage privé / non commercial**. Pour un usage commercial, préférez **RealESRGAN ×4**
+> (BSD-3-Clause) ou **4× Nomos2 MoSR** (CC-BY-4.0). Ces trois modèles sont des ajouts récents :
+> **non testés sur GPU réel** — signalez tout problème via une issue.
+
+---
+
+## 🩹 Restauration & Réparation (images existantes)
+
+Deux outils agissent directement sur une image déjà générée (boutons sur chaque résultat et dans l'historique) :
+
+| Outil | Principe | Note |
+|---|---|---|
+| **🩹 Restauration ×2 (SeedVR2)** | Reconstruit la matière (peau, tissus, texte) et double la résolution par diffusion | ~6,8 Go à installer, ~10 Go de VRAM, lent mais bluffant sur vieilles photos |
+| **🙂 Réparation visages & mains (ADetailer)** | Le détecteur repère visages/mains et le modèle re-détaille ces zones uniquement | Quelques Mo à installer, modifie uniquement les zones détectées |
+| **🔍 Agrandissement ×4 (ESRGAN)** | Super-résolution classique | 17–64 Mo, rapide |
+| **⬆️ PiD ×4 (NVIDIA Pixel Diffusion)** | Ré-encode l'image avec le VAE du backbone puis la décode en **4096×4096 en 4 étapes**, guidée par un prompt que vous confirmez (modale : prompt de l'image pré-rempli, modifiable, attention aux instructions d'édition) — backbones FLUX.1 / FLUX.2 / Qwen-Image | ~1,6 Go par backbone + socle ~5,4 Go (Gemma 2 2B), **licence NSCLv1 non-commerciale** — voir `docs/PID_FR.md` |
+
+> 💡 **Suivi en direct** : depuis la page **Historique**, chaque opération lancée sur une image existante
+> (« 🙂 Réparer », « 🩹 Restaurer ×2 », « 🔍 Agrandir ×4 », « ⬆️ PiD ×4 ») affiche un **bandeau de
+> progression en temps réel** : opération en cours ou **en file d'attente** (position), pourcentage,
+> étape x/y, chronomètre, dernière ligne du moteur sd-cli, et **le message d'erreur complet** en cas
+> d'échec — plus de bouton bloqué sur « en cours » sans retour.
+
+---
+
+## 🔎 Image → Prompt (légendeur local, VLM)
+
+Vous avez trouvé **une image** — sur internet, dans vos fichiers — et vous voulez la **reproduire** ?
+Un **modèle de vision (VLM) local** lit l'image et rédige **le prompt** qui permettrait de la
+recréer, sans envoyer l'image nulle part (hormis le téléchargement initial des poids).
+
+**Où trouver le bouton ?**
+
+- Pages **Générer** et **Édition** → bouton **🔎 Image → Prompt** : déposez n'importe quelle
+  image (PNG, JPEG, WebP, GIF, 12 Mo max), choisissez le légendeur, cliquez
+  **« 🧠 Générer le prompt »** — le texte apparaît, **éditable**, puis **« Utiliser ce prompt »**
+  l'insère dans le champ de prompt (couleur, cadrage, style : relisez toujours avant de lancer) ;
+- modale **⬆️ PiD ×4** → bouton **🧠 Décrire l'image** : le VLM remplit le prompt PiD avec la
+  description de l'image source (modifiable avant le lancement — jamais d'automatisation).
+
+**Ce qu'il faut installer d'abord** (page **Modèles** → « 📦 llama.cpp » et « 🧠 Légendeurs
+d'image ») :
+
+1. **llama.cpp, version officielle uniquement** (ggml-org) : sous **Windows**, un bouton
+   « Installer llama.cpp » télécharge la dernière release officielle depuis GitHub
+   (build CUDA autoportant `cudart` — fonctionne sans installation CUDA —, sinon build CPU) ;
+   sous **Linux/macOS**, compilez llama.cpp vous-même — l'app détecte automatiquement votre
+   build (PATH, `~/llama.cpp/build/bin/Release`, `C:\Users\<vous>\llama.cpp\build\bin\Release`
+   — le nom d'utilisateur n'a pas d'importance). Si votre build ne produit que **`llama-server`**
+   (sans `llama-mtmd-cli`), pas de problème : l'app lance un petit serveur local éphémère pour la
+   durée de la légende. Une version déjà présente est réutilisée si elle est assez récente ;
+2. **un légendeur** (page Modèles → « 🧠 Légendeurs d'image », téléchargement en 1 clic) :
+
+| Légendeur | Taille | VRAM | Licence | Note |
+|---|---|---|---|---|
+| **Qwen3.5 4B** ⭐ | ~3,4 Go | ~5 Go | Apache-2.0 | **recommandé** — VLM 2026 officiel, légendes denses |
+| Bonsai-2 2B / 4B / 9B | ~0,9 / 1,6 / 3,2 Go | ~2 / 3 / 4 Go | Apache-2.0 | dérivés Qwen3.5 ternaires 2 bits — exigent llama.cpp ≥ b11556 (détecté et signalé) |
+| Qwen3.5 9B | ~0,9 Go (+ mmproj) | ~8 Go | Apache-2.0 | natif multimodal |
+| **Qwen3-VL 4B / 8B** | **0 Go** | ~5 / ~8 Go | Apache-2.0 | **réutilise** les poids déjà installés pour l'édition (Fibo 2 / FLUX.3 / Qwen-Image 2.1…) |
+| Gemma 4 E2B / E4B | ~4,1 / ~6,0 Go | ~6 / ~8 Go | Apache-2.0 | multimodaux Google, quantifiés unsloth |
+| LFM3-VL 2B | ~1,3 Go | ~3 Go | ⚠️ **lfm1.0 (custom)** | compact — usage soumis à la licence LFM |
+
+Le **prompt envoyé au VLM est éditable** dans **Paramètres → « 🧠 Légende d'image »**
+(bouton « ↺ Restaurer le prompt par défaut » inclus) ; le modèle par défaut se règle aussi
+là-bas. Le résultat est **toujours affiché et modifiable** avant usage — l'app n'injecte rien
+silencieusement. Bonsai-2 en version trop ancienne de llama.cpp produit des descriptions
+fausses *sans erreur* : la page Modèles vérifie la version installée et propose une mise à jour.
+
+---
+
+## 📥 Métadonnées intégrées dans chaque PNG
+
+Chaque image générée porte désormais un bloc de métadonnées (prompt, seed, modèle…).
+Concrètement vous pouvez :
+
+- **Glisser-déposer un PNG** généré n'importe où sur le panneau **Générer** ou **Édition** :
+  tous les réglages (prompt, négatif, seed, modèle, taille, sampler…) sont restaurés instantanément ;
+- utiliser **🗂️ Lot de prompts** (une image par ligne, 16 max) pour générer série après série ;
+- utiliser **⚔️ Duel de seeds** (même prompt, deux seeds consécutifs) et **🥊 Comparer deux modèles**
+  pour trancher entre variantes — les deux images atterrissent dans l'historique ;
+- profiter de l'**aperçu en direct** pendant l'échantillonnage (section ⚡ Performance) ;
+- les anciens PNG sans métadonnées sont tagués à la volée lors de la prochaine génération
+  (sans jamais réécrire vos fichiers existants).
 
 ---
 
@@ -173,13 +345,22 @@ Certains modèles nécessitent un **token Hugging Face gratuit** :
 
 | Fonction | Description |
 |---|---|
-| 🖼️ **Génération** | 1 à 4 images par lot, 5 formats + proportions originales en édition |
+| 🖼️ **Génération** | 1 à 4 images par lot, 9 formats (1:1, 3:4, 4:3, 9:16, 16:9, 2:3, 4:5, 21:9, 9:21) + proportions originales en édition |
+| ✨ **Options façon Midjourney** | Styles 1-clic (suffixes visibles dans le prompt), Stylisation (0–1000, règle étapes/CFG), Weirdness (0–3000, règle échantillonneur/planificateur) et Chaos (0–100, graines indépendantes dans le lot) — approximations locales expliquées dans l'UI, tous les contrôles restent modifiables | Onglet Générer, section « ✨ Style Midjourney » |
 | ✂️ **Studio d'édition** | Onglet **Édition** : 1 canvas + jusqu'à **10 images** de référence, réordonnancement, comparaison avant/après |
+| 🗂️ **Lot de prompts** | Une ligne par prompt (16 max), générés en file d'attente |
+| ⚔️ **Duel / Comparaison** | Même prompt en 2 seeds consécutifs, ou sur 2 modèles |
+| 📡 **Aperçu en direct** | L'image se construit à l'écran pendant l'échantillonnage |
+| 🌗 **Thème clair / sombre** | Bascule ☀️/🌙 dans la barre du haut — préféré de chacun, mémorisé dans le navigateur |
+| 📥 **Réglages dans le PNG** | Glissez-déposez n'importe quel PNG généré : prompt, seed, modèle… restaurés |
+| ⬆️ **PiD ×4** | Super-résolution générative (FLUX.1 / FLUX.2 / Qwen-Image), 4 étapes, sortie 4096×4096 |
 | 🌐 **Traduction** | Traduit votre prompt (FR, ES…) vers l'anglais automatiquement |
 | ✨ **Enrichissement** | Un LLM enrichit votre prompt (style, lumière, composition…) |
 | 📊 **Statistiques** | Temps de génération par modèle, modèle le plus utilisé, etc. |
 | 📚 **Historique** | Toutes vos images avec leur prompt, réutilisables en 1 clic |
 | 💾 **Auto-save** | Images sauvées dans `output/` |
+| 🎛️ **Post-traitement** | 7 réglages photo (exposition, contraste, luminosité, chaleur, clarté, saturation, vibrance) appliqués en pixels, aperçu direct, enregistrement dans l'historique avec métadonnées PNG | Bouton « 🎛️ Ajuster » (Générer, Édition, Historique) |
+| 🎨 **Gestion des styles** | Page **Styles** (barre du haut) : créez **vos propres styles** — prompt libre, « Génération + Édition » ou au choix, ciblés sur **tous les modèles** ou une sélection (25). Ils apparaissent dans le groupe « ⭐ Mes styles » des sélecteurs Générer & Édition (jeton {img1} traduit automatiquement). Styles intégrés affichés en lecture seule, copie 1-clic | Barre du haut → 🎭 Styles |
 | 🚫 **Prompt négatif** | Pré-rempli automatiquement (modifiable) |
 | 📄 **Licences** | Indiquées pour chaque modèle |
 | 🔗 **Liens HF** | Accès direct à la page de chaque modèle |
@@ -188,27 +369,46 @@ Certains modèles nécessitent un **token Hugging Face gratuit** :
 
 ## 📁 Structure du projet
 
+**Après décompression du ZIP, vous ne touchez qu'à `start.bat`** (double-clic) — tout le reste
+est rangé dans des sous-dossiers :
+
 ```
 local-image-studio/
-├── start.bat              ← Double-clic pour lancer
-├── app.py                 ← Serveur web (Flask) + options de démarrage
-├── browser_launch.py      ← Ouvrir Chrome automatiquement au démarrage
-├── engine.py              ← Moteur sd-cli + téléchargements
-├── registry.py            ← Définition des 15 modèles
-├── prompt_enhancer.py     ← Enrichissement & traduction (LLM)
-├── gpu_info.py            ← Détection VRAM
-├── db.py                  ← Historique & statistiques
-├── config.py              ← Configuration des chemins
+├── start.bat              ← ⭐ Double-cliquez ici pour lancer (Windows)
+├── update.bat             ← 🔄 Mise à jour (clone Git ou ZIP) : branche au choix + rafraîchit .venv
+├── README.md              ← Ce document (FR)
+├── README_EN.md           ← English documentation
 ├── requirements.txt       ← Dépendances Python
-├── templates/             ← Pages HTML (generate.html, edit.html, …)
-├── static/                ← CSS + JavaScript (generate.js, edit.js, …)
+├── LICENSE
+│
+├── src/                   ← Code de l'application (rien à toucher ici)
+│   ├── app.py             ← Serveur web (Flask) + options de démarrage
+│   ├── browser_launch.py  ← Ouvrir Chrome automatiquement au démarrage
+│   ├── engine.py          ← Moteur sd-cli + téléchargements + file d'attente
+│   ├── registry.py        ← Modèles + upscalers ×4 + ADetailer + légendeurs VLM (image → prompt)
+│   ├── prompt_enhancer.py ← Enrichissement & traduction (LLM)
+│   ├── metadata.py        ← Métadonnées PNG (lecture / injection des réglages)
+│   ├── gpu_info.py        ← Détection VRAM
+│   ├── db.py              ← Historique, statistiques & styles personnalisés (page /styles)
+│   ├── config.py          ← Configuration des chemins
+│   ├── templates/         ← Pages HTML (generate.html, edit.html, …)
+│   └── static/            ← CSS + JavaScript (generate.js, edit.js, quality.js, …)
+│
 ├── docs/                  ← Documentation
 │   ├── ADD_MODEL_FR.md    ← Comment ajouter un modèle (FR)
-│   └── ADD_MODEL_EN.md    ← How to add a model (EN)
+│   ├── ADD_MODEL_EN.md    ← How to add a model (EN)
+│   ├── PULID_FR.md        ← PuLID : installation & empreintes de portrait (FR)
+│   └── PID_FR.md          ← PiD : super-résolution générative ×4 (FR)
+├── tests/                 ← Tests unitaires (python -m unittest discover -s tests)
 │
-├── bin/                   ← sd-cli.exe (téléchargé auto)
-├── models/                ← GGUF/safetensors + VAE + encodeurs (téléchargés auto)
-└── output/                ← Vos images générées
+└── (créés automatiquement au premier lancement)
+    ├── .venv/             ← Environnement Python isolé (créé par start.bat)
+    ├── bin/               ← sd-cli.exe (téléchargé auto)
+    ├── models/            ← GGUF/safetensors + VAE + encodeurs + upscalers (téléchargés auto)
+    ├── source_images/     ← Vos images de départ (img2img / édition)
+    ├── output/            ← Vos images générées
+    ├── history.db         ← Historique (base SQLite)
+    └── settings.json      ← Vos réglages
 ```
 
 ---
@@ -221,11 +421,26 @@ formats acceptés par le moteur, comme les safetensors d'Iris-3B.
 
 📖 **Voir le guide complet : [docs/ADD_MODEL_FR.md](./docs/ADD_MODEL_FR.md)**
 
-En résumé : éditez `registry.py` → ajoutez une entrée dans le dictionnaire `MODELS` → redémarrez.
+En résumé : éditez `src/registry.py` → ajoutez une entrée dans le dictionnaire `MODELS` → redémarrez.
 
 ---
 
 ## 🛠️ Dépannage
+
+> 💡 **Métadonnées PNG indisponibles** — les fonctions « Glisser-déposer un PNG » et
+> « Réglages restaurés » exigent **Pillow** (`pip install -r requirements.txt`, normalement
+> déjà fait par `start.bat`). Sans Pillow, tout le reste fonctionne ; seules ces deux
+> fonctionnalités sont désactivées.
+
+> 💡 **SageAttention sans effet** — l'option `--sage-attn` demande un GPU NVIDIA RTX 30/40/50
+> (ou Ampere SM80+) avec pilotes ≥ 555 (CUDA 12.8+). Sur une autre carte, sd-cli l'ignore
+> proprement sans planter.
+
+> 💡 **Aperçu en direct « tae » grisé** — la méthode d'aperçu tae requiert le mini-VAE
+> correspondant (onglet Modèles → ⚡ VAE rapide, ~2 Mo, modèles Qwen-Image uniquement).
+> Utilisez « proj » pour un aperçu sans aucun prérequis.
+
+
 
 | Problème | Solution |
 |---|---|
@@ -237,9 +452,9 @@ En résumé : éditez `registry.py` → ajoutez une entrée dans le dictionnaire
 | **Enrichissement indisponible** | Installez les [C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) Microsoft, puis relancez `start.bat` |
 | **VRAM insuffisante** | Descendez en Q4_K_M, réduisez la résolution |
 | **Python introuvable** | Réinstallez Python 3.11 en cochant "Add to PATH" |
-| **Le navigateur ne s'ouvre pas** | Chrome est-il installé ? Sinon c'est le navigateur par défaut qui s'ouvre. Vérifiez aussi la case **Paramètres → Ouvrir Chrome au démarrage**, ou lancez `python app.py --no-browser` pour désactiver complètement |
+| **Le navigateur ne s'ouvre pas** | Chrome est-il installé ? Sinon c'est le navigateur par défaut qui s'ouvre. Vérifiez aussi la case **Paramètres → Ouvrir Chrome au démarrage**, ou lancez `python src/app.py --no-browser` pour désactiver complètement |
 | **L'onglet s'ouvre avant que le serveur soit prêt** | Rien à faire : la page se charge dès que le port écoute (l'ouverture attend le serveur) |
-| **Port 7860 déjà utilisé** | Lancez `python app.py --port 7861` (l'onglet s'ouvrira sur le bon port) |
+| **Port 7860 déjà utilisé** | Lancez `python src/app.py --port 7861` (l'onglet s'ouvrira sur le bon port) |
 
 ---
 

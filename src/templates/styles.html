@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% block title %}Styles · Local Image Studio{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <div class="panel-head">
+    <h2>🎭 Gestion des styles</h2>
+    <a class="btn ghost small" href="{{ url_for('generate') }}" title="Les styles de la page Génération apparaissent dans le sélecteur de pré-prompts">✨ Voir côté Génération →</a>
+  </div>
+  <p class="muted">
+    Créez vos propres styles (peinture digitale, synthwave, ukiyo-e…) et choisissez à quels modèles ils s'appliquent :
+    <b>tous</b>, ou seulement certains. Vos styles apparaissent automatiquement dans les sélecteurs de pré-prompts
+    des pages <a href="{{ url_for('generate') }}">Générer</a> (« Tous ») et <a href="{{ url_for('edit') }}">Édition</a>
+    (« Tous » — avec {img1} comme jeton d'image), dans le groupe « ⭐ Mes styles ».
+  </p>
+
+  <!-- ============ Formulaire (création / édition) ============ -->
+  <div class="panel-head" style="margin-top:8px">
+    <h3 style="margin:0">⭐ Mes styles personnalisés</h3>
+    <button type="button" id="new-style-btn" class="btn primary small">＋ Nouveau style</button>
+  </div>
+
+  <form id="style-form" class="style-form" hidden>
+    <input type="hidden" id="style-id">
+    <div class="row">
+      <label class="field grow">
+        <span>Nom du style</span>
+        <input type="text" id="style-name" maxlength="80" required
+               placeholder="ex : 🖌️ Néo-rétro cinéma 70s">
+      </label>
+      <label class="field" style="max-width:230px">
+        <span>S'applique à</span>
+        <select id="style-applies">
+          <option value="both">Générer + Édition</option>
+          <option value="gen">Génération uniquement</option>
+          <option value="edit">Édition uniquement</option>
+        </select>
+      </label>
+    </div>
+    <label class="field">
+      <span>Prompt du style</span>
+      <textarea id="style-prompt" rows="3" required
+                placeholder="ex : 70s neo-retro film still, warm kodachrome tones, subtle halation, nostalgic grain, anamorphic lens flare"></textarea>
+      <small>Pour l'édition : écrivez <code>{img1}</code> pour l'image 1 (et <code>{img2}</code> pour une référence). Ex : « Keep the subject in {img1} unchanged, redraw the image as … » — le jeton est traduit automatiquement vers la syntaxe de chaque modèle.</small>
+    </label>
+    <fieldset class="field style-target-field">
+      <span>Modèles concernés</span>
+      <label class="checkbox-field radio-inline"><input type="radio" name="style-target" value="all" checked> Tous les modèles</label>
+      <label class="checkbox-field radio-inline"><input type="radio" name="style-target" value="specific"> Seulement ces modèles :</label>
+      <div id="style-models" class="style-models" hidden>
+        {% for mid, m in models.items() %}
+        <label class="style-model-item"><input type="checkbox" value="{{ mid }}"> <span>{{ m.name }}</span></label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    <div class="actions">
+      <button type="submit" class="btn primary">💾 Enregistrer</button>
+      <button type="button" class="btn ghost" id="cancel-edit">Annuler</button>
+    </div>
+  </form>
+
+  <div id="user-styles-list" class="style-cards"></div>
+  <p id="user-styles-empty" class="muted" hidden>
+    Aucun style personnalisé pour l'instant. Cliquez « ＋ Nouveau style » — ou copiez un style intégré ci-dessous et collez-le dans le formulaire.
+  </p>
+
+  <!-- ============ Styles intégrés ============ -->
+  <div class="panel-head" style="margin-top:26px">
+    <h3 style="margin:0">🎨 Styles intégrés — Génération (<span id="builtin-gen-count">…</span>)</h3>
+  </div>
+  <div id="builtin-gen" class="style-builtin-grid"></div>
+
+  <div class="panel-head" style="margin-top:22px">
+    <h3 style="margin:0">🎨 Styles intégrés — Édition (<span id="builtin-edit-count">…</span>)</h3>
+  </div>
+  <div id="builtin-edit" class="style-builtin-grid"></div>
+</section>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = s => String(s)
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;");
+const toast = msg => { if (window.showToast) window.showToast(msg); };
+
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; }
+  catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+    document.body.appendChild(ta); ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+    ta.remove(); return ok;
+  }
+}
+
+// ---------- état ----------
+let builtinGen = [], builtinEdit = [], userStyles = [];
+let editingId = null;
+
+// ---------- rendu ----------
+function appliesBadge(a) {
+  return a === 'gen' ? '<span class="style-badge gen">Génération</span>'
+       : a === 'edit' ? '<span class="style-badge edit">Édition</span>'
+       : '<span class="style-badge both">Génération + Édition</span>';
+}
+function modelsBadge(models, modelsMap) {
+  if (models === 'all' || !Array.isArray(models) || models.length === 0) return '<span class="style-badge all">Tous les modèles</span>';
+  const names = models.map(id => (modelsMap && modelsMap[id]) || id);
+  return `<span class="style-badge some" title="${esc(names.join(', '))}">${names.length} modèle${names.length > 1 ? 's' : ''}</span>`;
+}
+
+function styleCard(st, { builtin = false, modelsMap = {} } = {}) {
+  const el = document.createElement('div');
+  el.className = 'style-card';
+  const scope = builtin ? (st.category === 'style' ? '' : '') : '';
+  el.innerHTML = `
+    <div class="style-card-head">
+      <strong>${esc(st.label || st.name)}</strong>
+      ${builtin ? '' : appliesBadge(st.applies_to)}
+    </div>
+    <p class="style-card-prompt" title="${esc(st.prompt)}">${esc(st.prompt)}</p>
+    <div class="style-card-foot">
+      ${builtin ? '' : modelsBadge(st.models, modelsMap)}
+      <button type="button" class="link style-copy">📋 Copier</button>
+      ${builtin ? '' : '<button type="button" class="link style-edit">✏️ Modifier</button><button type="button" class="link danger style-del">🗑 Supprimer</button>'}
+    </div>`;
+  el.querySelector('.style-copy').addEventListener('click', async () => {
+    const ok = await copyText(st.prompt);
+    toast(ok ? '📋 Prompt copié ✓' : 'Copie impossible');
+  });
+  if (!builtin) {
+    el.querySelector('.style-edit').addEventListener('click', () => startEdit(st));
+    const delBtn = el.querySelector('.style-del');
+    let confirming = false, timer = null;
+    delBtn.addEventListener('click', async () => {
+      if (!confirming) {
+        confirming = true;
+        delBtn.textContent = '⚠️ Confirmer ?';
+        timer = setTimeout(() => { confirming = false; delBtn.textContent = '🗑 Supprimer'; }, 3000);
+        return;
+      }
+      clearTimeout(timer);
+      delBtn.disabled = true;
+      const r = await fetch('/api/styles/delete', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: st.id }),
+      });
+      const j = await r.json();
+      if (j.ok) { toast('🗑 Style supprimé'); await reload(); }
+      else { delBtn.disabled = false; delBtn.textContent = '🗑 Supprimer'; alert(j.error || 'Suppression impossible'); }
+    });
+  }
+  return el;
+}
+
+function renderAll(modelsMap) {
+  // styles intégrés
+  $('#builtin-gen-count').textContent = builtinGen.length;
+  $('#builtin-edit-count').textContent = builtinEdit.length;
+  const genBox = $('#builtin-gen'); genBox.innerHTML = '';
+  builtinGen.forEach(st => genBox.appendChild(styleCard(st, { builtin: true })));
+  const editBox = $('#builtin-edit'); editBox.innerHTML = '';
+  builtinEdit.forEach(st => editBox.appendChild(styleCard(st, { builtin: true })));
+  // styles personnalisés
+  const list = $('#user-styles-list'); list.innerHTML = '';
+  userStyles.forEach(st => list.appendChild(styleCard(st, { builtin: false, modelsMap })));
+  $('#user-styles-empty').hidden = userStyles.length > 0;
+}
+
+async function reload() {
+  const r = await fetch('/api/styles');
+  const j = await r.json();
+  if (!j.ok) { toast("Erreur de chargement des styles"); return; }
+  builtinGen = j.builtin_gen || [];
+  builtinEdit = j.builtin_edit || [];
+  userStyles = j.styles || [];
+  renderAll(j.models || {});
+}
+
+// ---------- formulaire ----------
+const form = $('#style-form');
+const toast_err = msg => { if (window.showToast) window.showToast(msg); else alert(msg); };
+
+function setTarget(models) {
+  const specific = Array.isArray(models) && models.length > 0;
+  $('input[name="style-target"][value="all"]').checked = !specific;
+  $('input[name="style-target"][value="specific"]').checked = specific;
+  $('#style-models').hidden = !specific;
+  $$('#style-models input[type=checkbox]').forEach(cb => { cb.checked = specific && models.includes(cb.value); });
+}
+
+function startEdit(st) {
+  editingId = st.id;
+  $('#style-id').value = st.id;
+  $('#style-name').value = st.name;
+  $('#style-prompt').value = st.prompt;
+  $('#style-applies').value = st.applies_to;
+  setTarget(st.models);
+  form.hidden = false;
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('#style-name').focus();
+}
+
+function resetForm() {
+  editingId = null;
+  form.reset();
+  $('#style-id').value = '';
+  setTarget('all');
+  form.hidden = true;
+}
+
+$('#new-style-btn').addEventListener('click', () => {
+  resetForm();
+  form.hidden = false;
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('#style-name').focus();
+});
+$('#cancel-edit').addEventListener('click', resetForm);
+
+$$('input[name="style-target"]').forEach(r => r.addEventListener('change', () => {
+  const specific = $('input[name="style-target"][value="specific"]').checked;
+  $('#style-models').hidden = !specific;
+}));
+
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = $('#style-name').value.trim();
+  const prompt = $('#style-prompt').value.trim();
+  if (!name || !prompt) { toast_err('Le nom et le prompt sont obligatoires.'); return; }
+  const specific = $('input[name="style-target"][value="specific"]').checked;
+  const models = specific
+    ? $$('#style-models input[type=checkbox]:checked').map(cb => cb.value)
+    : 'all';
+  if (specific && models.length === 0) { toast_err('Sélectionnez au moins un modèle, ou choisissez « Tous les modèles ».'); return; }
+  const applies_to = $('#style-applies').value;
+  const payload = { name, prompt, applies_to, models: models.length ? models : 'all' };
+  const url = editingId ? '/api/styles/update' : '/api/styles';
+  if (editingId) payload.id = editingId;
+  const r = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const j = await r.json();
+  if (j.ok) {
+    toast(editingId ? '💾 Style enregistré ✓' : '⭐ Style créé ✓ — disponible dans Génération et Édition');
+    resetForm();
+    await reload();
+  } else {
+    toast_err(j.error || 'Erreur lors de l’enregistrement.');
+  }
+});
+
+reload();
+</script>
+{% endblock %}
