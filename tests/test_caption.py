@@ -46,6 +46,33 @@ class CaptionParsingTests(unittest.TestCase):
         self.assertIn("-ngl 99", joined)
 
 
+class BonsaiVersionGuardTests(unittest.TestCase):
+    """Bonsai-2 sous un llama.cpp trop ancien → refus explicite (jamais de légende fausse)."""
+
+    def _run(self, captioner, version_tuple):
+        with patch.object(registry, "CAPTIONER_MODELS", registry.CAPTIONER_MODELS), \
+             patch.object(engine, "captioner_files", return_value=("/m.gguf", "/mm.gguf")), \
+             patch.object(engine, "llama_available", return_value=("app", {"path": "/bin/llama-mtmd-cli",
+                                                                        "version": "b11000"})), \
+             patch.object(engine, "_llama_bin_version", return_value=version_tuple), \
+             patch.object(engine, "build_caption_command", return_value=["/bin/true"]), \
+             patch.object(engine, "parse_caption_output", return_value="dense caption here."):
+            return engine.run_caption("/img.png", captioner, "prompt")
+
+    def test_bonsai2_refused_on_old_llama(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            self._run("bonsai2_2b", ("b", 11000, "b11000"))
+        self.assertIn("Bonsai-2", str(ctx.exception))
+
+    def test_bonsai2_allowed_on_new_llama(self):
+        caption, cid, backend = self._run("bonsai2_2b", ("b", 12366, "b12366"))
+        self.assertEqual(caption, "dense caption here.")
+
+    def test_other_captioner_not_blocked_by_old_llama(self):
+        caption, _, _ = self._run("qwen35_4b", ("b", 11000, "b11000"))
+        self.assertEqual(caption, "dense caption here.")
+
+
 class LlamaAssetPickTests(unittest.TestCase):
     RELEASE_ASSETS = [
         {"name": "nightly-tag.txt"},

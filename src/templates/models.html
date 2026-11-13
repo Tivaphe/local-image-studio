@@ -290,7 +290,7 @@
       {% for c in captioners %}
       <div class="model-card" data-id="cap-{{ c.id }}">
         <div class="mc-head">
-          <h3>{{ c.name }}{% if c.recommended %} <span class="tag tag-ok">recommandé</span>{% endif %}</h3>
+          <h3>{{ c.name }}{% if c.recommended %} <span class="tag tag-ok">recommandé</span>{% endif %}{% if c.license_warn %} <span class="tag tag-warn" title="Licence LiquidAI LFM 1.0 — usage soumis à ses conditions (voir le lien Hugging Face)">⚠️ licence custom lfm1.0</span>{% endif %}</h3>
           {% if c.ready %}<span class="tag tag-ok">installé ✓</span>
           {% elif c.missing|length < c.dep_count %}<span class="tag tag-warn">partiel</span>
           {% else %}<span class="tag">à télécharger</span>{% endif %}

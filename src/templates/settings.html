@@ -107,7 +107,7 @@ const CAPTION_PROMPT = document.getElementById('image_caption_prompt');
       if (!c.ready) continue;
       const o = document.createElement('option');
       o.value = c.id;
-      o.textContent = c.name + (c.recommended ? ' ⭐' : '');
+      o.textContent = c.name + (c.recommended ? ' ⭐' : '') + (c.license_warn ? ' ⚠️ licence custom' : '');
       CAPTION_SELECT.appendChild(o);
     }
     CAPTION_SELECT.value = saved;

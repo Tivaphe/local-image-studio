@@ -2374,6 +2374,15 @@ def run_caption(image_path, captioner_id, prompt, max_tokens=384):
             "llama.cpp est introuvable (ni dans l'app ni sur cette machine). "
             "Installez-le dans la page Modèles → « 📦 llama.cpp » — officiel, un seul clic — "
             "ou placez un llama-mtmd-cli récent dans le PATH.")
+    if captioner_id.startswith("bonsai2_"):
+        # Bonsai-2 (runtime Hadamard, b11556+) sort des descriptions FAUSSES sans
+        # erreur sous un llama.cpp trop ancien — on refuse net plutôt que de mentir.
+        ok, reason = _llama_version_status(_llama_bin_version(info.get("path")))
+        if not ok:
+            raise RuntimeError(
+                f"llama.cpp trop ancien pour Bonsai-2 : {reason}. "
+                "Mettez à jour dans la page Modèles → « 📦 llama.cpp » → « 🔄 Mettre à jour », "
+                "ou choisissez un autre légendeur (ex. Qwen3.5 4B).")
     cmd = build_caption_command(info["path"], model, mmproj, str(image_path), prompt, max_tokens)
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=LLAMA_CAPTION_TIMEOUT)
