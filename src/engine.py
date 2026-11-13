@@ -6,8 +6,10 @@ Moteur d'exécution :
   - lancement d'une génération (subprocess) + analyse de la progression
   - gestion asynchrone des tâches (téléchargements / générations)
 """
+import base64
 import io
 import json
+import socket
 import os
 import random
 import re
@@ -2075,14 +2077,59 @@ def _llama_mtmd_candidates():
     return ("llama-mtmd-cli.exe", "llama-mtmd-cli")
 
 
-def _find_llama_mtmd(root):
+def _llama_server_candidates():
+    return ("llama-server.exe", "llama-server")
+
+
+def _find_llama_bin(root, names):
     if not root or not Path(root).exists():
         return None
-    for name in _llama_mtmd_candidates():
+    for name in names:
         hits = list(Path(root).rglob(name))
         if hits:
             return hits[0]
     return None
+
+
+def _find_llama_mtmd(root):
+    return _find_llama_bin(root, _llama_mtmd_candidates())
+
+
+def _find_llama_server(root):
+    return _find_llama_bin(root, _llama_server_candidates())
+
+
+def _llama_roots(home=None):
+    """Dossiers candidats pour un llama.cpp compilé sur la machine (build from source).
+
+    Le chemin varie surtout par le NOM D'UTILISATEUR Windows — on passe par Path.home(),
+    donc « C:\\Users\\<n'importe qui>\\llama.cpp\\build\\bin\\Release » est trouvé
+    tel quel. rglob couvre Release/Debug/RelWithDebInfo. On ajoute aussi quelques
+    emplacements usuels où le dépôt est cloné (git/dev/src…), profondeur bornée.
+    """
+    home = Path(home) if home else Path.home()
+    roots = [
+        Path("C:/llama.cpp"), Path("C:/llama"), Path("C:/tools/llama.cpp"),
+        Path("C:/Program Files/llama.cpp"), Path("C:/Program Files (x86)/llama.cpp"),
+        home / "llama.cpp", home / "llama",
+        home / "llama.cpp" / "build",          # rglob : bin/Release/Debug… et binaires directement dedans
+        home / ".local" / "bin",
+        home / "AppData" / "Local" / "llama.cpp",
+        home / "AppData" / "Local" / "Programs" / "llama.cpp",
+    ]
+    for pattern in ("*/llama.cpp/build", "*/git/llama.cpp/build", "*/src/llama.cpp/build",
+                    "*/dev/llama.cpp/build", "*/projects/llama.cpp/build", "*/code/llama.cpp/build"):
+        try:
+            roots.extend(sorted(home.glob(pattern)))
+        except Exception:
+            pass
+    uniq, seen = [], set()
+    for r in roots:
+        key = str(r).lower()
+        if key not in seen:
+            seen.add(key)
+            uniq.append(r)
+    return uniq
 
 
 def _llama_bin_version(binpath):
@@ -2135,61 +2182,77 @@ def installed_llama_cpp():
     if p and Path(p).exists():
         return {"flavor": info.get("flavor", "official"),
                 "version": info.get("version"), "path": p,
-                "installed_at": info.get("installed_at")}
+                "installed_at": info.get("installed_at"),
+                "kind": info.get("kind", "cli"),
+                "backend_label": "llama-mtmd-cli"}
     found = _find_llama_mtmd(LLAMA_DIR)
     if found:
         ver = _llama_bin_version(found)
         tag = (f"b{ver[1]}" if ver and ver[0] == "b" else
                f"v{'.'.join(str(x) for x in ver[1])}" if ver and ver[0] == "semver" else None)
-        return {"flavor": "official", "version": tag, "path": str(found), "installed_at": None}
+        return {"flavor": "official", "version": tag, "path": str(found), "installed_at": None,
+                "kind": "cli", "backend_label": "llama-mtmd-cli"}
     return None
 
 
 def host_llama_cpp():
-    """Cherche un llama.cpp sur la machine de l'utilisateur (PATH + emplacements usuels).
+    """Cherche un llama.cpp sur la machine de l'utilisateur (PATH + build from source).
 
-    N'installe rien. Retourne None si rien trouvé, sinon {path, version, ok, reason}.
+    N'installe rien. Détecte DEUX portes d'entrée — dans cet ordre de préférence :
+      1. `llama-mtmd-cli` (exécution directe, idéale) ;
+      2. `llama-server` (build sans l'outil CLI multimodal — l'app le lance alors en
+         sous-processus HTTP local pour la durée d'une légende).
+    Retourne None si rien trouvé, sinon {path, kind, cli_path, server_path,
+    backend_label, version, ok, reason} — `path`/`kind` = le binaire retenu.
     """
-    candidates = []
-    for tool in ("llama-mtmd-cli", "llama-mtmd-cli.exe", "llama-cli", "llama-cli.exe"):
+    entries = []  # (Path, kind)
+    for tool in ("llama-mtmd-cli", "llama-mtmd-cli.exe"):
         found = shutil.which(tool)
         if found:
-            candidates.append(Path(found))
-    home = Path.home()
-    common = [
-        Path("C:/llama.cpp"), Path("C:/llama"), Path("C:/tools/llama.cpp"),
-        Path("C:/Program Files/llama.cpp"), Path("C:/Program Files (x86)/llama.cpp"),
-        home / "llama.cpp", home / "llama", home / "llama.cpp" / "build" / "bin" / "Release",
-        home / "llama.cpp" / "build" / "bin", home / ".local" / "bin",
-        home / "AppData" / "Local" / "llama.cpp",
-    ]
-    for base in common:
-        found = _find_llama_mtmd(base)
+            entries.append((Path(found), "cli"))
+    for tool in ("llama-server", "llama-server.exe"):
+        found = shutil.which(tool)
         if found:
-            candidates.append(found)
+            entries.append((Path(found), "server"))
+    for base in _llama_roots():
+        if not Path(base).exists():
+            continue
+        cli = _find_llama_mtmd(base)
+        if cli:
+            entries.append((cli, "cli"))
+        srv = _find_llama_server(base)
+        if srv:
+            entries.append((srv, "server"))
     seen, uniq = set(), []
-    for c in candidates:
+    for c, kind in entries:
         try:
             key = str(c.resolve()).lower()
         except Exception:
             key = str(c).lower()
         if key not in seen:
             seen.add(key)
-            uniq.append(c)
+            uniq.append((c, kind))
     if not uniq:
         return None
-    results = []
-    for c in uniq:
+
+    def _entry(c, kind):
         ver = _llama_bin_version(c)
         ok, reason = _llama_version_status(ver)
         tag = (f"b{ver[1]}" if ver and ver[0] == "b" else
                f"v{'.'.join(str(x) for x in ver[1])}" if ver and ver[0] == "semver" else
                "inconnue" if ver else None)
-        results.append({"path": str(c), "version": tag, "ok": ok, "reason": reason})
-    for r in results:
-        if r["ok"]:
-            return r
-    return results[0]
+        return {"path": str(c), "kind": kind, "version": tag, "ok": ok, "reason": reason}
+
+    results = [_entry(c, k) for c, k in uniq]
+    cli_path = next((r["path"] for r in results if r["kind"] == "cli"), None)
+    server_path = next((r["path"] for r in results if r["kind"] == "server"), None)
+    # priorité : binaire « ok », et à égalité CLI (plus simple) plutôt que server
+    results.sort(key=lambda r: ((not r["ok"]), (r["kind"] != "cli")))
+    best = results[0]
+    best["cli_path"] = cli_path
+    best["server_path"] = server_path
+    best["backend_label"] = "llama-mtmd-cli" if best["kind"] == "cli" else "llama-server"
+    return best
 
 
 def llama_available():
@@ -2383,16 +2446,153 @@ def run_caption(image_path, captioner_id, prompt, max_tokens=384):
                 f"llama.cpp trop ancien pour Bonsai-2 : {reason}. "
                 "Mettez à jour dans la page Modèles → « 📦 llama.cpp » → « 🔄 Mettre à jour », "
                 "ou choisissez un autre légendeur (ex. Qwen3.5 4B).")
-    cmd = build_caption_command(info["path"], model, mmproj, str(image_path), prompt, max_tokens)
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=LLAMA_CAPTION_TIMEOUT)
-    except subprocess.TimeoutExpired:
-        raise RuntimeError(
-            f"La description a dépassé {LLAMA_CAPTION_TIMEOUT}s — essayez un légendeur plus petit "
-            "(Bonsai-2 2B/4B) ou passez sur un GPU.")
-    if proc.returncode != 0:
-        tail = (proc.stderr or proc.stdout or "").strip()[-1200:]
-        raise RuntimeError(f"llama-mtmd-cli a échoué (code {proc.returncode}) :\n{tail}")
-    caption = parse_caption_output(proc.stdout or "")
-    backend = "app" if source == "app" else f"machine ({info.get('version') or 'version inconnue'})"
+    if info.get("kind") == "server":
+        caption = run_caption_via_server(info["path"], model, mmproj, image_path, prompt,
+                                         max_tokens=max_tokens)
+        label = "llama-server"
+    else:
+        cmd = build_caption_command(info["path"], model, mmproj, str(image_path), prompt, max_tokens)
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=LLAMA_CAPTION_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(
+                f"La description a dépassé {LLAMA_CAPTION_TIMEOUT}s — essayez un légendeur plus petit "
+                "(Bonsai-2 2B/4B) ou passez sur un GPU.")
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or "").strip()[-1200:]
+            raise RuntimeError(f"llama-mtmd-cli a échoué (code {proc.returncode}) :\n{tail}")
+        caption = parse_caption_output(proc.stdout or "")
+        label = "llama-mtmd-cli"
+    backend = (("app (llama.cpp)" if source == "app" else f"machine ({info.get('version') or 'version inconnue'})")
+               + f" · {label}")
     return caption, captioner_id, backend
+
+
+# -------------------- llama-server (backend HTTP local, sans mtmd-cli) -------------------- #
+LLAMA_SERVER_START_TIMEOUT = 300  # s — chargement du modèle au démarrage (gros GGUF sur CPU)
+# localhost ne doit JAMAIS passer par un proxy d'entreprise (urllib le respecte sinon)
+_LOCAL_OPENER = None
+
+
+def _local_urlopen(req, timeout):
+    global _LOCAL_OPENER
+    if _LOCAL_OPENER is None:
+        from urllib.request import build_opener, ProxyHandler
+        _LOCAL_OPENER = build_opener(ProxyHandler({}))
+    return _LOCAL_OPENER.open(req, timeout=timeout)
+
+
+_IMAGE_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+               ".webp": "image/webp", ".gif": "image/gif"}
+
+
+def _pick_free_port():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+    finally:
+        s.close()
+
+
+def _guess_image_mime(image_path):
+    ext = Path(image_path).suffix.lower()
+    if ext in _IMAGE_MIME:
+        return _IMAGE_MIME[ext]
+    head = Path(image_path).read_bytes()[:16]
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head[:4] == b"RIFF":
+        return "image/webp"
+    if head.startswith(b"GIF8"):
+        return "image/gif"
+    return "image/png"
+
+
+def run_caption_via_server(server_path, model, mmproj, image_path, prompt, max_tokens=384):
+    """Légende une image via `llama-server` lancé en sous-processus HTTP local.
+
+    Utile pour les builds llama.cpp sans `llama-mtmd-cli` (CUDA/source : souvent seuls
+    llama-server & llama-cli sont produits) — le serveur est démarré, attendu sur /health,
+    interrogé en POST /v1/chat/completions (image en data URL base64), puis arrêté.
+    """
+    port = _pick_free_port()
+    cmd = [str(server_path), "-m", str(model), "--mmproj", str(mmproj),
+           "-ngl", "99", "--host", "127.0.0.1", "--port", str(port)]
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, errors="replace")
+    except Exception as e:
+        raise RuntimeError(f"Impossible de lancer {server_path} : {e}")
+
+    def _tail():
+        try:
+            if proc.stdout:
+                return proc.stdout.read()[-1500:]
+        except Exception:
+            pass
+        return ""
+
+    try:
+        deadline = time.time() + LLAMA_SERVER_START_TIMEOUT
+        ready = False
+        while time.time() < deadline:
+            rc = proc.poll()
+            if rc is not None:
+                raise RuntimeError("llama-server s'est arrêté au démarrage "
+                                   f"(code {rc}) :\n{_tail().strip()[-1200:]}")
+            try:
+                req = Request(f"http://127.0.0.1:{port}/health",
+                              headers={"User-Agent": "local-image-studio"})
+                with _local_urlopen(req, 2) as r:
+                    if r.status == 200:
+                        ready = True
+                        break
+            except Exception:
+                time.sleep(0.5)
+        if not ready:
+            raise RuntimeError(f"llama-server n'a pas chargé le modèle en {LLAMA_SERVER_START_TIMEOUT}s "
+                               "— essayez un légendeur plus petit ou passez sur un GPU.")
+
+        raw = Path(image_path).read_bytes()
+        b64 = base64.b64encode(raw).decode("ascii")
+        mime = _guess_image_mime(image_path)
+        body = json.dumps({
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+            "max_tokens": int(max_tokens),
+            "temperature": 0.7, "top_p": 0.8, "top_k": 20,
+            "presence_penalty": 1.5,
+            "stream": False,
+        }).encode("utf-8")
+        req = Request(f"http://127.0.0.1:{port}/v1/chat/completions", data=body,
+                      headers={"Content-Type": "application/json",
+                               "User-Agent": "local-image-studio"},
+                      method="POST")
+        try:
+            with _local_urlopen(req, LLAMA_CAPTION_TIMEOUT) as r:
+                data = json.loads(r.read().decode("utf-8"))
+        except Exception as e:
+            raise RuntimeError(f"llama-server a refusé la requête de légende : {e}")
+        content = ""
+        choices = data.get("choices") or []
+        if choices:
+            content = (((choices[0] or {}).get("message") or {}).get("content")) or ""
+        return parse_caption_output(content)
+    finally:
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass

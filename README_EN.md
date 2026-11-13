@@ -275,9 +275,11 @@ The image never leaves your machine (apart from the one-time weight download).
 
 1. **llama.cpp, official release only** (ggml-org): on **Windows**, one click downloads the latest
    official release from GitHub (self-contained CUDA `cudart` build — no CUDA install required —,
-   CPU build otherwise). On **Linux/macOS**, build llama.cpp yourself — the app detects
-   `llama-mtmd-cli` on your machine (PATH, `~/llama.cpp/build/bin`, …). A system install is
-   reused when recent enough;
+   CPU build otherwise). On **Linux/macOS**, build llama.cpp yourself — the app automatically
+   detects your build (PATH, `~/llama.cpp/build/bin/Release`, `C:\Users\<you>\llama.cpp\build\bin\Release`
+   — the Windows user name doesn't matter). If your build only produces **`llama-server`** (no
+   `llama-mtmd-cli`), that's fine too: the app spawns an ephemeral local server for the duration
+   of the caption. A system install is reused when recent enough;
 2. **a captioner** (Models page → « 🧠 Image captioners », one-click download) :
 
 | Captioner | Size | VRAM | License | Note |

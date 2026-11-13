@@ -1,6 +1,7 @@
 """Tests — 🔎 légendeurs d'image (vision LLM) : backend llama.cpp + routes."""
 
 import io
+import os
 import sys
 import tempfile
 import unittest
@@ -71,6 +72,125 @@ class BonsaiVersionGuardTests(unittest.TestCase):
     def test_other_captioner_not_blocked_by_old_llama(self):
         caption, _, _ = self._run("qwen35_4b", ("b", 11000, "b11000"))
         self.assertEqual(caption, "dense caption here.")
+
+
+FAKE_LLAMA_SERVER = r'''#!/usr/bin/env python3
+import json, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+port = 0
+for i, a in enumerate(sys.argv):
+    if a == "--port":
+        port = int(sys.argv[i + 1])
+
+CAPTION = "<think>\nreason about the image\n</think>\nA dense red teapot on a wooden table, soft window light, shallow depth of field, warm muted palette, photographic."
+
+class H(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def _send_json(self, obj, code=200):
+        body = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == "/health":
+            return self._send_json({"status": "ok"})
+        return self._send_json({"error": "not found"}, 404)
+
+    def do_POST(self):
+        if self.path == "/v1/chat/completions":
+            n = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(n)
+            return self._send_json({
+                "choices": [{"message": {"role": "assistant", "content": CAPTION}}]})
+        return self._send_json({"error": "not found"}, 404)
+
+HTTPServer(("127.0.0.1", port), H).serve_forever()
+'''
+
+
+class LlamaServerBackendTests(unittest.TestCase):
+    def test_llama_roots_covers_source_build_layout(self):
+        import tempfile as _tf
+        with _tf.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            build = home / "llama.cpp" / "build" / "bin" / "Release"
+            build.mkdir(parents=True)
+            roots = engine._llama_roots(home=home)
+            self.assertTrue(any(str(r).endswith(os.path.join("llama.cpp", "build")) and str(r).startswith(str(home))
+                                for r in roots))
+
+    def test_host_detection_server_only_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            rel = home / "llama.cpp" / "build" / "bin" / "Release"
+            rel.mkdir(parents=True)
+            fake = rel / "llama-server"
+            fake.write_text("#!/bin/sh\nexit 0\n")
+            fake.chmod(0o755)
+            with patch.object(engine, "_llama_roots", return_value=[home / "llama.cpp" / "build"]), \
+                 patch.object(engine.shutil, "which", return_value=None), \
+                 patch.object(engine, "_llama_bin_version", return_value=("b", 12366, "b12366")):
+                host = engine.host_llama_cpp()
+            self.assertIsNotNone(host)
+            self.assertEqual(host["kind"], "server")
+            self.assertEqual(host["backend_label"], "llama-server")
+            self.assertTrue(host["ok"])
+            self.assertTrue(host["path"].endswith("llama-server"))
+
+    def test_host_detection_prefers_cli_over_server(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            rel = home / "llama.cpp" / "build" / "bin" / "Release"
+            rel.mkdir(parents=True)
+            for name in ("llama-server", "llama-mtmd-cli"):
+                f = rel / name
+                f.write_text("#!/bin/sh\nexit 0\n")
+                f.chmod(0o755)
+            with patch.object(engine, "_llama_roots", return_value=[home / "llama.cpp" / "build"]), \
+                 patch.object(engine.shutil, "which", return_value=None), \
+                 patch.object(engine, "_llama_bin_version", return_value=("b", 12366, "b12366")):
+                host = engine.host_llama_cpp()
+            self.assertEqual(host["kind"], "cli")
+            self.assertTrue(host["path"].endswith("llama-mtmd-cli"))
+
+    def test_host_detection_none_when_absent(self):
+        with patch.object(engine, "_llama_roots", return_value=[]), \
+             patch.object(engine.shutil, "which", return_value=None):
+            self.assertIsNone(engine.host_llama_cpp())
+
+    def test_run_caption_via_server_end_to_end(self):
+        import tempfile as _tf
+        with _tf.TemporaryDirectory() as tmp:
+            server = Path(tmp) / "llama-server"
+            server.write_text(FAKE_LLAMA_SERVER)
+            server.chmod(0o755)
+            img = Path(tmp) / "in.png"
+            img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+            caption = engine.run_caption_via_server(str(server), "/m.gguf", "/mm.gguf",
+                                                    str(img), "Describe it", 64)
+            self.assertIn("red teapot", caption)
+            self.assertNotIn("<think>", caption)
+            self.assertNotIn("reason about", caption)
+
+    def test_run_caption_dispatches_to_server_backend(self):
+        with patch.object(engine, "captioner_files", return_value=("/m.gguf", "/mm.gguf")), \
+             patch.object(engine, "llama_available",
+                          return_value=("host", {"path": "/opt/llama/bin/llama-server",
+                                                 "kind": "server", "version": "b12366"})), \
+             patch.object(engine, "_llama_bin_version", return_value=("b", 12366, "b12366")), \
+             patch.object(engine, "run_caption_via_server",
+                          return_value="a dense caption via the http backend") as srv, \
+             patch.object(engine, "subprocess") as sub:
+            caption, cid, backend = engine.run_caption("/img.png", "qwen35_4b", "prompt")
+        srv.assert_called_once()
+        sub.run.assert_not_called()
+        self.assertIn("llama-server", backend)
 
 
 class LlamaAssetPickTests(unittest.TestCase):

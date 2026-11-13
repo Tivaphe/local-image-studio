@@ -288,9 +288,11 @@ d'image ») :
 1. **llama.cpp, version officielle uniquement** (ggml-org) : sous **Windows**, un bouton
    « Installer llama.cpp » télécharge la dernière release officielle depuis GitHub
    (build CUDA autoportant `cudart` — fonctionne sans installation CUDA —, sinon build CPU) ;
-   sous **Linux/macOS**, compilez llama.cpp vous-même — l'app détecte `llama-mtmd-cli` sur votre
-   machine (PATH, `~/llama.cpp/build/bin`, `C:\llama.cpp`, …). Une version déjà présente est
-   réutilisée si elle est assez récente ;
+   sous **Linux/macOS**, compilez llama.cpp vous-même — l'app détecte automatiquement votre
+   build (PATH, `~/llama.cpp/build/bin/Release`, `C:\Users\<vous>\llama.cpp\build\bin\Release`
+   — le nom d'utilisateur n'a pas d'importance). Si votre build ne produit que **`llama-server`**
+   (sans `llama-mtmd-cli`), pas de problème : l'app lance un petit serveur local éphémère pour la
+   durée de la légende. Une version déjà présente est réutilisée si elle est assez récente ;
 2. **un légendeur** (page Modèles → « 🧠 Légendeurs d'image », téléchargement en 1 clic) :
 
 | Légendeur | Taille | VRAM | Licence | Note |

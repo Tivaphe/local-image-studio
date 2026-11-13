@@ -1270,7 +1270,11 @@ def _llama_status_payload():
                     "path": app.get("path"), "installed_at": app.get("installed_at")},
             "host": {"found": bool(host), "path": host.get("path"),
                      "version": host.get("version"), "ok": host.get("ok", False),
-                     "reason": host.get("reason")},
+                     "reason": host.get("reason"),
+                     "kind": host.get("kind"),
+                     "backend_label": host.get("backend_label"),
+                     "cli_path": host.get("cli_path"),
+                     "server_path": host.get("server_path")},
             "latest": st.get("latest"),
             "update_available": st.get("update_available"),
             "effective": st.get("effective")}

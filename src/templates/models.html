@@ -270,7 +270,7 @@
         </p>
         <p class="muted small" id="llama-status-lines">
           Dans l'app&nbsp;: <strong id="llama-app-state">{% if llama.app.installed %}installé ✓{% if llama.app.version %} ({{ llama.app.version }}){% endif %}{% else %}non installé{% endif %}</strong>
-          &nbsp;·&nbsp;sur la machine&nbsp;: <strong id="llama-host-state">{% if llama.host.found %}{{ llama.host.path }}{% if llama.host.version %} ({{ llama.host.version }}){% endif %}{% if llama.host.ok %} — utilisable ✓{% else %} — {{ llama.host.reason }}{% endif %}{% else %}rien de détecté{% endif %}</strong>
+          &nbsp;·&nbsp;sur la machine&nbsp;: <strong id="llama-host-state">{% if llama.host.found %}{{ llama.host.path }}{% if llama.host.version %} ({{ llama.host.version }}){% endif %}{% if llama.host.ok %} — utilisable ✓ via {{ llama.host.backend_label or ('llama-' + llama.host.kind) }}{% else %} — {{ llama.host.reason }}{% endif %}{% else %}rien de détecté{% endif %}</strong>
         </p>
       </div>
       <div class="engine-actions">
@@ -283,7 +283,10 @@
     <p class="muted small">
       ℹ️ &nbsp;Bonsai-2 exige un llama.cpp ≥ b11556 (ou ≥ v0.8.0) : plus ancien, il produit des
       descriptions fausses <em>sans erreur</em>. « 🔄 Mettre à jour » règle ça (dernière release officielle).
-      Une installation présente sur la machine (PATH, <code>C:\llama.cpp</code>…) est réutilisée si elle est assez récente.
+      Une installation présente sur la machine (PATH, <code>C:\Users\&lt;vous&gt;\llama.cpp\build\bin\Release</code>…) est réutilisée si elle est assez récente —
+      le nom d'utilisateur n'a pas d'importance. Les builds « source » qui ne produisent que
+      <code>llama-server</code> (sans <code>llama-mtmd-cli</code>) sont aussi détectés : l'app lance alors
+      un petit serveur local éphémère pour la durée de la légende.
     </p>
 
     <div class="model-grid">
