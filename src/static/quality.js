@@ -690,6 +690,7 @@
   // Modale « ⬆️ PiD ×4 — prompt de reconstruction » (template _pid_prompt.html)
   // Retourne une Promise<boolean> : true si PiD a été lancé (boutons « Lancer » ou « Description générique »).
   Q.askPidPrompt = function ({ imageId = null, path = null, backbone = null } = {}) {
+    Q._pendingPidImageId = imageId != null ? imageId : null;  // utilisé par « 🧠 Décrire l'image »
     return new Promise(async resolve => {
       const modal = document.getElementById("pid-prompt-modal");
       const ta = document.getElementById("pid-prompt-text");
@@ -712,7 +713,7 @@
       ta.addEventListener("input", () => { warn.hidden = !looksLikeEditPrompt(ta.value); });
       document.body.style.overflow = "hidden";
       modal.hidden = false;
-      const close = () => { modal.hidden = true; document.body.style.overflow = ""; };
+      const close = () => { modal.hidden = true; document.body.style.overflow = ""; Q._pendingPidImageId = null; };
       const finish = async useGeneric => {
         close();
         const prompt = useGeneric ? null : (ta.value.trim() || null);

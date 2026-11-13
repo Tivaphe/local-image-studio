@@ -256,6 +256,47 @@ dedicated sections at the bottom of the **Models** page.
 ---
 ---
 
+## 🔎 Image → Prompt (local VLM captioner)
+
+You found **an image** — online or in your files — and want to **reproduce it**? A **local
+vision-language model (VLM)** reads the image and writes **the prompt** that would recreate it.
+The image never leaves your machine (apart from the one-time weight download).
+
+**Where to find the button?**
+
+- **Generate** / **Edit** pages → **🔎 Image → Prompt** : drop any image (PNG, JPEG, WebP, GIF,
+  ≤ 12 MB), pick the captioner, click **« 🧠 Generate the prompt »** — the text appears,
+  **editable**, then **« Use this prompt »** inserts it into the prompt field (read it back first:
+  colors, framing, style);
+- **⬆️ PiD ×4** modal → **🧠 Describe the image** : the VLM fills the PiD prompt with a caption of
+  the source image (editable before launch — never automated silently).
+
+**What you need to install first** (Models page → « 📦 llama.cpp » and « 🧠 Image captioners ») :
+
+1. **llama.cpp, official release only** (ggml-org): on **Windows**, one click downloads the latest
+   official release from GitHub (self-contained CUDA `cudart` build — no CUDA install required —,
+   CPU build otherwise). On **Linux/macOS**, build llama.cpp yourself — the app detects
+   `llama-mtmd-cli` on your machine (PATH, `~/llama.cpp/build/bin`, …). A system install is
+   reused when recent enough;
+2. **a captioner** (Models page → « 🧠 Image captioners », one-click download) :
+
+| Captioner | Size | VRAM | License | Note |
+|---|---|---|---|---|
+| **Qwen3.5 4B** ⭐ | ~3.4 GB | ~5 GB | Apache-2.0 | **recommended** — 2026 official VLM, dense captions |
+| Bonsai-2 2B / 4B / 9B | ~0.9 / 1.6 / 3.2 GB | ~2 / 3 / 4 GB | Apache-2.0 | ternary 2-bit Qwen3.5-derived — needs llama.cpp ≥ b11556 (detected & reported) |
+| Qwen3.5 9B | ~0.9 GB (+ mmproj) | ~8 GB | Apache-2.0 | natively multimodal |
+| **Qwen3-VL 4B / 8B** | **0 GB** | ~5 / ~8 GB | Apache-2.0 | **reuses** weights already installed for editing |
+| Gemma 4 E2B / E4B | ~4.1 / ~6.0 GB | ~6 / ~8 GB | Apache-2.0 | Google multimodal, unsloth quants |
+| LFM3-VL 2B | ~1.3 GB | ~3 GB | ⚠️ **lfm1.0 (custom)** | compact — review the LFM license |
+
+The **prompt sent to the VLM is editable** in **Settings → « 🧠 Image caption »** (with a
+« ↺ Restore the default prompt » button), and the default model is chosen there too. The result
+is **always shown and editable** before use — nothing is injected silently. Bonsai-2 on an
+outdated llama.cpp produces wrong descriptions *without erroring*: the Models page checks the
+installed version and offers an update.
+
+---
+
 ## ⚠️ Gated models
 
 Some models require a **free Hugging Face token**:
@@ -309,7 +350,7 @@ local-image-studio/
 │   ├── app.py             ← Web server (Flask) + startup options
 │   ├── browser_launch.py  ← Open Chrome automatically on startup
 │   ├── engine.py          ← sd-cli engine + downloads + task queue
-│   ├── registry.py        ← 25 model definitions + ×4 upscalers + ADetailer detectors
+│   ├── registry.py        ← Models + ×4 upscalers + ADetailer + VLM captioners (image → prompt)
 │   ├── prompt_enhancer.py ← Prompt boost & translation (LLM)
 │   ├── gpu_info.py        ← VRAM detection
 │   ├── db.py              ← History, statistics & custom styles (/styles page)

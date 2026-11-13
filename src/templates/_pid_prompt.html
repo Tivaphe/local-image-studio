@@ -15,6 +15,11 @@
     </div>
     <div class="pid-prompt-body">
       <div class="pid-prompt-warn" id="pid-prompt-warn" hidden>⚠️ Ce prompt ressemble à une instruction d'édition — adaptez-le à ce que vous voyez, ou lancez avec la description générique.</div>
+      <div class="pid-caption-row">
+        <select id="pid-captioner" aria-label="Modèle de légende"></select>
+        <button type="button" class="btn ghost small" id="pid-caption-btn"
+                title="Un VLM local (page Modèles → 🧠 Légendeurs) lit l'image et rédige le prompt — modifiable avant le lancement">🧠 Décrire l'image</button>
+      </div>
       <label class="pid-prompt-label" for="pid-prompt-text">Prompt utilisé par PiD</label>
       <textarea id="pid-prompt-text" rows="4" placeholder="Décrivez l'image — ex. « a young woman with red hair in a forest, soft golden light, 85mm portrait, film grain »…"></textarea>
       <p class="muted small">Vide = description générique de qualité. Sortie 4096×4096, enregistrée dans l'historique. Licence NSCLv1 (non-commerciale).</p>

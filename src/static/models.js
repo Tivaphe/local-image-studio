@@ -33,7 +33,7 @@ function startPolling() {
       if (fill) fill.style.width = pct + '%';
       if (text) text.textContent = j.log || (j.busy ? 'en cours…' : 'termine');
       // desactive les boutons pendant la tache
-      document.querySelectorAll('.dl-btn, .dl-upscale-btn, .dl-ad-btn, .dl-seedvr2-btn, .dl-taesd-btn, .dl-pulid-btn, .dl-pid-btn, #install-engine')
+      document.querySelectorAll('.dl-btn, .dl-upscale-btn, .dl-ad-btn, .dl-seedvr2-btn, .dl-taesd-btn, .dl-pulid-btn, .dl-pid-btn, #install-engine, .dl-captioner-btn, #install-llama, #update-llama')
         .forEach(b => b.disabled = true);
       if (!j.busy) {
         clearInterval(taskTimer); taskTimer = null;
@@ -217,6 +217,72 @@ if (dlSeedvr2) {
     } catch (e) {
       dlSeedvr2.disabled = false;
       dlSeedvr2.textContent = 'Télécharger (~6,8 Go)';
+      alert('Connexion au serveur impossible : ' + e.message);
+    }
+  });
+}
+
+// --- Boutons : telecharger un legendeur d'image ---
+$$('.dl-captioner-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const cid = btn.dataset.captioner;
+    btn.disabled = true;
+    btn.textContent = 'en cours…';
+    showBanner('Téléchargement du légendeur…');
+    try {
+      const r = await fetch('/api/download-captioner', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ captioner: cid })
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        btn.disabled = false;
+        btn.textContent = 'Télécharger';
+        alert(j.error || 'Erreur');
+        return;
+      }
+      startPolling();
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Télécharger';
+      alert('Connexion au serveur impossible : ' + e.message);
+    }
+  });
+});
+
+// --- Boutons : installer / mettre a jour llama.cpp (officiel ggml-org) ---
+for (const id of ['install-llama', 'update-llama']) {
+  const b = $('#' + id);
+  if (!b) continue;
+  b.addEventListener('click', async () => {
+    b.disabled = true;
+    const prev = b.textContent;
+    b.textContent = 'vérification GitHub…';
+    showBanner('Installation / mise à jour de llama.cpp (officiel)…');
+    try {
+      const r = await fetch('/api/llama-install', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: id === 'update-llama' })
+      });
+      const j = await r.json();
+      if (j.already_latest) {
+        b.disabled = false;
+        b.textContent = prev;
+        clearInterval(taskTimer); taskTimer = null;
+        $('#task-banner').hidden = true;
+        alert('llama.cpp est déjà à jour (' + (j.version || '') + ').');
+        return;
+      }
+      if (!j.ok) {
+        b.disabled = false;
+        b.textContent = prev;
+        alert(j.error || 'Erreur');
+        return;
+      }
+      startPolling();
+    } catch (e) {
+      b.disabled = false;
+      b.textContent = prev;
       alert('Connexion au serveur impossible : ' + e.message);
     }
   });

@@ -12,6 +12,7 @@ Options :
 import argparse
 import hashlib
 import os
+import threading
 import re
 import shutil
 import subprocess
@@ -38,6 +39,9 @@ from registry import (MODELS, DEPS, RATIOS, DEFAULT_NEGATIVE, input_modes,
                       PULID, pulid_status, list_portraits, supports_pulid,
                       pulid_weights_path,
                       PID, pid_status,
+                      CAPTIONER_MODELS, CAPTIONER_ORDER, CAPTION_DEFAULT_PROMPT,
+                      captioner_status, captioner_cards, captioners_ready,
+                      resolve_captioner_id,
                       recommended_quant, quant_recommendations,
                       SAMPLERS_INFO, SCHEDULERS_INFO)
 import metadata as _pngmeta
@@ -169,12 +173,16 @@ def models_page():
                            upscalers=upscale_cards, adetailers=adetailer_cards,
                            seedvr2=seedvr2_card, taesd=taesd_cards, pulid=pulid_card,
                            pid=pid_card,
+                           captioners=_captioner_cards_payload(),
+                           caption_selected=(load_settings().get("captioner_model") or "").strip(),
+                           llama=_llama_status_payload(),
                            quant_recs=quant_recs)
 
 
 @app.route("/settings")
 def settings_page():
-    return render_template("settings.html", settings=load_settings())
+    return render_template("settings.html", settings=load_settings(),
+                           caption_default_prompt=CAPTION_DEFAULT_PROMPT)
 
 
 @app.route("/styles")
@@ -1226,6 +1234,197 @@ def api_mmproj_status():
 
 
 # --------------------------------------------------------------------------- #
+#  API : légendeurs d'image (VLM → prompt)
+# --------------------------------------------------------------------------- #
+_CAPTION_LOCK = threading.Lock()
+
+
+def _caption_prompt_from_settings(data):
+    p = str((data or {}).get("prompt") or "").strip()
+    if p:
+        return p
+    return (load_settings().get("image_caption_prompt") or "").strip() or CAPTION_DEFAULT_PROMPT
+
+
+def _captioner_choice(data):
+    """Choisit le légendeur effectif. Explicite demandé → validé (inconnu → ValueError) ;
+    non prêt → ValueError (il faut le télécharger d'abord). Absent → réglage/settings,
+    avec repli sur le premier légendeur prêt. Retourne None si rien n'est prêt."""
+    explicit = str((data or {}).get("captioner") or "").strip()
+    if explicit:
+        if explicit not in CAPTIONER_MODELS:
+            raise ValueError(f"Légendeur inconnu : {explicit} — choix : {', '.join(CAPTIONER_ORDER)}")
+        if not captioner_status(explicit)["ready"]:
+            raise ValueError(f"« {CAPTIONER_MODELS[explicit]['name']} » n'est pas encore installé — "
+                             "téléchargez-le depuis la page Modèles (section « 🧠 Légendeurs d'image »).")
+        return explicit
+    settings = load_settings()
+    return resolve_captioner_id(settings.get("captioner_model") or "")
+
+
+def _llama_status_payload():
+    st = engine.llama_update_status()
+    app = st.get("app") or {}
+    host = st.get("host") or {}
+    return {"app": {"installed": bool(app), "version": app.get("version"),
+                    "path": app.get("path"), "installed_at": app.get("installed_at")},
+            "host": {"found": bool(host), "path": host.get("path"),
+                     "version": host.get("version"), "ok": host.get("ok", False),
+                     "reason": host.get("reason")},
+            "latest": st.get("latest"),
+            "update_available": st.get("update_available"),
+            "effective": st.get("effective")}
+
+
+def _captioner_cards_payload():
+    cards = []
+    for c in captioner_cards():
+        cards.append({
+            "id": c["id"], "name": c["name"], "desc": c["desc"], "license": c["license"],
+            "license_warn": bool(c.get("license_warn")),
+            "hf_url": c.get("hf_url"), "size_gb": c.get("size_gb"),
+            "vram_gb": c.get("vram_gb"), "recommended": bool(c.get("recommended")),
+            "reuses_installed": bool(c.get("reuses_installed")),
+            "ready": c["status"]["ready"], "missing": c["status"]["missing"],
+            "dep_count": len(c["status"]["deps"]),
+        })
+    return cards
+
+
+@app.route("/api/captioners")
+def api_captioners():
+    settings = load_settings()
+    eff = resolve_captioner_id(settings.get("captioner_model") or "")
+    return jsonify({
+        "captioners": _captioner_cards_payload(),
+        "selected": eff or "",
+        "caption_prompt": (settings.get("image_caption_prompt") or "").strip() or CAPTION_DEFAULT_PROMPT,
+        "default_prompt": CAPTION_DEFAULT_PROMPT,
+        "llama": _llama_status_payload(),
+    })
+
+
+@app.route("/api/download-captioner", methods=["POST"])
+def api_download_captioner():
+    data = request.get_json(silent=True) or {}
+    cid = str(data.get("captioner") or "").strip()
+    if cid not in CAPTIONER_MODELS:
+        return jsonify({"ok": False,
+                        "error": f"Légendeur inconnu : {cid or '?'} — choix : {', '.join(CAPTIONER_MODELS)}"}), 400
+    try:
+        tasks.start_captioner_download(cid)
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 409
+    return jsonify({"ok": True, "captioner": cid})
+
+
+@app.route("/api/llama-status")
+def api_llama_status():
+    return jsonify(_llama_status_payload())
+
+
+@app.route("/api/llama-install", methods=["POST"])
+def api_llama_install():
+    data = request.get_json(silent=True) or {}
+    force = bool(data.get("force"))
+    st = engine.llama_update_status()
+    if st.get("app") and st.get("update_available") is False and not force:
+        return jsonify({"ok": True, "already_latest": True,
+                        "version": (st.get("app") or {}).get("version")})
+    try:
+        tasks.start_llama_install()
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 409
+    return jsonify({"ok": True})
+
+
+def _caption_source_path(data):
+    """Résout l'image (historique ou output/) → chemin absolu, ou erreur Flask."""
+    src_rel, err = _resolve_source_image(data)
+    if err:
+        return None, err
+    import os as _os
+    return _os.path.join(str(config.ROOT), src_rel), None
+
+
+def _run_caption_locked(img_path, captioner_id, prompt):
+    if not _CAPTION_LOCK.acquire(blocking=False):
+        return None, (jsonify({"ok": False,
+                               "error": "Une description est déjà en cours — patientez."}), 409)
+    try:
+        caption, cid, backend = engine.run_caption(img_path, captioner_id, prompt)
+        return {"ok": True, "caption": caption, "captioner": cid,
+                "backend": backend,
+                "name": CAPTIONER_MODELS[cid]["name"]}, None
+    except Exception as e:
+        return None, (jsonify({"ok": False, "error": str(e)}), 500)
+    finally:
+        _CAPTION_LOCK.release()
+
+
+@app.route("/api/caption", methods=["POST"])
+def api_caption():
+    """Légende une image de l'historique (ou output/) → prompt. Synchrone, un à la fois."""
+    data = request.get_json(silent=True) or {}
+    img_path, err = _caption_source_path(data)
+    if err:
+        return err
+    try:
+        cid = _captioner_choice(data)
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    if not cid:
+        return jsonify({"ok": False,
+                        "error": "Aucun légendeur installé — installez-en un depuis la page Modèles "
+                                 "(section « 🧠 Légendeurs d'image »)."}), 400
+    prompt = _caption_prompt_from_settings(data)
+    result, err = _run_caption_locked(img_path, cid, prompt)
+    return err if err else jsonify(result)
+
+
+@app.route("/api/caption-upload", methods=["POST"])
+def api_caption_upload():
+    """Légende une image envoyée par l'utilisateur (outil 🔎 Image → Prompt)."""
+    import tempfile
+    f = request.files.get("image")
+    if f is None or not f.filename:
+        return jsonify({"ok": False, "error": "Aucune image reçue."}), 400
+    raw = f.read()
+    if len(raw) < 64:
+        return jsonify({"ok": False, "error": "Image vide ou illisible."}), 400
+    if len(raw) > 12 * 1024 * 1024:
+        return jsonify({"ok": False, "error": "Image trop lourde (12 Mo max)."}), 400
+    magic_ok = (raw.startswith(b"\x89PNG\r\n\x1a\n") or raw.startswith(b"\xff\xd8\xff")
+                or raw[:4] == b"RIFF" or raw.startswith(b"GIF8"))
+    if not magic_ok:
+        return jsonify({"ok": False, "error": "Format non reconnu (PNG, JPEG, WebP ou GIF attendus)."}), 400
+    suffix = ("." + f.filename.rsplit(".", 1)[-1].lower()) if "." in f.filename else ".png"
+    if suffix not in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
+        suffix = ".png"
+    tmp_dir = tempfile.mkdtemp(prefix="lis_caption_")
+    tmp_path = os.path.join(tmp_dir, "upload" + suffix)
+    try:
+        with open(tmp_path, "wb") as fh:
+            fh.write(raw)
+        try:
+            cid = _captioner_choice(request.form)
+        except ValueError as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+        if not cid:
+            return jsonify({"ok": False,
+                            "error": "Aucun légendeur installé — installez-en un depuis la page Modèles "
+                                     "(section « 🧠 Légendeurs d'image »)."}), 400
+        prompt = _caption_prompt_from_settings(request.form)
+        result, err = _run_caption_locked(tmp_path, cid, prompt)
+        return err if err else jsonify(result)
+    finally:
+        try:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
+# --------------------------------------------------------------------------- #
 #  API : historique & favoris
 # --------------------------------------------------------------------------- #
 @app.route("/api/toggle-favorite", methods=["POST"])
@@ -1278,13 +1477,30 @@ def api_settings():
             except (TypeError, ValueError):
                 iv = 3
             patch["preview_interval"] = max(1, min(12, iv))
+        # Légendeur d'image par défaut (page Modèles / modales)
+        if "captioner_model" in data:
+            cm = str(data.get("captioner_model") or "").strip()
+            patch["captioner_model"] = cm if cm in CAPTIONER_MODELS else ""
+        # Prompt de légende (français/anglais) — envoyé tel quel au VLM
+        if "image_caption_prompt" in data:
+            cp = str(data.get("image_caption_prompt") or "").strip()
+            patch["image_caption_prompt"] = cp[:4000]
         save_settings(patch)
+        st = load_settings()
         return jsonify({"ok": True, "token_set": bool(hf_token()),
-                        "open_browser": bool(load_settings().get("open_browser", True)),
-                        "preview_interval": int(load_settings().get("preview_interval", 3))})
+                        "open_browser": bool(st.get("open_browser", True)),
+                        "preview_interval": int(st.get("preview_interval", 3)),
+                        "captioner_model": st.get("captioner_model", ""),
+                        "image_caption_prompt": (st.get("image_caption_prompt") or "").strip()
+                                                or CAPTION_DEFAULT_PROMPT})
+    st = load_settings()
     return jsonify({"hf_token": hf_token(),
-                    "open_browser": bool(load_settings().get("open_browser", True)),
-                    "preview_interval": int(load_settings().get("preview_interval", 3))})
+                    "open_browser": bool(st.get("open_browser", True)),
+                    "preview_interval": int(st.get("preview_interval", 3)),
+                    "captioner_model": st.get("captioner_model", ""),
+                    "image_caption_prompt": (st.get("image_caption_prompt") or "").strip()
+                                            or CAPTION_DEFAULT_PROMPT,
+                    "default_caption_prompt": CAPTION_DEFAULT_PROMPT})
 
 
 

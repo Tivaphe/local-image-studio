@@ -20,10 +20,13 @@ import uuid
 from pathlib import Path
 from urllib.request import urlopen, Request
 
-from config import (ROOT, BIN_DIR, DIFFUSION_DIR, OUTPUT_DIR, UPSCALE_DIR,
+from config import (ROOT, BIN_DIR, LLAMA_DIR, _IS_WIN, DIFFUSION_DIR, OUTPUT_DIR, UPSCALE_DIR,
                     ADETAILER_DIR, SEEDVR2_DIR, TAESD_DIR, PREVIEW_DIR, PID_DIR,
                     find_sd_cli)
 from registry import (MODELS, DEPS, DEP_QUANT_PRIORITY, resolve_dep_gguf,
+                      CAPTIONER_MODELS, CAPTION_DEFAULT_PROMPT,
+                      captioner_status, captioner_cards, captioners_ready,
+                      resolve_captioner_id, captioner_files,
                       load_manifest, save_manifest, build_command, _dep_path,
                       check_images_input, UPSCALERS, ADETAILERS,
                       upscaler_path, adetailer_path, build_upscale_command,
@@ -683,6 +686,58 @@ class TaskManager:
             download_pulid(token, msg_cb=msg)
             self._set(log="Poids PuLID téléchargés ✓", progress=1.0, done=True, busy=False,
                       result={"type": "download", "pulid": True})
+
+        t = threading.Thread(target=self._safe_aux_run, args=(work,), daemon=True)
+        self._thread = t
+        t.start()
+
+    def start_captioner_download(self, cid):
+        """Télécharge le légendeur d'image choisi (poids + mmproj si absents)."""
+        if cid not in CAPTIONER_MODELS:
+            raise RuntimeError(f"Légendeur inconnu : {cid}")
+        if self.is_busy():
+            raise RuntimeError("Une tâche est déjà en cours.")
+        token = hf_token()
+        self._reset("download")
+
+        def work():
+            def msg(s):
+                self._set(log=s)
+            missing = captioner_status(cid)["missing"]
+            if not missing:
+                self._set(log="Légendeur déjà installé ✓", progress=1.0, done=True,
+                          busy=False, result={"type": "download", "captioner": cid})
+                return
+            total = len(missing)
+            for i, dep_id in enumerate(missing, 1):
+                self._set(progress=(i - 1) / total,
+                          log=f"[{i}/{total}] Téléchargement de {dep_id}…")
+                ensure_dep(dep_id, token, msg_cb=msg)
+            self._set(progress=1.0, log=f"Légendeur « {CAPTIONER_MODELS[cid]['name']} » installé ✓",
+                      done=True, busy=False, result={"type": "download", "captioner": cid})
+
+        t = threading.Thread(target=self._safe_aux_run, args=(work,), daemon=True)
+        self._thread = t
+        t.start()
+
+    def start_llama_install(self):
+        """Télécharge la dernière release OFFICIELLE de llama.cpp (ggml-org) et l'installe dans bin/llama/."""
+        if self.is_busy():
+            raise RuntimeError("Une tâche est déjà en cours.")
+        self._reset("download")
+
+        def work():
+            def msg(s):
+                self._set(log=s)
+
+            def cb(done, total):
+                if total:
+                    self._set(progress=min(1.0, done / total))
+            msg("Recherche de la dernière release officielle llama.cpp…")
+            info = install_llama_cpp(progress_cb=cb)
+            self._set(progress=1.0,
+                      log=f"llama.cpp {info.get('version') or ''} installé dans bin/llama ✓",
+                      done=True, busy=False, result={"type": "download", "llama_cpp": True})
 
         t = threading.Thread(target=self._safe_aux_run, args=(work,), daemon=True)
         self._thread = t
@@ -2005,3 +2060,330 @@ class TaskManager:
 
 # instance globale
 tasks = TaskManager()
+
+
+# =========================================================================== #
+#  llama.cpp officiel (ggml-org) — légendeurs d'image (VLM → prompt)
+# =========================================================================== #
+LLAMA_REPO_API_LIST = "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=30"
+LLAMA_MIN_BUILD = 11556          # release minimale pour le runtime Hadamard (Bonsai-2 Q2_0)
+LLAMA_MIN_SEMVER = (0, 8, 0)     # équivalent actuel (tags vX.Y.Z depuis 2026)
+_LLAMA_STATUS_CACHE = {"tag": None, "assets": [], "checked": 0.0}
+
+
+def _llama_mtmd_candidates():
+    return ("llama-mtmd-cli.exe", "llama-mtmd-cli")
+
+
+def _find_llama_mtmd(root):
+    if not root or not Path(root).exists():
+        return None
+    for name in _llama_mtmd_candidates():
+        hits = list(Path(root).rglob(name))
+        if hits:
+            return hits[0]
+    return None
+
+
+def _llama_bin_version(binpath):
+    """Version du binaire : ("b", 11862, raw) / ("semver", (0, 8, 0), raw) / ("unknown", None, raw) / None (erreur)."""
+    try:
+        proc = subprocess.run([str(binpath), "--version"], capture_output=True,
+                              text=True, timeout=15)
+        raw = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+    except Exception:
+        return None
+    if not raw.strip():
+        return ("unknown", None, "")
+    m = re.search(r"\bb(\d{3,})\b", raw)
+    if m:
+        return ("b", int(m.group(1)), raw.strip().splitlines()[-1][:120])
+    m = re.search(r"[vV]?(\d+)\.(\d+)(?:\.(\d+))?", raw)
+    if m:
+        grp = tuple(int(x) for x in m.groups() if x is not None)
+        return ("semver", grp, raw.strip().splitlines()[-1][:120])
+    return ("unknown", None, raw.strip().splitlines()[-1][:120])
+
+
+def _llama_version_status(ver):
+    """(ok, reason) — ok=True si utilisable ; reason expliqué sinon (ou avertissement si inconnue)."""
+    if ver is None:
+        return False, "version illisible (binaire introuvable ou --version sans réponse)"
+    kind, val, raw = ver
+    if kind == "unknown":
+        return True, "version inconnue — supposée récente ; si les légendes sont incohérentes, mettez llama.cpp à jour"
+    if kind == "b":
+        if val >= LLAMA_MIN_BUILD:
+            return True, None
+        return False, (f"build b{val} trop ancien (b{LLAMA_MIN_BUILD}+ requis — runtime Hadamard, "
+                       "sinon Bonsai-2 sort des descriptions fausses sans erreur)")
+    if val >= LLAMA_MIN_SEMVER:
+        return True, None
+    return False, (f"version v{'.'.join(str(x) for x in val)} trop ancienne — "
+                   f"v{'.'.join(str(x) for x in LLAMA_MIN_SEMVER)}+ requise")
+
+
+def llama_version_ok(ver):
+    return _llama_version_status(ver)[0]
+
+
+def installed_llama_cpp():
+    """llama.cpp installé dans l'app (bin/llama/) via le manifeste, ou découvert sur disque."""
+    mf = load_manifest()
+    info = mf.get("llama_cpp") or {}
+    p = info.get("path")
+    if p and Path(p).exists():
+        return {"flavor": info.get("flavor", "official"),
+                "version": info.get("version"), "path": p,
+                "installed_at": info.get("installed_at")}
+    found = _find_llama_mtmd(LLAMA_DIR)
+    if found:
+        ver = _llama_bin_version(found)
+        tag = (f"b{ver[1]}" if ver and ver[0] == "b" else
+               f"v{'.'.join(str(x) for x in ver[1])}" if ver and ver[0] == "semver" else None)
+        return {"flavor": "official", "version": tag, "path": str(found), "installed_at": None}
+    return None
+
+
+def host_llama_cpp():
+    """Cherche un llama.cpp sur la machine de l'utilisateur (PATH + emplacements usuels).
+
+    N'installe rien. Retourne None si rien trouvé, sinon {path, version, ok, reason}.
+    """
+    candidates = []
+    for tool in ("llama-mtmd-cli", "llama-mtmd-cli.exe", "llama-cli", "llama-cli.exe"):
+        found = shutil.which(tool)
+        if found:
+            candidates.append(Path(found))
+    home = Path.home()
+    common = [
+        Path("C:/llama.cpp"), Path("C:/llama"), Path("C:/tools/llama.cpp"),
+        Path("C:/Program Files/llama.cpp"), Path("C:/Program Files (x86)/llama.cpp"),
+        home / "llama.cpp", home / "llama", home / "llama.cpp" / "build" / "bin" / "Release",
+        home / "llama.cpp" / "build" / "bin", home / ".local" / "bin",
+        home / "AppData" / "Local" / "llama.cpp",
+    ]
+    for base in common:
+        found = _find_llama_mtmd(base)
+        if found:
+            candidates.append(found)
+    seen, uniq = set(), []
+    for c in candidates:
+        try:
+            key = str(c.resolve()).lower()
+        except Exception:
+            key = str(c).lower()
+        if key not in seen:
+            seen.add(key)
+            uniq.append(c)
+    if not uniq:
+        return None
+    results = []
+    for c in uniq:
+        ver = _llama_bin_version(c)
+        ok, reason = _llama_version_status(ver)
+        tag = (f"b{ver[1]}" if ver and ver[0] == "b" else
+               f"v{'.'.join(str(x) for x in ver[1])}" if ver and ver[0] == "semver" else
+               "inconnue" if ver else None)
+        results.append({"path": str(c), "version": tag, "ok": ok, "reason": reason})
+    for r in results:
+        if r["ok"]:
+            return r
+    return results[0]
+
+
+def llama_available():
+    """llama.cpp utilisable pour les légendes : celui de l'app en priorité, sinon l'hôte vérifié."""
+    app = installed_llama_cpp()
+    if app and app.get("path"):
+        return "app", app
+    host = host_llama_cpp()
+    if host and host.get("ok"):
+        return "host", host
+    return None, None
+
+
+_LLAMA_BINARY_EXTS = (".zip", ".tar.gz", ".tar.xz", ".7z", ".msi", ".dmg", ".deb", ".rpm", ".apk")
+
+
+def _is_binary_asset(a):
+    n = str(a.get("name", "")).lower()
+    return bool(n) and not n.endswith(".txt") and n.endswith(_LLAMA_BINARY_EXTS)
+
+
+def llama_latest_release_info(use_cache=True):
+    """Dernière release officielle AVEC des binaires (tag, assets).
+
+    ⚠️ /releases/latest pointe parfois sur une release « vitrine » sans binaires
+    (ex. v1.0.0 — 1 asset `nightly-tag.txt`), les binaires étant publiés en
+    nightlies « bNNNNN ». On choisit : la plus récente release avec AUSSI des
+    binaires, en préférant les releases stables aux prereleases. (tag, assets) ou
+    (None, []) hors-ligne.
+    """
+    now = time.time()
+    if use_cache and _LLAMA_STATUS_CACHE["tag"] and (now - _LLAMA_STATUS_CACHE["checked"]) < 600:
+        return _LLAMA_STATUS_CACHE["tag"], _LLAMA_STATUS_CACHE.get("assets") or []
+    tag, assets = None, []
+    try:
+        data = _gh_get(LLAMA_REPO_API_LIST)
+        releases = [r for r in (data or []) if not r.get("draft")]
+        with_bins = []
+        for r in releases:
+            bins = [a for a in (r.get("assets") or []) if _is_binary_asset(a)]
+            if bins:
+                with_bins.append((r, bins))
+        stable = [(r, bins) for r, bins in with_bins if not r.get("prerelease")]
+        chosen = stable[0] if stable else (with_bins[0] if with_bins else None)
+        if chosen:
+            r, bins = chosen
+            tag, assets = (r.get("tag_name") or "").strip(), bins
+    except Exception:
+        pass
+    _LLAMA_STATUS_CACHE["tag"] = tag
+    _LLAMA_STATUS_CACHE["assets"] = assets
+    _LLAMA_STATUS_CACHE["checked"] = now
+    return tag, assets
+
+
+def llama_latest_tag(use_cache=True):
+    """Tag de la dernière release officielle avec binaires (mis en cache 10 min)."""
+    tag, _ = llama_latest_release_info(use_cache=use_cache)
+    return tag
+
+
+def llama_update_status():
+    app = installed_llama_cpp()
+    latest = llama_latest_tag()
+    update_available = None
+    if app and app.get("version") and latest:
+        update_available = (str(app["version"]) != str(latest))
+    return {"app": app, "host": host_llama_cpp(), "latest": latest,
+            "update_available": update_available,
+            "effective": ("app" if app else ("host" if (host_llama_cpp() or {}).get("ok") else None))}
+
+
+def pick_llama_windows_asset(assets):
+    """Choisit l'archive Windows la plus adaptée parmi les assets d'une release llama.cpp.
+
+    Ordre de préférence :
+      1. `cudart-…win-cuda-…-x64.zip` — embarque le runtime CUDA (fonctionne sans
+         installation NVIDIA/CUDA sur le poste) ; version CUDA la plus récente ;
+      2. `llama-…win-cuda-…-x64.zip` — CUDA le plus récent, nécessite CUDA sur le poste ;
+      3. `…win-cpu-x64.zip` — repli procésseur (aucune GPU requise, plus lent).
+    Retourne l'asset (dict) ou None.
+    """
+    zips = [a for a in assets or [] if str(a.get("name", "")).lower().endswith(".zip")]
+    win = [a for a in zips
+           if "-win-" in str(a.get("name", "")).lower() and "x64" in str(a.get("name", "")).lower()]
+    if not win:
+        return None
+
+    def cuda_ver(a):
+        m = re.search(r"cuda-(\d+)", str(a.get("name", "")).lower())
+        return tuple(int(x) for x in m.group(1).split(".")) if m else (0,)
+
+    cudart = sorted((a for a in win if "cudart" in str(a.get("name", "")).lower()
+                     and "cuda" in str(a.get("name", "")).lower()), key=cuda_ver)
+    if cudart:
+        return cudart[-1]
+    cuda = sorted((a for a in win if "cuda" in str(a.get("name", "")).lower()), key=cuda_ver)
+    if cuda:
+        return cuda[-1]
+    cpu = [a for a in win if "-cpu-" in str(a.get("name", "")).lower()]
+    return cpu[-1] if cpu else win[0]
+
+
+def latest_llama_windows_asset():
+    tag, assets = llama_latest_release_info(use_cache=False)
+    asset = pick_llama_windows_asset(assets)
+    if not tag or not asset:
+        raise RuntimeError("Aucun asset Windows (CUDA ou avx2) trouvé dans les releases llama.cpp. "
+                           "Consultez https://github.com/ggml-org/llama.cpp/releases")
+    return tag, asset.get("browser_download_url"), asset.get("name")
+
+
+def install_llama_cpp(progress_cb=None):
+    """Télécharge la dernière release OFFICIELLE (ggml-org/llama.cpp) et l'installe dans bin/llama/."""
+    if not _IS_WIN:
+        raise RuntimeError("Téléchargement automatique disponible uniquement sous Windows pour l'instant. "
+                           "Sous Linux/macOS : compilez llama.cpp (github.com/ggml-org/llama.cpp) — "
+                           "l'app détectera votre build via le PATH.")
+    tag, url, name = latest_llama_windows_asset()
+    LLAMA_DIR.mkdir(parents=True, exist_ok=True)
+    archive = LLAMA_DIR / name
+    if progress_cb:
+        progress_cb(0, 0)
+    _download(url, archive, progress_cb)
+    with zipfile.ZipFile(archive) as z:
+        z.extractall(LLAMA_DIR)
+    archive.unlink(missing_ok=True)
+    binpath = _find_llama_mtmd(LLAMA_DIR)
+    if not binpath:
+        raise RuntimeError("Archive llama.cpp téléchargée mais llama-mtmd-cli est introuvable dedans.")
+    manifest = load_manifest()
+    manifest["llama_cpp"] = {"flavor": "official", "version": tag, "path": str(binpath),
+                             "installed_at": time.strftime("%Y-%m-%d %H:%M")}
+    save_manifest(manifest)
+    return manifest["llama_cpp"]
+
+
+# ------------------------------ légende VLM ------------------------------- #
+LLAMA_CAPTION_TIMEOUT = 240  # s — au-delà, le modèle est trop lourd pour la machine
+
+_CAPTION_THINK_RE = re.compile(r"<think>.*?</think>", re.S | re.I)
+_CAPTION_LOG_RE = re.compile(
+    r"^\s*(llama_|common_|ggml|print_info|system_info|load:|main:|sampler|build:|create_|"
+    r"^-\s|^;|^\[|^warn|^info:|^debug)", re.I)
+
+
+def build_caption_command(llama_bin, model, mmproj, image, prompt, max_tokens=384):
+    """Ligne de commande llama-mtmd-cli pour légender une image (une seule passe)."""
+    return [str(llama_bin), "-m", str(model), "--mmproj", str(mmproj),
+            "-ngl", "99", "--image", str(image),
+            "-p", str(prompt), "-n", str(int(max_tokens)),
+            "--temp", "0.7", "--top-p", "0.8", "--top-k", "20",
+            "--presence-penalty", "1.5", "--no-display-prompt", "--log-disable"]
+
+
+def parse_caption_output(text):
+    """Extrait la description du stdout de llama-mtmd-cli (lignes de log, blocs <think>…)."""
+    txt = _CAPTION_THINK_RE.sub("", text or "")
+    lines = []
+    for raw in txt.splitlines():
+        ln = raw.rstrip()
+        if not ln.strip():
+            continue
+        if _CAPTION_LOG_RE.match(ln):
+            continue
+        lines.append(ln.strip())
+    out = re.sub(r"\s+", " ", " ".join(lines)).strip().strip('"').strip("`").strip()
+    if len(out) < 10:
+        raise ValueError("Le modèle n'a pas renvoyé de description exploitable.\n\n"
+                         "Sortie brute :\n" + (text or "")[-800:])
+    return out
+
+
+def run_caption(image_path, captioner_id, prompt, max_tokens=384):
+    """Légende une image avec le VLM choisi. Retourne (caption, captioner_id, backend)."""
+    if captioner_id not in CAPTIONER_MODELS:
+        raise RuntimeError(f"Légendeur inconnu : {captioner_id}")
+    model, mmproj = captioner_files(captioner_id)  # lève une RuntimeError explicite si absent
+    source, info = llama_available()
+    if not source:
+        raise RuntimeError(
+            "llama.cpp est introuvable (ni dans l'app ni sur cette machine). "
+            "Installez-le dans la page Modèles → « 📦 llama.cpp » — officiel, un seul clic — "
+            "ou placez un llama-mtmd-cli récent dans le PATH.")
+    cmd = build_caption_command(info["path"], model, mmproj, str(image_path), prompt, max_tokens)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=LLAMA_CAPTION_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"La description a dépassé {LLAMA_CAPTION_TIMEOUT}s — essayez un légendeur plus petit "
+            "(Bonsai-2 2B/4B) ou passez sur un GPU.")
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip()[-1200:]
+        raise RuntimeError(f"llama-mtmd-cli a échoué (code {proc.returncode}) :\n{tail}")
+    caption = parse_caption_output(proc.stdout or "")
+    backend = "app" if source == "app" else f"machine ({info.get('version') or 'version inconnue'})"
+    return caption, captioner_id, backend

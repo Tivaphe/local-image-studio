@@ -694,3 +694,19 @@ small{color:var(--muted)}
 #pid-prompt-text{width:100%;box-sizing:border-box;resize:vertical;min-height:80px}
 .pid-prompt-warn{background:#f0a93b1f;border:1px solid #f0a93b55;color:var(--warn);
   border-radius:8px;padding:8px 10px;font-size:13px;line-height:1.45}
+
+/* ---------- 🔎 Image → Prompt / 🧠 légendeurs ---------- */
+.caption-panel{max-width:620px}
+.caption-body{padding:14px 18px;display:flex;flex-direction:column;gap:10px}
+.caption-drop{border:1.5px dashed var(--border, #444);border-radius:12px;padding:22px 14px;text-align:center;
+  color:var(--muted);cursor:pointer;transition:border-color .15s, background .15s;min-height:96px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
+.caption-drop:hover,.caption-drop:focus-visible,.caption-drop-over{border-color:var(--accent, #6ea8fe);background:rgba(110,168,254,.06);outline:none}
+#caption-preview{max-width:100%;max-height:220px;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.35)}
+.caption-model-row{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
+.caption-model-row select{flex:1}
+.caption-status-error{color:var(--danger, #ff8a80) !important}
+.pid-caption-row{display:flex;gap:8px;align-items:center}
+.pid-caption-row select{flex:1;min-width:0}
+.llama-card p{margin:.35em 0}
+.captioners-section .model-card .mc-desc{min-height:3.2em}

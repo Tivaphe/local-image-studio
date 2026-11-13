@@ -30,6 +30,7 @@ PORTRAITS_DIR  = ROOT / "portraits"   # portraits PuLID (photo + empreinte .puli
 SOURCE_IMAGES_DIR = ROOT / "source_images"  # images pour img2img
 OUTPUT_DIR     = ROOT / "output"         # images générées (auto-save)
 PREVIEW_DIR    = ROOT / ".preview_cache" # aperçus temporaires pendant la génération
+LLAMA_DIR      = BIN_DIR / "llama"     # llama.cpp officiel (légendeurs d'image)
 
 DB_PATH        = ROOT / "history.db"
 SETTINGS_PATH  = ROOT / "settings.json"
@@ -61,5 +62,5 @@ def find_sd_cli() -> Path | None:
 # Création des dossiers de base
 for _d in (BIN_DIR, MODELS_DIR, DIFFUSION_DIR, VAE_DIR, TEXTENC_DIR, LLM_DIR,
            LORAS_DIR, UPSCALE_DIR, ADETAILER_DIR, SEEDVR2_DIR, TAESD_DIR,
-           PULID_DIR, PID_DIR, PORTRAITS_DIR, SOURCE_IMAGES_DIR, OUTPUT_DIR, PREVIEW_DIR):
+           PULID_DIR, PID_DIR, PORTRAITS_DIR, SOURCE_IMAGES_DIR, OUTPUT_DIR, PREVIEW_DIR, LLAMA_DIR):
     _d.mkdir(parents=True, exist_ok=True)

@@ -248,6 +248,68 @@
     {% endfor %}
   </div>
 
+  <!-- ==================================================== Légendeurs d'image -->
+  <div class="aux-header captioners-section" id="captioners">
+    <h2>🧠 Légendeurs d'image <span class="muted small">(image → prompt, VLM local)</span></h2>
+    <p class="muted">
+      Un <strong>VLM local</strong> lit l'image et rédige le prompt qui permettrait de la reproduire —
+      parfait pour une image qu'<em>on a trouvée</em> (bouton « 🔎 Image → Prompt » sur Générer / Édition),
+      ou pour pré-remplir le prompt de ⬆️ PiD (bouton « 🧠 Décrire l'image » dans la modale PiD).
+      Aucune donnée ne part sur internet après le téléchargement des poids.
+      La description reste <strong>toujours éditable</strong> avant envoi — rien n'est lancé d'office.
+    </p>
+
+    <div class="engine-card llama-card" id="llama-card">
+      <div>
+        <strong>📦 llama.cpp <span class="muted small">(requis par les légendeurs)</span></strong>
+        <p class="muted">
+          Uniquement la version <strong>officielle</strong> de
+          <a href="https://github.com/ggml-org/llama.cpp" target="_blank" rel="noopener">github.com/ggml-org/llama.cpp</a>
+          — dernière release, build <strong>Windows CUDA</strong> (repli avx2/CPU).
+          C'est le runtime de <code>llama-mtmd-cli</code>, l'exécutable qui légende les images.
+        </p>
+        <p class="muted small" id="llama-status-lines">
+          Dans l'app&nbsp;: <strong id="llama-app-state">{% if llama.app.installed %}installé ✓{% if llama.app.version %} ({{ llama.app.version }}){% endif %}{% else %}non installé{% endif %}</strong>
+          &nbsp;·&nbsp;sur la machine&nbsp;: <strong id="llama-host-state">{% if llama.host.found %}{{ llama.host.path }}{% if llama.host.version %} ({{ llama.host.version }}){% endif %}{% if llama.host.ok %} — utilisable ✓{% else %} — {{ llama.host.reason }}{% endif %}{% else %}rien de détecté{% endif %}</strong>
+        </p>
+      </div>
+      <div class="engine-actions">
+        <button id="install-llama" class="btn {% if llama.app.installed %}ghost{% else %}primary{% endif %}">
+          {% if llama.app.installed %}Réinstaller llama.cpp{% else %}Installer llama.cpp (officiel){% endif %}
+        </button>
+        <button id="update-llama" class="btn ghost" title="Vérifie la dernière release sur GitHub et réinstalle si besoin — ou réinstalle la même version si vous le demandez">🔄 Mettre à jour</button>
+      </div>
+    </div>
+    <p class="muted small">
+      ℹ️ &nbsp;Bonsai-2 exige un llama.cpp ≥ b11556 (ou ≥ v0.8.0) : plus ancien, il produit des
+      descriptions fausses <em>sans erreur</em>. « 🔄 Mettre à jour » règle ça (dernière release officielle).
+      Une installation présente sur la machine (PATH, <code>C:\llama.cpp</code>…) est réutilisée si elle est assez récente.
+    </p>
+
+    <div class="model-grid">
+      {% for c in captioners %}
+      <div class="model-card" data-id="cap-{{ c.id }}">
+        <div class="mc-head">
+          <h3>{{ c.name }}{% if c.recommended %} <span class="tag tag-ok">recommandé</span>{% endif %}</h3>
+          {% if c.ready %}<span class="tag tag-ok">installé ✓</span>
+          {% elif c.missing|length < c.dep_count %}<span class="tag tag-warn">partiel</span>
+          {% else %}<span class="tag">à télécharger</span>{% endif %}
+        </div>
+        <p class="muted mc-desc">{{ c.desc }}</p>
+        <p class="mc-hf-link"><a href="{{ c.hf_url }}" target="_blank" rel="noopener">🔗 Hugging Face ↗</a></p>
+        <p class="muted small">
+          Licence&nbsp;: {{ c.license }}{% if c.reuses_installed %} · réutilise des fichiers déjà installés{% endif %} · ~{{ '%.1f'|format(c.size_gb) }} Go · VRAM ~{{ c.vram_gb }} Go
+        </p>
+        <div class="mc-actions">
+          <button class="btn {% if c.ready %}ghost{% else %}primary{% endif %} dl-captioner-btn" data-captioner="{{ c.id }}">
+            {% if c.ready %}Ré-télécharger{% else %}Télécharger (~{{ '%.1f'|format(c.size_gb) }} Go){% endif %}
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
   <!-- ==================================================== Mini-VAE TAE -->
   <div class="aux-header">
     <h2>⚡ VAE rapide (TAE) <span class="muted small">(décodage final accéléré)</span></h2>

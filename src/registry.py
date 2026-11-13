@@ -432,6 +432,159 @@ def prompt_looks_like_edit_instruction(prompt: str) -> bool:
 
 
 # --------------------------------------------------------------------------- #
+#  Légendeurs d'image → prompt (VLM GGUF pour llama.cpp)
+# --------------------------------------------------------------------------- #
+# Prompt envoyé aux VLMs pour produire un prompt de text-to-image. Volontairement
+# en anglais (les modèles de la famille y sont entraînés), en sortie unique,
+# sans négatif ni balisage. Éditable dans Paramètres → « Légende d'image ».
+CAPTION_DEFAULT_PROMPT = (
+    "You are an expert prompt writer for text-to-image diffusion models.\n"
+    "Describe the image as a single dense English text-to-image prompt. Include: "
+    "the main subject(s) and their appearance, action and pose; the setting or "
+    "background; lighting; composition and framing (wide shot, close-up, rule of "
+    "thirds...); the medium and style (photograph, oil painting, anime, 3D render, "
+    "watercolor...); the color palette; the overall mood.\n"
+    "Output ONLY the prompt itself — one paragraph, no preamble, no quotes, no "
+    "markdown, no explanation, no negative prompt, no camera-brand trivia, no "
+    "trailing period. Maximum 120 words."
+)
+
+# Catalogue des légendeurs. `size_gb` = téléchargement total (modèle + mmproj).
+# Bonsai-2 : seul le packing Q2_0 fonctionne en llama.cpp officiel (≥ b11556) ;
+# les packings PTQ1_0/PQ2_0 exigeraient le fork PrismML — volontairement exclus.
+# LFM3-VL-2B : licence custom LiquidAI « lfm1.0 » (pas Apache-2.0) — affichée telle quelle.
+CAPTIONER_MODELS = {
+    "bonsai2_4b": {
+        "name": "Bonsai-2 4B (ternaire 2 bits)",
+        "desc": "Légendeur 2026 dérivé de Qwen3.5-4B, ultra-compact (2-bit ternary). "
+                "Le meilleur compromis poids/qualité de la famille. Licence Apache-2.0.",
+        "license": "Apache-2.0", "hf_url": "https://huggingface.co/prism-ml/Ternary-Bonsai-2-4B-gguf",
+        "deps": ["bonsai2_4b_model", "bonsai2_4b_mmproj"],
+        "size_gb": 1.6, "vram_gb": 3, "recommended": True,
+    },
+    "bonsai2_2b": {
+        "name": "Bonsai-2 2B (ternaire 2 bits)",
+        "desc": "La version la plus légère (~0,9 Go) — pour petits GPU ou légendes rapides. Qualité moindre. Licence Apache-2.0.",
+        "license": "Apache-2.0", "hf_url": "https://huggingface.co/prism-ml/Ternary-Bonsai-2-2B-gguf",
+        "deps": ["bonsai2_2b_model", "bonsai2_2b_mmproj"],
+        "size_gb": 0.9, "vram_gb": 2, "recommended": False,
+    },
+    "bonsai2_9b": {
+        "name": "Bonsai-2 9B (ternaire 2 bits)",
+        "desc": "La version 9B — plus capable pour les descriptions denses, toujours en 2-bit (~3,2 Go). Licence Apache-2.0.",
+        "license": "Apache-2.0", "hf_url": "https://huggingface.co/prism-ml/Ternary-Bonsai-2-9B-gguf",
+        "deps": ["bonsai2_9b_model", "bonsai2_9b_mmproj"],
+        "size_gb": 3.2, "vram_gb": 4, "recommended": False,
+    },
+    "qwen35_4b": {
+        "name": "Qwen3.5 4B (natif multimodal)",
+        "desc": "VLM 2026 officiel Qwen, 262 k contexte, excellentes légendes structurées (Q4_K_M). Licence Apache-2.0.",
+        "license": "Apache-2.0", "hf_url": "https://huggingface.co/Qwen/Qwen3.5-4B",
+        "deps": ["qwen35_4b_model", "qwen35_4b_mmproj"],
+        "size_gb": 3.4, "vram_gb": 5, "recommended": True,
+    },
+    "qwen3vl_4b": {
+        "name": "Qwen3-VL 4B (déjà installé pour l'édition)",
+        "desc": "Réutilise les poids Qwen3-VL-4B-Instruct + mmproj déjà téléchargés avec Fibo 2 / FLUX.3 / Iris / MOSS — 0 Go de plus. Licence Apache-2.0.",
+        "license": "Apache-2.0", "hf_url": "https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct",
+        "deps": ["qwen3vl_4b", "mmproj_qwen3vl_4b"],
+        "size_gb": 0.0, "vram_gb": 5, "recommended": False, "reuses_installed": True,
+    },
+    "qwen3vl_8b": {
+        "name": "Qwen3-VL 8B (déjà installé pour l'édition)",
+        "desc": "Réutilise Qwen3-VL-8B-Instruct + mmproj déjà téléchargés avec Qwen-Image 2.1 / FLUX.3 — 0 Go de plus. Licence Apache-2.0.",
+        "license": "Apache-2.0", "hf_url": "https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct",
+        "deps": ["qwen3vl_8b", "mmproj_qwen3vl_8b"],
+        "size_gb": 0.0, "vram_gb": 8, "recommended": False, "reuses_installed": True,
+    },
+    "qwen35_9b": {
+        "name": "Qwen3.5 9B (encodeur de MOSS-Image)",
+        "desc": "Réutilise Qwen3.5-9B (5,7 Go, déjà installé avec MOSS-Image) — seul mmproj F16 (~0,9 Go) est ajouté. Licence Apache-2.0.",
+        "license": "Apache-2.0", "hf_url": "https://huggingface.co/Qwen/Qwen3.5-9B",
+        "deps": ["qwen35_9b", "qwen35_9b_mmproj"],
+        "size_gb": 0.9, "vram_gb": 8, "recommended": False,
+    },
+    "gemma4_e2b": {
+        "name": "Gemma-4 E2B (Google)",
+        "desc": "Gemma 4 edge, natif multimodal, supporté par llama.cpp au lancement (avr. 2026). Un poil plus lourd (~4,1 Go). Licence Apache-2.0.",
+        "license": "Apache-2.0", "hf_url": "https://huggingface.co/google/gemma-4-E2B-it",
+        "deps": ["gemma4_e2b_model", "gemma4_e2b_mmproj"],
+        "size_gb": 4.1, "vram_gb": 6, "recommended": False,
+    },
+    "gemma4_e4b": {
+        "name": "Gemma-4 E4B (Google)",
+        "desc": "Gemma 4 edge grande taille (~6 Go) — légendes plus riches. Licence Apache-2.0.",
+        "license": "Apache-2.0", "hf_url": "https://huggingface.co/google/gemma-4-E4B-it",
+        "deps": ["gemma4_e4b_model", "gemma4_e4b_mmproj"],
+        "size_gb": 6.0, "vram_gb": 8, "recommended": False,
+    },
+    "lfm3vl_2b": {
+        "name": "LFM3-VL 2B (LiquidAI)",
+        "desc": "Très compact (~1,3 Go). ⚠️ Licence custom « lfm1.0 » (LiquidAI) — usage personnel/évaluation ; ce n'est PAS une licence Apache/OSI. À lire avant installation.",
+        "license": "lfm1.0 (custom LiquidAI)", "license_warn": True,
+        "hf_url": "https://huggingface.co/LiquidAI/LFM3-VL-2B-GGUF",
+        "deps": ["lfm3vl_2b_model", "lfm3vl_2b_mmproj"],
+        "size_gb": 1.3, "vram_gb": 3, "recommended": False,
+    },
+}
+
+CAPTIONER_ORDER = ["bonsai2_4b", "qwen35_4b", "bonsai2_9b", "qwen35_9b",
+                   "qwen3vl_8b", "qwen3vl_4b", "gemma4_e2b", "bonsai2_2b",
+                   "lfm3vl_2b", "gemma4_e4b"]
+
+def _captioner_dep_present(dep_id):
+    """Une dépendance de légendeur est présente si le manifeste/disque la connaît (sans passer par engine)."""
+    mf = load_manifest()
+    p = _dep_path(mf, dep_id)
+    return bool(p and Path(p).exists())
+
+
+def captioner_status(cid):
+    """État d'un légendeur : {"ready": bool, "deps": {dep_id: bool}, "missing": [dep_id]}."""
+    deps = (CAPTIONER_MODELS.get(cid) or {}).get("deps") or []
+    deps_ready = {d: _captioner_dep_present(d) for d in deps}
+    missing = [d for d, ok in deps_ready.items() if not ok]
+    return {"ready": bool(deps) and not missing, "deps": deps_ready, "missing": missing}
+
+
+def captioner_cards():
+    """Cartes pour la page Modèles (ordre CAPTIONER_ORDER)."""
+    return [{**CAPTIONER_MODELS[cid], "id": cid, "status": captioner_status(cid)}
+            for cid in CAPTIONER_ORDER if cid in CAPTIONER_MODELS]
+
+
+def captioners_ready():
+    """Liste des ids de légendeurs prêts (ordre CAPTIONER_ORDER)."""
+    return [cid for cid in CAPTIONER_ORDER if captioner_status(cid)["ready"]]
+
+
+def resolve_captioner_id(preferred):
+    """Choisit le légendeur effectif : celui demandé si prêt, sinon le premier prêt."""
+    preferred = (preferred or "").strip()
+    if preferred in CAPTIONER_MODELS and captioner_status(preferred)["ready"]:
+        return preferred
+    ready = captioners_ready()
+    return ready[0] if ready else None
+
+
+def captioner_files(cid):
+    """(model_path, mmproj_path) depuis le manifeste — suppose le légendeur prêt."""
+    m = load_manifest()
+    paths = {d: _dep_path(m, d) for d in CAPTIONER_MODELS[cid]["deps"]}
+    model = mmproj = None
+    for d, p in paths.items():
+        if "mmproj" in d:
+            mmproj = p
+        else:
+            model = p
+    if not model or not mmproj:
+        raise RuntimeError(f"Fichiers du légendeur « {CAPTIONER_MODELS[cid]['name']} » introuvables — "
+                           "téléchargez-le depuis la page Modèles.")
+    return model, mmproj
+
+
+
+# --------------------------------------------------------------------------- #
 #  Mini-VAE TAE (decodage ultra-rapide + apercu en direct)
 #  taew2_1  : Qwen-Image / Qwen-Image 2512 / Wan 2.1 (decode rapide en fin
 #             de generation ; baisse tres legerement la finesse)
@@ -816,6 +969,112 @@ DEPS = {
         "filename": "mmproj-Qwen3VL-4B-Instruct-F16.gguf",
         "dest": LLM_DIR / "mmproj-Qwen3VL-4B-Instruct-F16.gguf",
         "size_gb": 0.84,
+    },
+    # --- Dépendances des légendeurs d'image (GGUF llama.cpp + encodeur visuel) ---
+    "bonsai2_2b_model": {
+        "type": "exact",
+        "repo": "prism-ml/Ternary-Bonsai-2-2B-gguf",
+        "filename": "Ternary-Bonsai-2-2B-Q2_0.gguf",
+        "dest": LLM_DIR / "Ternary-Bonsai-2-2B-Q2_0.gguf",
+        "size_gb": 0.55,
+    },
+    "bonsai2_2b_mmproj": {
+        "type": "exact",
+        "repo": "prism-ml/Ternary-Bonsai-2-2B-gguf",
+        "filename": "Ternary-Bonsai-2-2B-mmproj-Q8_0.gguf",
+        "dest": LLM_DIR / "Ternary-Bonsai-2-2B-mmproj-Q8_0.gguf",
+        "size_gb": 0.36,
+    },
+    "bonsai2_4b_model": {
+        "type": "exact",
+        "repo": "prism-ml/Ternary-Bonsai-2-4B-gguf",
+        "filename": "Ternary-Bonsai-2-4B-Q2_0.gguf",
+        "dest": LLM_DIR / "Ternary-Bonsai-2-4B-Q2_0.gguf",
+        "size_gb": 1.21,
+    },
+    "bonsai2_4b_mmproj": {
+        "type": "exact",
+        "repo": "prism-ml/Ternary-Bonsai-2-4B-gguf",
+        "filename": "Ternary-Bonsai-2-4B-mmproj-Q8_0.gguf",
+        "dest": LLM_DIR / "Ternary-Bonsai-2-4B-mmproj-Q8_0.gguf",
+        "size_gb": 0.37,
+    },
+    "bonsai2_9b_model": {
+        "type": "exact",
+        "repo": "prism-ml/Ternary-Bonsai-2-9B-gguf",
+        "filename": "Ternary-Bonsai-2-9B-Q2_0.gguf",
+        "dest": LLM_DIR / "Ternary-Bonsai-2-9B-Q2_0.gguf",
+        "size_gb": 2.56,
+    },
+    "bonsai2_9b_mmproj": {
+        "type": "exact",
+        "repo": "prism-ml/Ternary-Bonsai-2-9B-gguf",
+        "filename": "Ternary-Bonsai-2-9B-mmproj-Q8_0.gguf",
+        "dest": LLM_DIR / "Ternary-Bonsai-2-9B-mmproj-Q8_0.gguf",
+        "size_gb": 0.62,
+    },
+    "qwen35_4b_model": {
+        "type": "exact",
+        "repo": "unsloth/Qwen3.5-4B-GGUF",
+        "filename": "Qwen3.5-4B-Q4_K_M.gguf",
+        "dest": LLM_DIR / "Qwen3.5-4B-Q4_K_M.gguf",
+        "size_gb": 2.74,
+    },
+    "qwen35_4b_mmproj": {
+        "type": "exact",
+        "repo": "unsloth/Qwen3.5-4B-GGUF",
+        "filename": "mmproj-F16.gguf",
+        "dest": LLM_DIR / "qwen3.5-4b-mmproj-F16.gguf",
+        "size_gb": 0.67,
+    },
+    "qwen35_9b_mmproj": {
+        "type": "exact",
+        "repo": "unsloth/Qwen3.5-9B-GGUF",
+        "filename": "mmproj-F16.gguf",
+        "dest": LLM_DIR / "qwen3.5-9b-mmproj-F16.gguf",
+        "size_gb": 0.92,
+    },
+    "gemma4_e2b_model": {
+        "type": "exact",
+        "repo": "unsloth/gemma-4-E2B-it-GGUF",
+        "filename": "gemma-4-E2B-it-Q4_K_M.gguf",
+        "dest": LLM_DIR / "gemma-4-E2B-it-Q4_K_M.gguf",
+        "size_gb": 3.11,
+    },
+    "gemma4_e2b_mmproj": {
+        "type": "exact",
+        "repo": "unsloth/gemma-4-E2B-it-GGUF",
+        "filename": "mmproj-F16.gguf",
+        "dest": LLM_DIR / "gemma-4-e2b-mmproj-F16.gguf",
+        "size_gb": 0.99,
+    },
+    "gemma4_e4b_model": {
+        "type": "exact",
+        "repo": "unsloth/gemma-4-E4B-it-GGUF",
+        "filename": "gemma-4-E4B-it-Q4_K_M.gguf",
+        "dest": LLM_DIR / "gemma-4-E4B-it-Q4_K_M.gguf",
+        "size_gb": 4.98,
+    },
+    "gemma4_e4b_mmproj": {
+        "type": "exact",
+        "repo": "unsloth/gemma-4-E4B-it-GGUF",
+        "filename": "mmproj-F16.gguf",
+        "dest": LLM_DIR / "gemma-4-e4b-mmproj-F16.gguf",
+        "size_gb": 0.99,
+    },
+    "lfm3vl_2b_model": {
+        "type": "exact",
+        "repo": "LiquidAI/LFM3-VL-2B-GGUF",
+        "filename": "LFM3-VL-2B-Q4_K_M.gguf",
+        "dest": LLM_DIR / "LFM3-VL-2B-Q4_K_M.gguf",
+        "size_gb": 1.10,
+    },
+    "lfm3vl_2b_mmproj": {
+        "type": "exact",
+        "repo": "LiquidAI/LFM3-VL-2B-GGUF",
+        "filename": "mmproj-LFM3-VL-2B-Q8_0.gguf",
+        "dest": LLM_DIR / "mmproj-LFM3-VL-2B-Q8_0.gguf",
+        "size_gb": 0.20,
     },
 }
 
@@ -1823,6 +2082,36 @@ def _is_valid_dep(dep_id: str, p: Path) -> bool:
         return "mmproj" in name and ("qwen3" in name or "qwen_3" in name) and "8b" in name
     elif dep_id == "mmproj_qwen3vl_4b":
         return "mmproj" in name and ("qwen3" in name or "qwen_3" in name) and "4b" in name
+    elif dep_id == "bonsai2_2b_model":
+        return name == "ternary-bonsai-2-2b-q2_0.gguf"
+    elif dep_id == "bonsai2_2b_mmproj":
+        return name == "ternary-bonsai-2-2b-mmproj-q8_0.gguf"
+    elif dep_id == "bonsai2_4b_model":
+        return name == "ternary-bonsai-2-4b-q2_0.gguf"
+    elif dep_id == "bonsai2_4b_mmproj":
+        return name == "ternary-bonsai-2-4b-mmproj-q8_0.gguf"
+    elif dep_id == "bonsai2_9b_model":
+        return name == "ternary-bonsai-2-9b-q2_0.gguf"
+    elif dep_id == "bonsai2_9b_mmproj":
+        return name == "ternary-bonsai-2-9b-mmproj-q8_0.gguf"
+    elif dep_id == "qwen35_4b_model":
+        return name == "qwen3.5-4b-q4_k_m.gguf" or name == "qwen35-4b-q4_k_m.gguf"
+    elif dep_id == "qwen35_4b_mmproj":
+        return "mmproj" in name and "4b" in name and ("qwen3.5" in name or "qwen35" in name)
+    elif dep_id == "qwen35_9b_mmproj":
+        return "mmproj" in name and "9b" in name and ("qwen3.5" in name or "qwen35" in name)
+    elif dep_id == "gemma4_e2b_model":
+        return name == "gemma-4-e2b-it-q4_k_m.gguf"
+    elif dep_id == "gemma4_e2b_mmproj":
+        return "mmproj" in name and "e2b" in name
+    elif dep_id == "gemma4_e4b_model":
+        return name == "gemma-4-e4b-it-q4_k_m.gguf"
+    elif dep_id == "gemma4_e4b_mmproj":
+        return "mmproj" in name and "e4b" in name
+    elif dep_id == "lfm3vl_2b_model":
+        return name == "lfm3-vl-2b-q4_k_m.gguf"
+    elif dep_id == "lfm3vl_2b_mmproj":
+        return name == "mmproj-lfm3-vl-2b-q8_0.gguf"
     elif dep_id == "qwen35_9b":
         return ("qwen3.5" in name or "qwen3_5" in name or "qwen35" in name) and "9b" in name \
             and "vl" not in name and "mmproj" not in name

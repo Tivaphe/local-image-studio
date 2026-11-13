@@ -267,6 +267,49 @@ Deux outils agissent directement sur une image déjà générée (boutons sur ch
 
 ---
 
+## 🔎 Image → Prompt (légendeur local, VLM)
+
+Vous avez trouvé **une image** — sur internet, dans vos fichiers — et vous voulez la **reproduire** ?
+Un **modèle de vision (VLM) local** lit l'image et rédige **le prompt** qui permettrait de la
+recréer, sans envoyer l'image nulle part (hormis le téléchargement initial des poids).
+
+**Où trouver le bouton ?**
+
+- Pages **Générer** et **Édition** → bouton **🔎 Image → Prompt** : déposez n'importe quelle
+  image (PNG, JPEG, WebP, GIF, 12 Mo max), choisissez le légendeur, cliquez
+  **« 🧠 Générer le prompt »** — le texte apparaît, **éditable**, puis **« Utiliser ce prompt »**
+  l'insère dans le champ de prompt (couleur, cadrage, style : relisez toujours avant de lancer) ;
+- modale **⬆️ PiD ×4** → bouton **🧠 Décrire l'image** : le VLM remplit le prompt PiD avec la
+  description de l'image source (modifiable avant le lancement — jamais d'automatisation).
+
+**Ce qu'il faut installer d'abord** (page **Modèles** → « 📦 llama.cpp » et « 🧠 Légendeurs
+d'image ») :
+
+1. **llama.cpp, version officielle uniquement** (ggml-org) : sous **Windows**, un bouton
+   « Installer llama.cpp » télécharge la dernière release officielle depuis GitHub
+   (build CUDA autoportant `cudart` — fonctionne sans installation CUDA —, sinon build CPU) ;
+   sous **Linux/macOS**, compilez llama.cpp vous-même — l'app détecte `llama-mtmd-cli` sur votre
+   machine (PATH, `~/llama.cpp/build/bin`, `C:\llama.cpp`, …). Une version déjà présente est
+   réutilisée si elle est assez récente ;
+2. **un légendeur** (page Modèles → « 🧠 Légendeurs d'image », téléchargement en 1 clic) :
+
+| Légendeur | Taille | VRAM | Licence | Note |
+|---|---|---|---|---|
+| **Qwen3.5 4B** ⭐ | ~3,4 Go | ~5 Go | Apache-2.0 | **recommandé** — VLM 2026 officiel, légendes denses |
+| Bonsai-2 2B / 4B / 9B | ~0,9 / 1,6 / 3,2 Go | ~2 / 3 / 4 Go | Apache-2.0 | dérivés Qwen3.5 ternaires 2 bits — exigent llama.cpp ≥ b11556 (détecté et signalé) |
+| Qwen3.5 9B | ~0,9 Go (+ mmproj) | ~8 Go | Apache-2.0 | natif multimodal |
+| **Qwen3-VL 4B / 8B** | **0 Go** | ~5 / ~8 Go | Apache-2.0 | **réutilise** les poids déjà installés pour l'édition (Fibo 2 / FLUX.3 / Qwen-Image 2.1…) |
+| Gemma 4 E2B / E4B | ~4,1 / ~6,0 Go | ~6 / ~8 Go | Apache-2.0 | multimodaux Google, quantifiés unsloth |
+| LFM3-VL 2B | ~1,3 Go | ~3 Go | ⚠️ **lfm1.0 (custom)** | compact — usage soumis à la licence LFM |
+
+Le **prompt envoyé au VLM est éditable** dans **Paramètres → « 🧠 Légende d'image »**
+(bouton « ↺ Restaurer le prompt par défaut » inclus) ; le modèle par défaut se règle aussi
+là-bas. Le résultat est **toujours affiché et modifiable** avant usage — l'app n'injecte rien
+silencieusement. Bonsai-2 en version trop ancienne de llama.cpp produit des descriptions
+fausses *sans erreur* : la page Modèles vérifie la version installée et propose une mise à jour.
+
+---
+
 ## 📥 Métadonnées intégrées dans chaque PNG
 
 Chaque image générée porte désormais un bloc de métadonnées (prompt, seed, modèle…).
@@ -340,7 +383,7 @@ local-image-studio/
 │   ├── app.py             ← Serveur web (Flask) + options de démarrage
 │   ├── browser_launch.py  ← Ouvrir Chrome automatiquement au démarrage
 │   ├── engine.py          ← Moteur sd-cli + téléchargements + file d'attente
-│   ├── registry.py        ← Définition des 25 modèles + upscalers ×4 + détecteurs ADetailer
+│   ├── registry.py        ← Modèles + upscalers ×4 + ADetailer + légendeurs VLM (image → prompt)
 │   ├── prompt_enhancer.py ← Enrichissement & traduction (LLM)
 │   ├── metadata.py        ← Métadonnées PNG (lecture / injection des réglages)
 │   ├── gpu_info.py        ← Détection VRAM

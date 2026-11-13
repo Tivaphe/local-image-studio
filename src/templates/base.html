@@ -44,8 +44,10 @@
   </main>
 
   <script src="{{ url_for('static', filename='app.js', v=static_v) }}"></script>
+  <script src="{{ url_for('static', filename='caption.js', v=static_v) }}"></script>
   {% include "_postprocess.html" %}
   {% include "_pid_prompt.html" %}
+  {% include "_caption.html" %}
   {% block scripts %}{% endblock %}
 </body>
 </html>
