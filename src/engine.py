@@ -2393,7 +2393,7 @@ def install_llama_cpp(progress_cb=None):
 # ------------------------------ légende VLM ------------------------------- #
 LLAMA_CAPTION_TIMEOUT = 240  # s — au-delà, le modèle est trop lourd pour la machine
 
-_CAPTION_THINK_RE = re.compile(r"<think>.*?</think>", re.S | re.I)
+_CAPTION_THINK_RE = re.compile(r"<think>.*?(?:</think>|\Z)", re.S | re.I)
 _CAPTION_LOG_RE = re.compile(
     r"^\s*(llama_|common_|ggml|print_info|system_info|load:|main:|sampler|build:|create_|"
     r"^-\s|^;|^\[|^warn|^info:|^debug)", re.I)
@@ -2426,7 +2426,7 @@ def parse_caption_output(text):
     return out
 
 
-def run_caption(image_path, captioner_id, prompt, max_tokens=384):
+def run_caption(image_path, captioner_id, prompt, max_tokens=1024):
     """Légende une image avec le VLM choisi. Retourne (caption, captioner_id, backend)."""
     if captioner_id not in CAPTIONER_MODELS:
         raise RuntimeError(f"Légendeur inconnu : {captioner_id}")
@@ -2571,6 +2571,7 @@ def run_caption_via_server(server_path, model, mmproj, image_path, prompt, max_t
             "max_tokens": int(max_tokens),
             "temperature": 0.7, "top_p": 0.8, "top_k": 20,
             "presence_penalty": 1.5,
+            "chat_template_kwargs": {"enable_thinking": False},
             "stream": False,
         }).encode("utf-8")
         req = Request(f"http://127.0.0.1:{port}/v1/chat/completions", data=body,
@@ -2583,9 +2584,22 @@ def run_caption_via_server(server_path, model, mmproj, image_path, prompt, max_t
         except Exception as e:
             raise RuntimeError(f"llama-server a refusé la requête de légende : {e}")
         content = ""
+        finish = None
         choices = data.get("choices") or []
         if choices:
             content = (((choices[0] or {}).get("message") or {}).get("content")) or ""
+            finish = choices[0].get("finish_reason")
+        if not (content or "").strip():
+            reasoning = ""
+            if choices:
+                reasoning = ((choices[0] or {}).get("message") or {}).get("reasoning_content") or ""
+            hint = ("finish_reason=" + str(finish) if finish else "finish_reason inconnu")
+            if reasoning:
+                hint += f" — le modèle a épuisé son budget en réflexion ({len(reasoning)} caractères de raisonnement)"
+            raise RuntimeError(
+                "Le modèle n'a pas produit de texte visible (" + hint + "). "
+                "Réessayez — le thinking est désormais coupé et le budget porté à 1024 tokens ; "
+                "si ça persiste, choisissez un autre légendeur.")
         return parse_caption_output(content)
     finally:
         try:

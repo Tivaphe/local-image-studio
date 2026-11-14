@@ -300,6 +300,8 @@ d'image ») :
 | **Qwen3.5 4B** ⭐ | ~3,4 Go | ~5 Go | Apache-2.0 | **recommandé** — VLM 2026 officiel, légendes denses |
 | Bonsai-2 2B / 4B / 9B | ~0,9 / 1,6 / 3,2 Go | ~2 / 3 / 4 Go | Apache-2.0 | dérivés Qwen3.5 ternaires 2 bits — exigent llama.cpp ≥ b11556 (détecté et signalé) |
 | Qwen3.5 9B | ~0,9 Go (+ mmproj) | ~8 Go | Apache-2.0 | natif multimodal |
+| **Qwen3.5 4B abliterated KAINE** 🔓 | ~3,3 Go | ~5 Go | Apache-2.0 (uncensored) | refus supprimés — pour légender sans filtre (mmproj officiel réutilisé, non testé) |
+| **Qwen2.5-VL 3B abliterated** 🔓 | ~2,6 Go | ~4 Go | Apache-2.0 (uncensored) | abliteré côté texte (huihui-ai), compact |
 | **Qwen3-VL 4B / 8B** | **0 Go** | ~5 / ~8 Go | Apache-2.0 | **réutilise** les poids déjà installés pour l'édition (Fibo 2 / FLUX.3 / Qwen-Image 2.1…) |
 | Gemma 4 E2B / E4B | ~4,1 / ~6,0 Go | ~6 / ~8 Go | Apache-2.0 | multimodaux Google, quantifiés unsloth |
 | LFM3-VL 2B | ~1,3 Go | ~3 Go | ⚠️ **lfm1.0 (custom)** | compact — usage soumis à la licence LFM |

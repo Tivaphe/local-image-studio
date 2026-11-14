@@ -29,6 +29,11 @@ class CaptionParsingTests(unittest.TestCase):
         out = engine.parse_caption_output(raw)
         self.assertEqual(out, "A red teapot on a wooden table, soft window light, shallow depth of field.")
 
+    def test_strips_unterminated_think_block(self):
+        raw = "<think>I was still thinking when the token budget ended"
+        with self.assertRaises(ValueError):
+            engine.parse_caption_output(raw)
+
     def test_rejects_empty_or_noise(self):
         with self.assertRaises(ValueError):
             engine.parse_caption_output("llama_model_loader: nothing useful\nprint_info: x\n")
@@ -45,6 +50,18 @@ class CaptionParsingTests(unittest.TestCase):
         self.assertIn("-m /models/x.gguf", joined)
         self.assertIn("-n 128", joined)
         self.assertIn("-ngl 99", joined)
+
+
+class UncensoredCaptionerCatalogTests(unittest.TestCase):
+    def test_uncensored_captioners_registered_and_flagged(self):
+        for cid in ("kaine_qwen35_4b", "huihui_qwen25vl_3b"):
+            self.assertIn(cid, registry.CAPTIONER_MODELS)
+            self.assertTrue(registry.CAPTIONER_MODELS[cid].get("uncensored"))
+            self.assertIn(cid, registry.CAPTIONER_ORDER)
+            for dep in registry.CAPTIONER_MODELS[cid]["deps"]:
+                self.assertIn(dep, registry.DEPS)
+                dest = registry.DEPS[dep]["dest"]
+                self.assertTrue(registry._is_valid_dep(dep, dest))
 
 
 class BonsaiVersionGuardTests(unittest.TestCase):

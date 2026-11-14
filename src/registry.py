@@ -483,6 +483,20 @@ CAPTIONER_MODELS = {
         "deps": ["qwen35_4b_model", "qwen35_4b_mmproj"],
         "size_gb": 3.4, "vram_gb": 5, "recommended": True,
     },
+    "kaine_qwen35_4b": {
+        "name": "Qwen3.5 4B abliterated KAINE (uncensored)",
+        "desc": "Version « uncensored » (abliterée, refus supprimés) de Qwen3.5-4B — pour légender sans filtre. mmproj officiel Qwen3.5-4B réutilisé — correspondance non testée. Licence Apache-2.0 (dérivée, non officielle).",
+        "license": "Apache-2.0 (uncensored)", "hf_url": "https://huggingface.co/kaineone/Qwen3.5-4B-abliterated-GGUF",
+        "deps": ["kaine_qwen35_4b_model", "qwen35_4b_mmproj"],
+        "size_gb": 3.3, "vram_gb": 5, "recommended": False, "uncensored": True,
+    },
+    "huihui_qwen25vl_3b": {
+        "name": "Qwen2.5-VL 3B abliterated (uncensored)",
+        "desc": "Qwen2.5-VL-3B-Instruct abliteré par huihui-ai (refus supprimés côté texte uniquement) — compact, mmproj officiel du même dépôt. Licence Apache-2.0.",
+        "license": "Apache-2.0 (uncensored)", "hf_url": "https://huggingface.co/huihui-ai/Qwen2.5-VL-3B-Instruct-abliterated",
+        "deps": ["huihui_qwen25vl_3b_model", "huihui_qwen25vl_3b_mmproj"],
+        "size_gb": 2.6, "vram_gb": 4, "recommended": False, "uncensored": True,
+    },
     "qwen3vl_4b": {
         "name": "Qwen3-VL 4B (déjà installé pour l'édition)",
         "desc": "Réutilise les poids Qwen3-VL-4B-Instruct + mmproj déjà téléchargés avec Fibo 2 / FLUX.3 / Iris / MOSS — 0 Go de plus. Licence Apache-2.0.",
@@ -528,7 +542,8 @@ CAPTIONER_MODELS = {
     },
 }
 
-CAPTIONER_ORDER = ["bonsai2_4b", "qwen35_4b", "bonsai2_9b", "qwen35_9b",
+CAPTIONER_ORDER = ["bonsai2_4b", "qwen35_4b", "kaine_qwen35_4b", "huihui_qwen25vl_3b",
+                   "bonsai2_9b", "qwen35_9b",
                    "qwen3vl_8b", "qwen3vl_4b", "gemma4_e2b", "bonsai2_2b",
                    "lfm3vl_2b", "gemma4_e4b"]
 
@@ -1012,6 +1027,27 @@ DEPS = {
         "filename": "Ternary-Bonsai-2-9B-mmproj-Q8_0.gguf",
         "dest": LLM_DIR / "Ternary-Bonsai-2-9B-mmproj-Q8_0.gguf",
         "size_gb": 0.62,
+    },
+    "kaine_qwen35_4b_model": {
+        "type": "exact",
+        "repo": "kaineone/Qwen3.5-4B-abliterated-GGUF",
+        "filename": "KAINE-Qwen3.5-4B-abliterated.Q4_K_M.gguf",
+        "dest": LLM_DIR / "KAINE-Qwen3.5-4B-abliterated.Q4_K_M.gguf",
+        "size_gb": 2.6,
+    },
+    "huihui_qwen25vl_3b_model": {
+        "type": "exact",
+        "repo": "huihui-ai/Qwen2.5-VL-3B-Instruct-abliterated",
+        "filename": "GGUF/ggml-model-Q4_K_M.gguf",
+        "dest": LLM_DIR / "huihui-qwen2.5-vl-3b-abliterated-q4_k_m.gguf",
+        "size_gb": 1.93,
+    },
+    "huihui_qwen25vl_3b_mmproj": {
+        "type": "exact",
+        "repo": "huihui-ai/Qwen2.5-VL-3B-Instruct-abliterated",
+        "filename": "GGUF/mmproj-ggml-model-f16.gguf",
+        "dest": LLM_DIR / "huihui-qwen2.5-vl-3b-abliterated-mmproj-f16.gguf",
+        "size_gb": 0.6,
     },
     "qwen35_4b_model": {
         "type": "exact",
@@ -2094,6 +2130,12 @@ def _is_valid_dep(dep_id: str, p: Path) -> bool:
         return name == "ternary-bonsai-2-9b-q2_0.gguf"
     elif dep_id == "bonsai2_9b_mmproj":
         return name == "ternary-bonsai-2-9b-mmproj-q8_0.gguf"
+    elif dep_id == "kaine_qwen35_4b_model":
+        return name == "kaine-qwen3.5-4b-abliterated.q4_k_m.gguf"
+    elif dep_id == "huihui_qwen25vl_3b_model":
+        return "qwen2.5-vl" in name and "abliterated" in name and "q4_k_m" in name
+    elif dep_id == "huihui_qwen25vl_3b_mmproj":
+        return "mmproj" in name and "huihui-qwen2.5-vl-3b" in name
     elif dep_id == "qwen35_4b_model":
         return name == "qwen3.5-4b-q4_k_m.gguf" or name == "qwen35-4b-q4_k_m.gguf"
     elif dep_id == "qwen35_4b_mmproj":

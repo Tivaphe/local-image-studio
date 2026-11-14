@@ -54,7 +54,7 @@
     for (const c of ready) {
       const o = document.createElement("option");
       o.value = c.id;
-      o.textContent = c.name + (c.recommended ? " ⭐" : "") + (c.license_warn ? " ⚠️ licence custom" : "");
+      o.textContent = c.name + (c.recommended ? " ⭐" : "") + (c.license_warn ? " ⚠️ licence custom" : "") + (c.uncensored ? " 🔓" : "");
       sel.appendChild(o);
     }
     if (data.selected && ready.some(c => c.id === data.selected)) sel.value = data.selected;

@@ -1289,6 +1289,7 @@ def _captioner_cards_payload():
             "hf_url": c.get("hf_url"), "size_gb": c.get("size_gb"),
             "vram_gb": c.get("vram_gb"), "recommended": bool(c.get("recommended")),
             "reuses_installed": bool(c.get("reuses_installed")),
+            "uncensored": bool(c.get("uncensored")),
             "ready": c["status"]["ready"], "missing": c["status"]["missing"],
             "dep_count": len(c["status"]["deps"]),
         })
