@@ -31,7 +31,8 @@ import browser_launch
 from registry import (MODELS, DEPS, RATIOS, DEFAULT_NEGATIVE, input_modes,
                       max_ref_images, check_images_input, clamp_ref_max_pixels,
                       supports_outpainting, build_outpaint_prompt,
-                      supports_inpainting, build_inpaint_prompt,
+                      supports_inpainting, build_inpaint_prompt, append_mask_ref,
+                      vision_mmproj_missing,
                       outpaint_prompt_presets, edit_prompt_presets, gen_prompt_presets,
                       UPSCALERS, ADETAILERS, upscaler_status, adetailer_status,
                       SEEDVR2, seedvr2_status,
@@ -956,6 +957,16 @@ def api_generate():
     images, input_mode, err = check_images_input(mid, images, data.get("input_mode"))
     if err:
         return jsonify({"ok": False, "error": err}), 400
+    # --- mmproj (encodeur de vision) : un modèle à références SANS lui est AVEUGLE.
+    # Avant : génération silencieuse → « textures », terre partout. On refuse net.
+    mm_missing = vision_mmproj_missing(mid, images, input_mode)
+    if mm_missing:
+        return jsonify({"ok": False, "error":
+            f"{m['name']} ne peut pas voir l'image : son encodeur de vision ({mm_missing}) "
+            "n'est pas installé. Sans lui, le modèle ignore totalement la référence et "
+            "produit n'importe quoi (c'est typiquement la cause des résultats « textures »). "
+            "Cliquez « Télécharger mmproj » dans l'onglet Édition/Génération (ou Modèles), "
+            "puis relancez."}), 400
 
     # --- Outpainting (extension de cadre pour les modeles compatibles) ---
     outpaint_cfg = data.get("outpaint")
@@ -1002,12 +1013,21 @@ def api_generate():
             if "auto_prompt" in inpaint_cfg:
                 auto_inpaint_prompt = bool(inpaint_cfg.get("auto_prompt"))
             raw_mask = inpaint_cfg.get("mask_image")
-            if raw_mask and inpaint_cfg.get("use_cli_mask"):
+            if raw_mask:
+                # le masque sert au blend final, au pré-adoucissement optionnel, et désormais
+                # à une IMAGE DE RÉFÉRENCE supplémentaire (le modèle voit la zone à modifier)
                 valid_masks = _existing_sources([raw_mask])
                 if valid_masks:
                     mask_rel_path = valid_masks[0]
+        _, mask_ref_index = append_mask_ref(mid, images, mask_rel_path)
         if auto_inpaint_prompt or not prompt_str:
-            prompt_str = build_inpaint_prompt(mid, prompt_str, bbox=bbox)
+            prompt_str = build_inpaint_prompt(mid, prompt_str, bbox=bbox,
+                                              mask_ref_index=mask_ref_index)
+        elif mask_ref_index:
+            syntax = MODELS.get(mid, {}).get("ref_tag_syntax")
+            tok = syntax.replace("{n}", str(mask_ref_index)) if syntax else f"image {mask_ref_index}"
+            prompt_str = (f"{prompt_str} — {tok} is the mask (white area = the ONLY region to "
+                          "modify, black = keep pixel-identical).")
 
     params = {
         "model_id": mid,
@@ -1019,7 +1039,8 @@ def api_generate():
         "cfg": float(m.get("fixed_cfg", data.get("cfg") or m["defaults"]["cfg"])),
         "seed": data.get("seed"),
         "batch": max(1, min(4, int(data.get("batch") or 1))),
-        "ref_images": images,
+        "ref_images": (append_mask_ref(mid, images, mask_rel_path)[0]
+                       if (mask_rel_path and inpaint_cfg) else images),
         "input_mode": input_mode,
         "ref_max_pixels": clamp_ref_max_pixels(data.get("ref_max_pixels")),
         "source_image": images[0] if (images and input_mode == "init") else None,

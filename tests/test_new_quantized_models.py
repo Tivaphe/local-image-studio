@@ -11,6 +11,7 @@ import registry
 from registry import (MODELS, DEPS, build_command, resolve_dep_gguf,
                       _is_valid_dep, supports_outpainting, build_outpaint_prompt,
                       supports_inpainting, build_inpaint_prompt,
+                      append_mask_ref, vision_mmproj_missing,
                       outpaint_prompt_presets, edit_prompt_presets, gen_prompt_presets, _ref_token)
 
 NEW_MODELS = ["fibo2-dev", "fibo2-edit-turbo", "moss-image-sft", "moss-image-base", "krea2-turbo"]
@@ -130,6 +131,84 @@ class RegistryEntriesTests(unittest.TestCase):
                 self.assertIn(token, p["prompt"], f"style d'édition sans jeton de référence dans {mid}")
 
 
+class InpaintMaskRefTests(unittest.TestCase):
+    """Le masque d'inpainting est montré au modèle comme référence supplémentaire."""
+
+    def test_append_mask_ref_adds_mask_as_next_image(self):
+        refs, idx = append_mask_ref("qwen-image-2.1", ["canvas.png"], "mask.png")
+        self.assertEqual(refs, ["canvas.png", "mask.png"])
+        self.assertEqual(idx, 2)
+
+    def test_append_mask_ref_respects_model_limit(self):
+        # fibo2-dev : max 4 refs -> si deja plein, pas de masquage ref (fallback texte bbox)
+        full = ["a.png", "b.png", "c.png", "d.png"]
+        refs, idx = append_mask_ref("fibo2-dev", full, "mask.png")
+        self.assertEqual(refs, full)
+        self.assertIsNone(idx)
+
+    def test_append_mask_ref_ignored_without_ref_support(self):
+        refs, idx = append_mask_ref("krea2-turbo", ["a.png"], "mask.png")
+        self.assertEqual(refs, ["a.png"])
+        self.assertIsNone(idx)
+
+    def test_append_mask_ref_no_mask(self):
+        refs, idx = append_mask_ref("qwen-image-2.1", ["a.png"], None)
+        self.assertEqual(refs, ["a.png"])
+        self.assertIsNone(idx)
+
+    def test_inpaint_prompt_mentions_mask_when_ref_index_given(self):
+        p = build_inpaint_prompt("qwen-image-2.1", "a crown", bbox=None, mask_ref_index=2)
+        self.assertIn("<image2>", p)
+        self.assertIn("WHITE", p)
+        p_fibo = build_inpaint_prompt("fibo2-dev", "a crown", bbox=None, mask_ref_index=2)
+        self.assertIn("<image_2>", p_fibo)
+
+    def test_inpaint_prompt_unchanged_without_mask_ref(self):
+        p = build_inpaint_prompt("qwen-image-2.1", "a crown")
+        self.assertNotIn("WHITE", p)
+
+
+class MmprojPreflightTests(unittest.TestCase):
+    """Un modèle à références SANS mmproj serait AVEUGLE : preflight doit le signaler."""
+
+    def test_missing_mmproj_reported(self):
+        with patch.object(registry, "load_manifest", return_value={}), \
+             patch.object(registry, "_dep_path", lambda mf, d: None):
+            self.assertEqual(vision_mmproj_missing("qwen-image-2.1", ["a.png"], "ref"),
+                             "mmproj_qwen3vl_8b")
+
+    def test_present_mmproj_ok(self):
+        with patch.object(registry, "load_manifest", return_value={}), \
+             patch.object(registry, "_dep_path", lambda mf, d: "/fake/mm.file"):
+            self.assertIsNone(vision_mmproj_missing("qwen-image-2.1", ["a.png"], "ref"))
+
+    def test_no_refs_no_requirement(self):
+        with patch.object(registry, "load_manifest", return_value={}), \
+             patch.object(registry, "_dep_path", lambda mf, d: None):
+            self.assertIsNone(vision_mmproj_missing("qwen-image-2.1", [], "ref"))
+
+    def test_img2img_only_model_requires_mmproj_even_without_refs(self):
+        # qwen-image-2.1-turbo : mmproj requis pour le seul img2img
+        with patch.object(registry, "load_manifest", return_value={}), \
+             patch.object(registry, "_dep_path", lambda mf, d: None):
+            self.assertEqual(vision_mmproj_missing("qwen-image-2.1-turbo", ["a.png"], "init"),
+                             "mmproj_qwen3vl_8b")
+
+    def test_text_only_model_has_no_requirement(self):
+        with patch.object(registry, "load_manifest", return_value={}), \
+             patch.object(registry, "_dep_path", lambda mf, d: None):
+            self.assertIsNone(vision_mmproj_missing("krea2-turbo", ["a.png"], "ref"))
+
+    def test_build_command_refuses_blind_model(self):
+        fake = {d: f"/fake/{d}.file" for d in DEPS}
+        manifest = {d: {"path": fake[d]} for d in DEPS if d != "mmproj_qwen3vl_8b"}
+        with patch.object(registry, "_dep_path", lambda mf, d: mf.get(d, {}).get("path")):
+            with self.assertRaises(RuntimeError):
+                build_command("qwen-image-2.1", "Q4_K_M", "p", "", 1024, 1024, 20, 2.5, 1, 1,
+                              "out.png", "sd-cli", manifest, ref_images=["c.png"],
+                              input_mode="ref")
+
+
 class BuildCommandTests(unittest.TestCase):
     """Vérifie les arguments sd-cli produits pour chaque nouveau modèle, sans rien télécharger."""
 
@@ -199,22 +278,20 @@ class BuildCommandTests(unittest.TestCase):
         self.assertIn("[50, 100, 250, 300]", p_qwen)
         self.assertIn("replace the hat with a crown", p_qwen)
 
-        # --mask est transmis pour Qwen/FLUX mais ignoré pour fibo2
+        # --mask n'est JAMAIS transmis : aucun poids d'inpainting dédié dans le registre
+        # (FLUX.1-Fill-dev n'y figure pas) — passer --mask serait du bruit. Le masque passe
+        # par append_mask_ref (image de référence supplémentaire) pour les modèles à références.
         fake = {d: f"/fake/{d}.file" for d in DEPS}
         manifest = {d: {"path": fake[d]} for d in DEPS}
         with patch.object(registry, "_dep_path", lambda mf, d: mf.get(d, {}).get("path")):
-            cmd_qwen = build_command(
-                "qwen-image-2.1", "Q4_K_M", "p", "", 1024, 1024, 20, 2.5, 1, 1,
-                "out.png", "sd-cli", manifest, ref_images=["c.png"], input_mode="ref",
-                mask_image="m.png"
-            )
-            self.assertIn("--mask", cmd_qwen)
-            cmd_fibo = build_command(
-                "fibo2-dev", "Q6_K", "p", "", 1024, 1024, 30, 5.0, 1, 1,
-                "out.png", "sd-cli", manifest, ref_images=["c.png"], input_mode="ref",
-                mask_image="m.png"
-            )
-            self.assertNotIn("--mask", cmd_fibo)
+            for mid, quant, steps, cfg in (("qwen-image-2.1", "Q4_K_M", 20, 2.5),
+                                            ("fibo2-dev", "Q6_K", 30, 5.0)):
+                cmd = build_command(
+                    mid, quant, "p", "", 1024, 1024, steps, cfg, 1, 1,
+                    "out.png", "sd-cli", manifest, ref_images=["c.png"], input_mode="ref",
+                    mask_image="m.png"
+                )
+                self.assertNotIn("--mask", cmd)
 
 
 if __name__ == "__main__":

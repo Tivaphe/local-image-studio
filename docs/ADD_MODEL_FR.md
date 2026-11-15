@@ -168,10 +168,20 @@ Règles à connaître (vérifiées sur le moteur, `docs/edit.md` et
 - Un modèle **non** listé ici (FLUX.1 schnell, Z-Image, ERNIE, Ideogram 4, Iris-3B…)
   n'accepte pas de référence : le moteur ne lui fournira pas l'argument.
 - `--mask` (inpainting) n'a d'effet que sur des poids dédiés « inpaint »
-  (ex. FLUX.1-Fill-dev) : inutile de l'exposer pour les modèles du registre actuel.
+  (ex. FLUX.1-Fill-dev) : jamais transmis pour les modèles du registre actuel.
+  L'inpainting au pinceau montre le masque au modèle comme une **image de référence
+  supplémentaire** (`append_mask_ref`, `<imageN>` + instruction explicite « zone
+  blanche = seule zone modifiable ») — c'est le seul canal sans poids dédiés.
+- **mmproj vérifié avant génération.** `/api/generate` et `build_command` refusent
+  net (400 / RuntimeError) un modèle à références dont le `mmproj_dep` n'est pas
+  installé : sans encodeur de vision, le modèle est AVEUGLE et produit n'importe
+  quoi (typiquement « des textures partout »). Le bouton « Télécharger mmproj » de
+  l'onglet Édition reste le moyen de le corriger.
 
 Côté application, ces champs remontent dans `/api/models`, sont validés par
-`registry.check_images_input()` (nombre, mode, doublons) et aboutissent dans
+`registry.check_images_input()` (nombre, mode, doublons), validés par
+`registry.vision_mmproj_missing()` (mmproj présent pour l'édition à références) et
+aboutissent dans
 `registry.build_command(ref_images=[...], input_mode=…, ref_max_pixels=…)`.
 
 ---

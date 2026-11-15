@@ -128,7 +128,10 @@ class ImagePersistenceTests(unittest.TestCase):
         self.assertEqual(resp_bad.status_code, 400)
 
         # Modèle compatible avec prompt vide et auto_prompt actif -> 200 + prompt auto-adapté
-        with patch.object(engine.tasks, 'start_generate') as start_mock:
+        # (mmproj simulé présent : sans lui, le preflight refuse l'édition à références)
+        with patch('registry._dep_path', lambda mf, d: f'/fake/{d}'), \
+             patch('registry.load_manifest', return_value={}), \
+             patch.object(engine.tasks, 'start_generate') as start_mock:
             resp_ok = self.client.post('/api/generate', json={
                 'model_id': 'qwen-image-2.1',
                 'prompt': '',
@@ -212,6 +215,9 @@ class ImagePersistenceTests(unittest.TestCase):
             app.tasks._queue.clear()
 
         try:
+            mm_patch = patch('registry._dep_path', lambda mf, d: f'/fake/{d}')
+            man_patch = patch('registry.load_manifest', return_value={})
+            mm_patch.start(); man_patch.start()
             resp = self.client.post('/api/generate', json={
                 'model_id': 'qwen-image-2.1',
                 'quant': 'Q4_K_M',
@@ -233,6 +239,8 @@ class ImagePersistenceTests(unittest.TestCase):
             self.assertEqual(resp.json['position'], 1)
             self.assertIn('<image1>', resp.json['params']['prompt'])
             self.assertEqual(resp.json['params']['mask_image'], mask)
+            # Le masque est désormais aussi une image de référence (le modèle VOIT la zone)
+            self.assertEqual(resp.json['params']['ref_images'], [src, mask])
 
             # Tant que l'image source est dans la file d'attente, /api/delete-source-image la conserve
             del_src = self.client.post('/api/delete-source-image', json={'filename': src})
@@ -248,6 +256,10 @@ class ImagePersistenceTests(unittest.TestCase):
             self.assertTrue(rm_resp.json['removed'])
             self.assertEqual(rm_resp.json['queue_size'], 0)
         finally:
+            try:
+                mm_patch.stop(); man_patch.stop()
+            except Exception:
+                pass
             with app.tasks._lock:
                 app.tasks.state['busy'] = False
                 app.tasks.state['kind'] = None

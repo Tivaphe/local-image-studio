@@ -139,7 +139,7 @@
         <label class="field checkbox-field">
           <input type="checkbox" id="inpaint-auto-prompt" checked>
           <span>Cibler automatiquement la zone peinte dans l'instruction</span>
-          <small>Indique au modèle les coordonnées exactes de la zone masquée et l'oblige à ne rien modifier en dehors.</small>
+          <small>Indique au modèle la zone peinte : coordonnées précises dans l'instruction, plus une <strong>image de masque en référence supplémentaire</strong> (blanc = zone modifiable, noir = zone à préserver). Sans poids d'inpainting dédiés, c'est le seul canal fiable.</small>
         </label>
         <label class="field checkbox-field">
           <input type="checkbox" id="inpaint-neutralize-zone">

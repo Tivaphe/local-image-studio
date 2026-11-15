@@ -2471,7 +2471,8 @@ $('#generate-btn').addEventListener('click', async () => {
         bbox: { x1: prep.bbox.x1, y1: prep.bbox.y1, x2: prep.bbox.x2, y2: prep.bbox.y2 },
         auto_prompt: autoInpaintPrompt,
         mask_image: tempInpaintMaskItem.path,
-        use_cli_mask: true,
+        // (l'ancien `use_cli_mask` est supprimé : aucun modèle du registre n'a de poids
+        //  d'inpainting dédiés — le masque passe au modèle comme image de référence.)
       };
       nextInpaintMaskSnap = prep.snapMask;
       nextInpaintOrigImg = canvas.imgEl;

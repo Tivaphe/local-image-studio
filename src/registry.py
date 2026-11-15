@@ -2349,7 +2349,8 @@ def _describe_bbox_region(bbox: dict | None) -> tuple[str, list[int] | None]:
 
 
 def build_inpaint_prompt(model_id: str, user_prompt: str = "",
-                         bbox: dict | None = None) -> str:
+                         bbox: dict | None = None,
+                         mask_ref_index: int | None = None) -> str:
     """
     Construit ou enrichit l'instruction d'edition pour un Inpainting localise au pinceau,
     en ciblant precisement la zone peinte (description spatiale + boite normalisee)
@@ -2360,10 +2361,15 @@ def build_inpaint_prompt(model_id: str, user_prompt: str = "",
     box_str = f" (region {norm_box})" if norm_box else ""
     clean = (user_prompt or "").strip()
     action = clean if clean else "seamlessly remove the unwanted element and reconstruct the background naturally"
+    mask_clause = ""
+    if mask_ref_index:
+        mask_label = _ref_token(model_id, mask_ref_index)
+        mask_clause = (f" {mask_label} is the mask: ONLY the WHITE area of {mask_label} may change; "
+                       f"everything BLACK in {mask_label} stays pixel-identical.")
     return (
         f"Inpaint and modify ONLY the target area {loc}{box_str} of {ref_label}: {action}. "
         f"Keep everything outside this target area in {ref_label} strictly unchanged and identical, "
-        "with seamless blending, matching lighting, perspective, and textures."
+        f"with seamless blending, matching lighting, perspective, and textures.{mask_clause}"
     )
 
 
@@ -3126,11 +3132,44 @@ def clamp_ref_max_pixels(value) -> int | None:
     return max(65536, min(4 * 1024 * 1024, px))  # 256x256 .. 4 MP
 
 
+def vision_mmproj_missing(model_id: str, images, input_mode: str | None = "ref"):
+    """Retourne le dep_id du mmproj manquant si, pour cette entrée, le modèle serait
+    AVEUGLE (aucune vision) — sinon None. Un modèle d'édition sans son encodeur de
+    vision ignore totalement l'image fournie et débite n'importe quoi."""
+    m = MODELS.get(model_id, {})
+    dep = m.get("mmproj_dep")
+    if not dep:
+        return None
+    need = bool(m.get("mmproj_for_img2img_only", False)) or (
+        (input_mode or "ref") == "ref" and bool(images))
+    if not need:
+        return None
+    if _dep_path(load_manifest(), dep):
+        return None
+    return dep
+
+
+def append_mask_ref(model_id: str, images, mask_image):
+    """Ajoute le masque comme référence supplémentaire (image suivante) pour que les
+    modèles à références VOIENT la zone à modifier — c'est le seul canal.
+    Retourne (refs, mask_ref_index_1base ou None)."""
+    imgs = list(images or [])
+    m = MODELS.get(model_id, {})
+    if not mask_image or not imgs:
+        return imgs, None
+    if not m.get("supports_ref_images"):
+        return imgs, None
+    limit = int(m.get("max_ref_images", 1))
+    if len(imgs) + 1 > limit:
+        return imgs, None
+    return imgs + [str(mask_image)], len(imgs) + 1
+
+
 def check_images_input(model_id: str, images, input_mode: str | None = None):
     """
     Valide le couple (modele, images).
     Retourne (images_normalisees, input_mode, message_erreur) — erreur None si OK.
-    La presence du mmproj (encodeur visuel) est verifiee cote moteur.
+    La presence du mmproj (encodeur visuel) est verifiee en preflight (/api/generate) et dans build_command.
     """
     m = MODELS[model_id]
     modes = input_modes(model_id)
@@ -3256,6 +3295,16 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
         input_mode = "init" if arch in ("sd3", "sd") else "ref"
     has_refs = bool(images) and input_mode == "ref"
     has_init = bool(images) and input_mode == "init"
+
+    # Un modèle à références SANS son mmproj est AVEUGLE (l'image est ignorée) :
+    # on refuse plutôt que de produire n'importe quoi.
+    _mmproj_dep = m.get("mmproj_dep")
+    if _mmproj_dep and (has_refs or m.get("mmproj_for_img2img_only", False)):
+        if not _dep_path(manifest, _mmproj_dep):
+            raise RuntimeError(
+                f"{m['name']} est un modèle d'édition à références mais son encodeur de vision "
+                f"({_mmproj_dep}) n'est pas installé — le modèle n'a AUCUN moyen de voir l'image. "
+                "Téléchargez-le (bouton mmproj dans l'onglet Édition, ou Modèles), puis relancez.")
 
     # Modele de diffusion
     diff_file = _diffusion_path(model_id, quant)
@@ -3395,8 +3444,6 @@ def build_command(model_id, quant, prompt, negative, width, height, steps,
             if ref_max_pixels:
                 args += ["--ref-image-args",
                          f"vae_input_max_pixels={int(ref_max_pixels)}"]
-        if mask_image and arch != "fibo2":
-            args += ["--mask", str(mask_image)]
 
     # Parametres (certains checkpoints Turbo imposent un nombre d'etapes/CFG fixe)
     cfg = m.get("fixed_cfg", cfg)
