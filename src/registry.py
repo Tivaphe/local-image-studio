@@ -476,6 +476,15 @@ CAPTIONER_MODELS = {
         "deps": ["bonsai2_9b_model", "bonsai2_9b_mmproj"],
         "size_gb": 3.2, "vram_gb": 4, "recommended": False,
     },
+    "bonsai2_27b": {
+        "name": "Bonsai-2 27B (ternaire 2 bits) — non vérifié",
+        "desc": "Ternary Bonsai 2 27B (base Qwen3.8-27B, ~98 % des benchmarks FP16, « thinking » natif). "
+                "Fichier Q2_0 upstream ~7,6 Go (dépôt -gguf-dev, suffixe « prism-fork-required » historique — il tourne sur llama.cpp ≥ b11556). "
+                "NON VÉRIFIÉ sur notre pipeline (arch hybride récente, 27B = gros pour les GPU grand public) ; même garde de version que les autres Bonsai-2. Licence Apache-2.0.",
+        "license": "Apache-2.0", "hf_url": "https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf-dev",
+        "deps": ["bonsai2_27b_model", "bonsai2_27b_mmproj"],
+        "size_gb": 8.3, "vram_gb": 12, "recommended": False,
+    },
     "qwen35_4b": {
         "name": "Qwen3.5 4B (natif multimodal)",
         "desc": "VLM 2026 officiel Qwen, 262 k contexte, excellentes légendes structurées (Q4_K_M). Licence Apache-2.0.",
@@ -543,7 +552,7 @@ CAPTIONER_MODELS = {
 }
 
 CAPTIONER_ORDER = ["bonsai2_4b", "qwen35_4b", "kaine_qwen35_4b", "huihui_qwen25vl_3b",
-                   "bonsai2_9b", "qwen35_9b",
+                   "bonsai2_9b", "bonsai2_27b", "qwen35_9b",
                    "qwen3vl_8b", "qwen3vl_4b", "gemma4_e2b", "bonsai2_2b",
                    "lfm3vl_2b", "gemma4_e4b"]
 
@@ -1027,6 +1036,20 @@ DEPS = {
         "filename": "Ternary-Bonsai-2-9B-mmproj-Q8_0.gguf",
         "dest": LLM_DIR / "Ternary-Bonsai-2-9B-mmproj-Q8_0.gguf",
         "size_gb": 0.62,
+    },
+    "bonsai2_27b_model": {
+        "type": "exact",
+        "repo": "prism-ml/Ternary-Bonsai-2-27B-gguf-dev",
+        "filename": "Ternary-Bonsai-2-27B-Q2_0-prism-fork-required.gguf",
+        "dest": LLM_DIR / "Ternary-Bonsai-2-27B-Q2_0.gguf",
+        "size_gb": 7.63,
+    },
+    "bonsai2_27b_mmproj": {
+        "type": "exact",
+        "repo": "prism-ml/Ternary-Bonsai-2-27B-gguf",
+        "filename": "Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf",
+        "dest": LLM_DIR / "Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf",
+        "size_gb": 0.63,
     },
     "kaine_qwen35_4b_model": {
         "type": "exact",
@@ -2130,6 +2153,10 @@ def _is_valid_dep(dep_id: str, p: Path) -> bool:
         return name == "ternary-bonsai-2-9b-q2_0.gguf"
     elif dep_id == "bonsai2_9b_mmproj":
         return name == "ternary-bonsai-2-9b-mmproj-q8_0.gguf"
+    elif dep_id == "bonsai2_27b_model":
+        return name == "ternary-bonsai-2-27b-q2_0.gguf"
+    elif dep_id == "bonsai2_27b_mmproj":
+        return name == "ternary-bonsai-2-27b-mmproj-q8_0.gguf"
     elif dep_id == "kaine_qwen35_4b_model":
         return name == "kaine-qwen3.5-4b-abliterated.q4_k_m.gguf"
     elif dep_id == "huihui_qwen25vl_3b_model":

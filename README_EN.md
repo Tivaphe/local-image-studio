@@ -285,7 +285,7 @@ The image never leaves your machine (apart from the one-time weight download).
 | Captioner | Size | VRAM | License | Note |
 |---|---|---|---|---|
 | **Qwen3.5 4B** ⭐ | ~3.4 GB | ~5 GB | Apache-2.0 | **recommended** — 2026 official VLM, dense captions |
-| Bonsai-2 2B / 4B / 9B | ~0.9 / 1.6 / 3.2 GB | ~2 / 3 / 4 GB | Apache-2.0 | ternary 2-bit Qwen3.5-derived — needs llama.cpp ≥ b11556 (detected & reported) |
+| Bonsai-2 2B / 4B / 9B / 27B | ~0.9 / 1.6 / 3.2 / 8.3 GB | ~2 / 3 / 4 / ~12 GB | Apache-2.0 | ternary 2-bit Qwen3.5/Qwen3.8-derived — needs llama.cpp ≥ b11556 (detected & reported); the 27B (Qwen3.8-27B base, upstream Q2_0 file) is NOT verified on our pipeline |
 | Qwen3.5 9B | ~0.9 GB (+ mmproj) | ~8 GB | Apache-2.0 | natively multimodal |
 | **Qwen3.5 4B abliterated KAINE** 🔓 | ~3.3 GB | ~5 GB | Apache-2.0 (uncensored) | refusals removed — captions without filters (official mmproj reused, untested) |
 | **Qwen2.5-VL 3B abliterated** 🔓 | ~3.3 GB | ~4 GB | Apache-2.0 (uncensored) | text-side abliteration (huihui-ai), compact — 1.93 GB weights + 1.34 GB mmproj |

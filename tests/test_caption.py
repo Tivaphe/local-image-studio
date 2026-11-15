@@ -64,6 +64,32 @@ class UncensoredCaptionerCatalogTests(unittest.TestCase):
                 self.assertTrue(registry._is_valid_dep(dep, dest))
 
 
+class Bonsai27CatalogTests(unittest.TestCase):
+    """Bonsai-2 27B (captionneur « non vérifié ») : enregistré, garde de version active."""
+
+    def test_bonsai2_27b_registered_and_deps_valid(self):
+        c = registry.CAPTIONER_MODELS.get("bonsai2_27b")
+        self.assertIsNotNone(c)
+        self.assertIn("bonsai2_27b", registry.CAPTIONER_ORDER)
+        self.assertFalse(c.get("uncensored"))  # pas une variante uncensored
+        for dep in c["deps"]:
+            self.assertIn(dep, registry.DEPS)
+            self.assertTrue(registry._is_valid_dep(dep, registry.DEPS[dep]["dest"]))
+
+    def test_bonsai2_27b_uses_upstream_q2_0_and_mmproj(self):
+        model = registry.DEPS["bonsai2_27b_model"]
+        # Fichier Q2_0 upstream (dépôt -gguf-dev, suffixe historique « prism-fork-required »)
+        self.assertEqual(model["filename"], "Ternary-Bonsai-2-27B-Q2_0-prism-fork-required.gguf")
+        self.assertEqual(model["dest"].name, "Ternary-Bonsai-2-27B-Q2_0.gguf")
+        self.assertIn("-gguf-dev", model["repo"])
+        mm = registry.DEPS["bonsai2_27b_mmproj"]
+        self.assertEqual(mm["filename"], "Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf")
+
+    def test_bonsai2_27b_gets_version_guard(self):
+        # la garde est par préfixe : « bonsai2_ » -> refus sous llama.cpp trop ancien
+        self.assertTrue("bonsai2_27b".startswith("bonsai2_"))
+
+
 class BonsaiVersionGuardTests(unittest.TestCase):
     """Bonsai-2 sous un llama.cpp trop ancien → refus explicite (jamais de légende fausse)."""
 
