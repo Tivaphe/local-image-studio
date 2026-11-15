@@ -288,7 +288,7 @@ The image never leaves your machine (apart from the one-time weight download).
 | Bonsai-2 2B / 4B / 9B | ~0.9 / 1.6 / 3.2 GB | ~2 / 3 / 4 GB | Apache-2.0 | ternary 2-bit Qwen3.5-derived — needs llama.cpp ≥ b11556 (detected & reported) |
 | Qwen3.5 9B | ~0.9 GB (+ mmproj) | ~8 GB | Apache-2.0 | natively multimodal |
 | **Qwen3.5 4B abliterated KAINE** 🔓 | ~3.3 GB | ~5 GB | Apache-2.0 (uncensored) | refusals removed — captions without filters (official mmproj reused, untested) |
-| **Qwen2.5-VL 3B abliterated** 🔓 | ~2.6 GB | ~4 GB | Apache-2.0 (uncensored) | text-side abliteration (huihui-ai), compact |
+| **Qwen2.5-VL 3B abliterated** 🔓 | ~3.3 GB | ~4 GB | Apache-2.0 (uncensored) | text-side abliteration (huihui-ai), compact — 1.93 GB weights + 1.34 GB mmproj |
 | **Qwen3-VL 4B / 8B** | **0 GB** | ~5 / ~8 GB | Apache-2.0 | **reuses** weights already installed for editing |
 | Gemma 4 E2B / E4B | ~4.1 / ~6.0 GB | ~6 / ~8 GB | Apache-2.0 | Google multimodal, unsloth quants |
 | LFM3-VL 2B | ~1.3 GB | ~3 GB | ⚠️ **lfm1.0 (custom)** | compact — review the LFM license |
