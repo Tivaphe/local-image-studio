@@ -1047,7 +1047,7 @@ DEPS = {
         "repo": "huihui-ai/Qwen2.5-VL-3B-Instruct-abliterated",
         "filename": "GGUF/mmproj-ggml-model-f16.gguf",
         "dest": LLM_DIR / "huihui-qwen2.5-vl-3b-abliterated-mmproj-f16.gguf",
-        "size_gb": 0.6,
+        "size_gb": 1.34,
     },
     "qwen35_4b_model": {
         "type": "exact",
