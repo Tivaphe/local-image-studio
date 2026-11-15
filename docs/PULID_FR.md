@@ -17,10 +17,18 @@ Les poids officiels sont ceux de `guozinan/PuLID` (`pulid_flux_v0.9.1.safetensor
 
 ### 2. Créer l'empreinte d'identité d'un portrait (une fois par personne)
 
-Le moteur a besoin d'un fichier `.pulidembd` (un tensor gguf `pulid_id`,
-typiquement 2048×32 en F16, ~131 Ko). On le produit avec le script fourni,
-`scripts/pulid_extract_id.py` — la référence officielle de stable-diffusion.cpp,
-qui dépend de PyTorch.
+Le plus simple — **depuis l'app** : onglet **Modèles → 🎭 Visage fidèle (PuLID)**,
+choisissez la photo (PNG/JPG/WEBP, visage de face net, bien éclairé), donnez un
+nom (ex. « prenom ») et cliquez **« ➕ Créer l'empreinte »**. L'app télécharge la
+photo, lance l'extracteur externe, copie la photo dans `portraits/` (vignette) et
+affiche le résultat directement dans la galerie. **Prérequis** : la pile externe
+Python (torch + insightface…) installée — sinon le bouton renvoie l'erreur du
+script ; utilisez alors la méthode manuelle ci-dessous.
+
+Méthode manuelle — le moteur a besoin d'un fichier `.pulidembd` (un tensor gguf
+`pulid_id`, typiquement 2048×32 en F16, ~131 Ko). On le produit avec le script
+fourni, `scripts/pulid_extract_id.py` — la référence officielle de
+stable-diffusion.cpp, qui dépend de PyTorch.
 
 ```bash
 # a) Installer la pile externe (une fois, dans un venv dédié si possible)

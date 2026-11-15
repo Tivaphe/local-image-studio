@@ -317,6 +317,42 @@ $$('.dl-taesd-btn').forEach(btn => {
 });
 
 // --- Bouton : telecharger les poids PuLID-FLUX (~1,14 Go) ---
+// --- PuLID : création d'une empreinte depuis une photo (extraction externe) ---
+const faceForm = $('#pulid-extract-form');
+if (faceForm) {
+  faceForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fileInput = $('#pulid-portrait-file');
+    const nameInput = $('#pulid-portrait-name');
+    const btn = $('#pulid-extract-btn');
+    const status = $('#pulid-extract-status');
+    const file = fileInput && fileInput.files && fileInput.files[0];
+    if (!file) return;
+    btn.disabled = true; btn.textContent = '…';
+    status.textContent = 'Envoi de la photo…';
+    try {
+      const fd = new FormData();
+      fd.append('images', file);
+      const up = await fetch('/api/upload-source-image', { method: 'POST', body: fd });
+      const uj = await up.json();
+      if (!uj.ok || !uj.filename) throw new Error(uj.error || "Échec de l'envoi de la photo.");
+      status.textContent = "Extraction en cours (peut prendre plusieurs minutes au premier lancement)…";
+      const r = await fetch('/api/pulid-extract', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ portrait: uj.filename, name: (nameInput && nameInput.value.trim()) || '' }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || "Échec de l'extraction.");
+      status.textContent = `✓ Empreinte créée : portraits/${j.embedding} — rechargement…`;
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (err) {
+      // textContent volontaire : le détail technique serveur n'est jamais injecté en HTML
+      status.textContent = '⚠️ ' + (err && err.message ? err.message : err);
+      btn.disabled = false; btn.textContent = "➕ Créer l'empreinte";
+    }
+  });
+}
+
 const dlPulid = $('.dl-pulid-btn');
 if (dlPulid) {
   dlPulid.addEventListener('click', async () => {

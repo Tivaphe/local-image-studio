@@ -617,6 +617,11 @@ small{color:var(--muted)}
 .pulid-steps code{display:inline-block;word-break:break-all}
 .pulid-extract summary{cursor:pointer;font-weight:600;margin:6px 0}
 .copy-extract-cmd{margin-top:6px}
+.pulid-extract-box{margin-top:6px;padding:10px 12px;border:1px dashed var(--border);border-radius:10px;background:var(--panel2)}
+.pulid-extract-box h4{margin:0 0 8px;font-size:13.5px}
+.pulid-extract-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px}
+.pulid-extract-form input[type=file]{font-size:12.5px;max-width:240px}
+.pulid-extract-form input[type=text]{flex:1;min-width:140px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--txt)}
 .mc-hf-link code{word-break:break-all}
 
 /* ===== UX : accessibilité clavier & responsive (pass UI) ===== */

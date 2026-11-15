@@ -207,7 +207,7 @@ section with a clear explanation for every option:
 | **⚡ Mini-VAE (TAE)** | Near-instant final decode for Qwen-Image models (~2 MB) | Quality → ⚡ Performance |
 | **⚡ SageAttention CUDA** | Faster attention, less VRAM on NVIDIA GPUs (SM80+, recent drivers) — no Python install | Quality → ⚡ Performance |
 | **📡 Live preview** | « LIVE » window: watch the image denoise step by step (**on by default, « Auto »**: Mini-VAE if installed, else latent projection) | Quality → ⚡ Performance |
-| **🎭 Faithful Face (PuLID)** | Keeps a reference person's face (FLUX.1 Schnell/Dev/FHDR only) — see `docs/PULID_FR.md` (French) | Quality → 🎭 Faithful face |
+| **🎭 Faithful Face (PuLID)** | Keeps a reference person's face (FLUX.1 Schnell/Dev/FHDR only) — embedding creatable from the Models tab | Quality → 🎭 Faithful face (docs in French) |
 | **🩹 Restore ×2 (SeedVR2)** | Diffusion-based detail reconstruction + 2× resolution for existing images (~6.8 GB weights, ~10 GB VRAM) | One-click on every result and in History |
 | **⬆️ PiD ×4** | **Generative** ×4 super-resolution (1024→4096 in 4 steps), conditioned on a prompt **you confirm** (modal before launch — the image prompt is pre-filled but editable; edit instructions are a bad idea) | « ⬆️ PiD ×4 » button on every result / in History (see `docs/PID_FR.md`, NSCLv1 license) |
 | **🔀 Vary (subtle / strong)** | Midjourney-style variation: re-generates the image via img2img with a **new seed** — subtle = strength 0.35 (light touch), strong = strength 0.75 (bold); prompt and settings are copied from the source image | « 🔀 Vary » buttons on every result / in History (img2img-capable models only: SD 3.5, FLUX.1 Dev, Chroma) |

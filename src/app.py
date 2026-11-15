@@ -895,6 +895,7 @@ def api_pulid_extract():
     base = re.sub(r"[^a-zA-Z0-9_\-]", "_", name)[:60].strip("_")
     if not base:
         base = re.sub(r"[^a-zA-Z0-9_\-]", "_", p.stem)[:60] or "portrait"
+    config.PORTRAITS_DIR.mkdir(parents=True, exist_ok=True)
     out = config.PORTRAITS_DIR / f"{base}.pulidembd"
     script = config.ROOT / "scripts" / "pulid_extract_id.py"
     py = shutil.which("python3") or shutil.which("python") or sys.executable
@@ -921,7 +922,15 @@ def api_pulid_extract():
             "voir scripts/pulid_extract_id.py) :\n" + detail
         )}), 500
     out_rel = str(Path("portraits") / out.name)
-    return jsonify({"ok": True, "embedding": out.name, "path": out_rel,
+    # Copie la photo à côté de l'empreinte pour que la galerie affiche la vignette
+    preview = None
+    try:
+        if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
+            shutil.copy2(p, config.PORTRAITS_DIR / f"{base}{p.suffix.lower()}")
+            preview = f"{base}{p.suffix.lower()}"
+    except OSError:
+        pass  # vignette optionnelle : l'empreinte reste utilisable
+    return jsonify({"ok": True, "embedding": out.name, "path": out_rel, "preview": preview,
                     "size_bytes": out.stat().st_size if out.exists() else 0})
 
 

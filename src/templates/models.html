@@ -386,24 +386,37 @@
         <p class="muted small">Aucune empreinte pour l'instant.</p>
         {% endif %}
 
-        <details class="q-sub pulid-extract">
-          <summary>➕ Créer une empreinte depuis une photo</summary>
-          <ol class="muted small pulid-steps">
-            <li>Photo d'identité nette, visage de face, bien éclairé (JPEG/PNG).</li>
-            <li>Installez la pile externe une fois&nbsp;:
-              <code>pip install torch torchvision insightface facexlib eva-clip opencv-python gguf huggingface_hub</code>
-            </li>
-            <li>Lancez l'extraction&nbsp;:
-              <code>python scripts/pulid_extract_id.py --portrait photo.jpg --out portraits/prenom.pulidembd</code>
-            </li>
-            <li>Rechargez cette page&nbsp;: l'empreinte apparaît dans la section Qualité → 🎭 Visage fidèle.</li>
-          </ol>
-          <button type="button" class="btn small copy-extract-cmd"
-                  data-cmd="python scripts/pulid_extract_id.py --portrait photo.jpg --pulid-weights models/pulid/pulid_flux_v0.9.1.safetensors --out portraits/prenom.pulidembd">
-            📋 Copier la commande complète
-          </button>
-          <p class="muted small">Les empreintes restent sur votre machine (dossier <code>portraits/</code>).</p>
-        </details>
+        <div class="pulid-extract-box">
+          <h4>➕ Créer une empreinte depuis une photo</h4>
+          <form id="pulid-extract-form" class="pulid-extract-form">
+            <input type="file" id="pulid-portrait-file" accept=".png,.jpg,.jpeg,.webp" required
+                   aria-label="Photo du visage (PNG, JPG, WEBP)">
+            <input type="text" id="pulid-portrait-name" maxlength="60"
+                   placeholder="Nom (ex. : prenom)" aria-label="Nom de l'empreinte">
+            <button type="submit" class="btn small primary" id="pulid-extract-btn">➕ Créer l'empreinte</button>
+          </form>
+          <p id="pulid-extract-status" class="muted small" role="status"></p>
+          <p class="muted small">Photo nette, visage de face, bien éclairé. L'extraction utilise la pile
+            externe (torch + insightface) — si le bouton échoue, suivez la méthode manuelle.
+            La photo reste sur votre machine (copiée dans <code>portraits/</code> pour la vignette).</p>
+          <details class="q-sub pulid-extract">
+            <summary>Méthode manuelle (terminal)</summary>
+            <ol class="muted small pulid-steps">
+              <li>Installez la pile externe une fois&nbsp;:
+                <code>pip install torch torchvision insightface facexlib eva-clip opencv-python gguf huggingface_hub</code>
+              </li>
+              <li>Lancez l'extraction&nbsp;:
+                <code>python scripts/pulid_extract_id.py --portrait photo.jpg --out portraits/prenom.pulidembd --pulid-weights models/pulid/pulid_flux_v0.9.1.safetensors</code>
+              </li>
+              <li>Rechargez cette page&nbsp;: l'empreinte apparaît dans la section Qualité → 🎭 Visage fidèle.</li>
+            </ol>
+            <button type="button" class="btn small copy-extract-cmd"
+                    data-cmd="python scripts/pulid_extract_id.py --portrait photo.jpg --pulid-weights models/pulid/pulid_flux_v0.9.1.safetensors --out portraits/prenom.pulidembd">
+              📋 Copier la commande complète
+            </button>
+            <p class="muted small">Les empreintes restent sur votre machine (dossier <code>portraits/</code>).</p>
+          </details>
+        </div>
       </div>
     </div>
   </div>

@@ -206,7 +206,7 @@ Agrandissement » regroupe toutes les options avancées, chacune avec une **expl
 | **⚡ Mini-VAE (TAE)** | Décodage final Quasi instantané pour les modèles Qwen-Image (~2 Mo) | Section Qualité → ⚡ Performance |
 | **⚡ SageAttention CUDA** | Attention plus rapide et moins de VRAM sur GPU NVIDIA (SM80+, pilotes récents) — aucune installation Python | Section Qualité → ⚡ Performance |
 | **📡 Aperçu en direct** | Fenêtre « LIVE » : voyez l'image se débruiter pas à pas (**activé par défaut, mode « Auto »** : mini-VAE si installé, sinon projection des latents) | Section Qualité → ⚡ Performance |
-| **🎭 Visage fidèle (PuLID)** | Conserve le visage d'une photo (FLUX.1 Schnell/Dev/FHDR uniquement) | Section Qualité → 🎭 Visage fidèle — voir `docs/PULID_FR.md` |
+| **🎭 Visage fidèle (PuLID)** | Conserve le visage d'une photo (FLUX.1 Schnell/Dev/FHDR uniquement) — empreinte créable depuis l'onglet Modèles | Section Qualité → 🎭 Visage fidèle — voir `docs/PULID_FR.md` |
 | **⬆️ PiD ×4** | Super-résolution **générative** ×4 (1024→4096 en 4 étapes), conditionnée par un prompt **confirmé par vous** (modale avant lancement — le prompt de l'image est pré-rempli mais modifiable ; les instructions d'édition sont déconseillées) — reconstruit la matière là où ESRGAN lisse | Bouton « ⬆️ PiD ×4 » sur chaque résultat / dans l'historique (voir `docs/PID_FR.md`, licence NSCLv1) |
 | **🔀 Varier (subtil / fort)** | Variation façon Midjourney : re-génère l'image en img2img avec une **nouvelle graine** — subtil = force 0,35 (léger), fort = force 0,75 (franc) ; le prompt et les réglages sont repris de l'image | Boutons « 🔀 Varier » sur chaque résultat / dans l'historique (modèles img2img uniquement : SD 3.5, FLUX.1 Dev, Chroma) |
 
