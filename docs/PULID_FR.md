@@ -3,7 +3,8 @@
 PuLID permet de **conserver le visage d'une photo** dans vos générations, sans
 ré-entraîner le modèle ni altérer le reste de l'image (contrairement à une LoRA
 d'identité, qui « imprime » le visage partout). sd-cli prend en charge PuLID
-uniquement pour les modèles **FLUX**.
+uniquement pour les modèles **FLUX** — pour les autres, voir
+[« Et avec les autres modèles ? »](#et-avec-les-autres-modèles-).
 
 ## En trois étapes
 
@@ -68,6 +69,35 @@ Sur la page **Générer**, section « ✨ Qualité, Détails & Agrandissement »
 3. générez avec **FLUX.1 Schnell, FLUX.1 Dev ou FLUX.1 FHDR** — les autres
    architectures ne sont pas compatibles (le sélecteur est grisé).
 
+## Et avec les autres modèles ?
+
+PuLID est FLUX-only dans sd-cli — c'est une limite de l'outil, pas de l'app.
+Voici l'échelle honnête, du plus fiable au plus approximatif :
+
+| Approche | Modèles | Verrouillage du visage | Coût |
+|---|---|---|---|
+| **PuLID** | FLUX.1 Schnell / Dev / FHDR | Fort (mais pas 1:1 exact) | 1,14 Go + empreinte |
+| **FLUX.1 Kontext Dev** (édition) | arch FLUX Kontext | Bon (cohérence de sujet, pas verrou dur) | modèle déjà au catalogue |
+| **Qwen-Image-2.1 / 2.1-Turbo** (édition) | arch Qwen-Image | Correct (dépend de l'instruction) | déjà au catalogue |
+| **Fibo 2.0** (édition) | arch Fibo2 | Correct (dépend de l'instruction) | déjà au catalogue |
+| **LoRA de visage** | selon le LoRA (souvent FLUX/SDXL) | Fort, si compatible avec le modèle | entraînement externe (kohya/sd-scripts) + dossier LoRA (page Générer) |
+| **SDXL + PhotoMaker / IP-Adapter FaceID** | SD 1.5 / SDXL | Moyen à fort | ⚠️ non intégrés à l'app — nécessiterait d'ajouter ces modèles et leurs poids |
+| **Bouton « 🎭 Garder le visage »** (onglet Édition) | tous les modèles à références | Approximatif — dépend du modèle et de l'instruction | zéro (instruction en français/anglais, visible et modifiable dans le prompt) |
+
+### Le bouton « 🎭 Garder le visage » (onglet Édition)
+
+Pour les modèles sans PuLID, le plus simple :
+
+1. Joignez une ou plusieurs photos du **même visage** (canvas et/ou références) ;
+2. cliquez **🎭 Garder le visage** (sous le champ d'instruction) — le bouton insère,
+   dans le prompt et donc visible/modifiable, une instruction qui référence vos images
+   avec le jeton propre au modèle (`<image1>`, `<image_1>`, ou « image 1 ») et exige
+   le même visage, sans réinterprétation ;
+3. ajustez librement le texte (c'est un prompt normal, rien n'est caché ni injecté).
+
+Conseils : visage net de face sur au moins une image ; répétez la personne dans
+plusieurs variantes (face/profil) si le modèle le supporte ; générez en
+« variantes subtil/fort » après une première bonne image pour converger.
 ## Fonctionnement interne
 
 - CLI : `--pulid-weights … --pulid-id-embedding … --pulid-id-weight <w>` —

@@ -204,6 +204,8 @@
             Conserve le visage d'une photo dans les images générées (FLUX.1 Schnell, Dev, FHDR).
             Téléchargez les poids PuLID (~1,14 Go) et créez une empreinte de portrait dans
             l'onglet <a href="/models">Modèles</a>, section « 🎭 Visage fidèle (PuLID) ».
+            Avec les autres modèles : onglet <a href="/edit">Édition</a> + bouton
+            « 🎭 Garder le visage » (instruction visible, adaptée aux jetons du modèle).
           </p>
           <p class="hint warn" id="q-pulid-unsupported" hidden>
             ⚠️ Ce modèle ne prend pas en charge PuLID (il faut une architecture FLUX) : option désactivée.

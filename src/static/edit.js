@@ -2852,6 +2852,49 @@ async function doLlm(mode) {
   } catch (e) { status.textContent = ''; alert('Erreur: ' + e.message); }
   finally { btn.disabled = false; btn.textContent = original; }
 }
+// --- 🎭 Garder le visage : instruction d'identité insérée dans le prompt (visible, éditable) ---
+// Toutes les images jointes (canvas + références) sont considérées comme des vues du même visage ;
+// l'instruction référence chacune avec le jeton propre au modèle (<image1>, <image_1>, « image 1 »…).
+function faceLockClause() {
+  const m = currentModel();
+  const imgs = orderedImages();
+  if (!imgs.length) return null;
+  const tags = imgs.map((_, i) => refTokenForModel(m, i + 1));
+  const list = tags.length === 1 ? tags[0] : tags.join(', ');
+  return `Keep the EXACT SAME PERSON as in ${list}: identical face, facial features, eyes, nose, lips, skin tone, freckles and hairstyle. Do not beautify, reshape or re-imagine the face — only change what is explicitly requested. The person in the output must be recognizably the same individual.`;
+}
+
+const faceLockBtn = $('#face-lock-btn');
+if (faceLockBtn) {
+  const refreshFaceLockBtn = () => {
+    const clause = faceLockClause();
+    faceLockBtn.classList.toggle('active', !!clause && $('#prompt').value.includes(clause));
+  };
+  faceLockBtn.addEventListener('click', () => {
+    const clause = faceLockClause();
+    const ta = $('#prompt');
+    if (!clause) {
+      $('#enrich-status').textContent = 'Ajoutez d’abord la/les photo(s) du visage (canvas ou références), puis cliquez.';
+      return;
+    }
+    const current = ta.value;
+    if (current.includes(clause)) {
+      ta.value = current.replace(clause, '').replace(/[ \t]{2,}/g, ' ').replace(/\s+([,.])/g, '$1').trim();
+      $('#enrich-status').textContent = '↩︎ Instruction « même visage » retirée du prompt.';
+    } else {
+      ta.value = current.trim() ? `${current.trim()} ${clause}` : clause;
+      $('#enrich-status').textContent = '🎭 Instruction « même visage » ajoutée — vous pouvez la modifier librement.';
+    }
+    refreshFaceLockBtn();
+    if (typeof saveEditDraft === 'function') saveEditDraft();
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  $('#prompt').addEventListener('input', refreshFaceLockBtn);
+  const grid = document.getElementById('ref-grid');
+  if (grid) new MutationObserver(refreshFaceLockBtn).observe(grid, { childList: true, subtree: true });
+  refreshFaceLockBtn();
+}
+
 $('#enrich-btn').addEventListener('click', () => doLlm('enrich'));
 $('#rephrase-btn').addEventListener('click', () => doLlm('rephrase'));
 $('#translate-btn').addEventListener('click', () => doLlm('translate'));

@@ -280,6 +280,7 @@ small{color:var(--muted)}
 
 /* boutons d'enrichissement de prompt */
 .prompt-tools{display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap}
+.prompt-tools .btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 .btn.small{padding:6px 12px;font-size:13px}
 .btn.ghost{background:transparent;border:1px solid var(--border)}
 .muted.small{font-size:12px}
