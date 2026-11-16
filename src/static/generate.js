@@ -180,7 +180,7 @@ function crInitWeird() {
   });
 }
 
-// Chaos : 0-100, graines indépendantes dans le lot .
+// Chaos : 0-100, graines indépendantes dans le lot.
 function crInitChaos() {
   const slider = $('#cr-chaos');
   if (!slider) return;
