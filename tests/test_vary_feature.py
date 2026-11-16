@@ -23,7 +23,7 @@ _PNG_BYTES = (b"\x89PNG\r\n\x1a\n"
 
 
 class ExtraRatiosTests(unittest.TestCase):
-    def test_mj_like_ratios_present(self):
+    def test_additional_ratios_present(self):
         for rid in ("2:3", "4:5", "21:9", "9:21"):
             with self.subTest(ratio=rid):
                 w, h = RATIOS[rid]

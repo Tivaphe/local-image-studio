@@ -105,14 +105,14 @@ class MjApiTests(unittest.TestCase):
 
 
 class MjUiWiringTests(unittest.TestCase):
-    def test_generate_html_has_mj_controls(self):
+    def test_generate_html_has_cr_controls(self):
         html = (_REPO / "src/templates/generate.html").read_text(encoding="utf-8")
         for token in ("cr-style-chips", "cr-stylize", "cr-weird", "cr-chaos",
                       "cr-stylize-val", "cr-weird-val", "cr-chaos-val",
                       "cr-weird-desc", "gen-panel"):
             self.assertIn(token, html, token)
 
-    def test_generate_js_has_mj_logic(self):
+    def test_generate_js_has_cr_logic(self):
         js = (_REPO / "src/static/generate.js").read_text(encoding="utf-8")
         for token in ("CR_STYLE_CHIPS", "crInitChips", "crInitStylize", "crInitWeird", "crInitChaos",
                       "captureStylizeBase", "stylizeBase", "chaos:"):
@@ -153,7 +153,7 @@ class MjUiWiringTests(unittest.TestCase):
         self.assertIn('id="models-filter"', html)
         self.assertIn('id="model-grid-main"', html)
 
-    def test_style_css_has_mj_styles(self):
+    def test_style_css_has_cr_styles(self):
         css = (_REPO / "src/static/style.css").read_text(encoding="utf-8")
         for token in (".cr-chip", ".cr-box", ".cr-slider", ".gen-panel", ".history-sort", ".models-toolbar"):
             self.assertIn(token, css, token)

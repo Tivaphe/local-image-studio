@@ -256,7 +256,7 @@ async function restoreGenDraft() {
     if (typeof draft.negative === 'string' && draft.negative) $('#negative').value = draft.negative;
     if (draft.steps && !(m && m.fixed_steps != null)) $('#steps').value = draft.steps;
     if (draft.cfg && !(m && m.fixed_cfg != null)) $('#cfg').value = draft.cfg;
-    // Les sliders Stylisation/Weirdness ne sont pas persistés tels quels : les contrôles
+    // Les sliders Stylisation/Excentricité ne sont pas persistés tels quels : les contrôles
     // sous-jacents (étapes/CFG/échantillonneur/planificateur) le sont déjà. On les ramène
     // à leur état neutre et captureStylizeBase() réajuste la base relative à la présélection.
     if ($('#cr-stylize')) { $('#cr-stylize').value = 100; const v = $('#cr-stylize-val'); if (v) v.textContent = '100'; }
