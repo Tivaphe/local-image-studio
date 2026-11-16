@@ -329,7 +329,7 @@ Some models require a **free Hugging Face token**:
 | 🌐 **Translation** | Translates your prompt (FR, ES…) to English |
 | ✨ **Enrichment** | An LLM enriches your prompt (style, lighting, composition…) |
 | 📊 **Statistics** | Generation time per model, most used model, etc. |
-| 📚 **History** | All your images with their prompt, reusable in 1 click |
+| 📚 **History pro** | All your images, grouped by date (Today / Yesterday / This week / This month) · instant search · **saved searches** 🔖 · filters by model, resolution (HD/SD), ratio, favorites · **multi-select** (« Select all ») with bulk actions (⭐ favorites, 🗑️ trash, 📁 move) · **folders** 📁 (create, rename, filter) · **trash** with restore (auto-purge after 30 days) · **ℹ️ Details** panel (full prompt, seed, steps, CFG, sampler) with one-click « 🔁 Reuse prompt » and img2img vary · ⚠️ generation error log | History page |
 | 💾 **Auto-save** | Images saved in `output/` |
 | 🎛️ **Post-processing** | 7 photo controls (exposure, contrast, brightness, warmth, clarity, saturation, vibrance) in pixels, live preview, saved to History with PNG metadata | « 🎛️ Adjust » button (Generate, Edit, History) |
 | 🎨 **Style manager** | **Styles** page (top bar): create **your own styles** — free prompt, « Generate + Edit » or either, targeted at **all models** or a hand-picked subset (25). They show up in the « ⭐ My styles » group of the Generate & Edit pre-prompt dropdowns ({img1} token translated automatically). Built-in styles shown read-only, 1-click copy | Top bar → 🎭 Styles |

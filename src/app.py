@@ -92,6 +92,15 @@ app.json.sort_keys = False
 app.json.ensure_ascii = False
 
 db.init_db()
+# Corbeille : purge automatique des entrées plus vieilles que 30 jours (fichiers orphelins compris)
+try:
+    for _f in db.purge_deleted(30):
+        try:
+            (config.OUTPUT_DIR / _f).unlink(missing_ok=True)
+        except Exception:
+            pass
+except Exception:
+    pass
 
 
 # --------------------------------------------------------------------------- #
@@ -118,12 +127,46 @@ def history():
     model_filter = request.args.get("model", "")
     search_query = request.args.get("q", "").strip()
     fav_only = request.args.get("fav", "") in ("1", "true", "yes")
+    trash = request.args.get("trash", "") in ("1", "true", "yes")
+    folder_param = request.args.get("folder", "").strip()
+    folder_id = int(folder_param) if folder_param.isdigit() else None
+    quality = request.args.get("quality", "")  # "hd" / "sd" / ""
+    ratio_filter = request.args.get("ratio", "")
     images = db.list_images(
         limit=300,
         model_id=(model_filter or None),
         search_query=(search_query or None),
         favorites_only=fav_only,
+        trash=trash,
+        folder_id=folder_id,
     )
+    # Filtres HD/SD, ratio et erreurs (post-filtrage en Python : la DB ne stocke ni ratio ni erreur)
+    if quality == "hd":
+        images = [im for im in images if max(im.get("width") or 0, im.get("height") or 0) >= 1280]
+    elif quality == "sd":
+        images = [im for im in images if max(im.get("width") or 0, im.get("height") or 0) < 1280]
+    ratio_defs = dict(RATIOS)
+    def _ratio_name(im):
+        w, h = (im.get("width") or 0), (im.get("height") or 0)
+        if not w or not h:
+            return ""
+        for name, (rw, rh) in ratio_defs.items():
+            if not rw or not rh:
+                continue
+            if abs(w * rh - h * rw) * 1000 < max(w * rh, h * rw):
+                return name
+        best, best_err = "", 1e9
+        for name, (rw, rh) in ratio_defs.items():
+            if not rw or not rh:
+                continue
+            err = abs((w / h) - (rw / rh)) / (rw / rh)
+            if err < best_err:
+                best, best_err = name, err
+        return best if best_err < 0.12 else ""
+    if ratio_filter:
+        images = [im for im in images if _ratio_name(im) == ratio_filter]
+    folders = db.list_folders()
+    trash_count = db.count_trash()
     upscaler_ready = any(upscaler_status(uid)["downloaded"] for uid in UPSCALERS)
     repair_ready = any(adetailer_status(did)["downloaded"] for did in ADETAILERS)
     seedvr2_ready = seedvr2_status()["downloaded"]
@@ -138,7 +181,13 @@ def history():
                            repair_ready=repair_ready,
                            seedvr2_ready=seedvr2_ready,
                            pid_ready=pid_ready,
-                           vary_models=vary_models)
+                           vary_models=vary_models,
+                           trash=trash, folder_id=folder_id, folders=folders,
+                           trash_count=trash_count,
+                           quality=quality, ratio_filter=ratio_filter,
+                           ratios=RATIOS,
+                           error_count=db.count_generation_errors(),
+                           current_folder_name=next((f["name"] for f in folders if f["id"] == folder_id), None))
 
 
 @app.route("/models")
@@ -1477,21 +1526,156 @@ def api_toggle_favorite():
 
 @app.route("/api/delete-image", methods=["POST"])
 def api_delete_image():
+    """Suppression douce (corbeille) : l'image reste restaurable pendant 30 jours."""
     data = request.get_json(force=True)
     img_id = data.get("id")
     force = bool(data.get("force", False))
     try:
-        fname = db.delete_image(img_id, force=force)
+        db.delete_image(img_id, force=force)
+    except PermissionError as e:
+        return jsonify({"ok": False, "protected": True, "error": str(e)}), 400
+    return jsonify({"ok": True})
+
+
+@app.route("/api/restore-image", methods=["POST"])
+def api_restore_image():
+    data = request.get_json(force=True)
+    ok = db.restore_image(data.get("id"))
+    return jsonify({"ok": ok})
+
+
+def _unlink_files(filenames):
+    removed = 0
+    for fname in filenames:
+        fp = config.OUTPUT_DIR / fname
+        try:
+            fp.unlink()
+            removed += 1
+        except Exception:
+            pass
+    return removed
+
+
+@app.route("/api/purge-image", methods=["POST"])
+def api_purge_image():
+    """Suppression définitive d'une image depuis la corbeille."""
+    data = request.get_json(force=True)
+    force = bool(data.get("force", False))
+    try:
+        fname = db.purge_image(data.get("id"), force=force)
     except PermissionError as e:
         return jsonify({"ok": False, "protected": True, "error": str(e)}), 400
     if fname:
-        # suppression du fichier sur disque
-        fp = config.OUTPUT_DIR / fname
-        try:
-            fp.unlink(missing_ok=True)
-        except Exception:
-            pass
+        _unlink_files([fname])
     return jsonify({"ok": True})
+
+
+@app.route("/api/empty-trash", methods=["POST"])
+def api_empty_trash():
+    removed = _unlink_files(db.empty_trash())
+    return jsonify({"ok": True, "removed": removed})
+
+
+@app.route("/api/images/bulk", methods=["POST"])
+def api_images_bulk():
+    """Actions groupées sur l'historique : delete (douce) / favorite / unfavorite / folder."""
+    data = request.get_json(force=True)
+    action = data.get("action")
+    ids = data.get("ids") or []
+    ok_count, errors = 0, 0
+    if action in ("delete", "favorite", "unfavorite"):
+        for raw in ids:
+            try:
+                img_id = int(raw)
+                if action == "delete":
+                    db.delete_image(img_id, force=False)
+                else:
+                    db.toggle_favorite(img_id, value=(action == "favorite"))
+                ok_count += 1
+            except Exception:
+                errors += 1
+        return jsonify({"ok": True, "done": ok_count, "errors": errors})
+    if action == "folder":
+        folder_id = data.get("folder_id", None)
+        if folder_id is not None:
+            try:
+                folder_id = int(folder_id)
+            except (TypeError, ValueError):
+                return jsonify({"ok": False, "error": "folder_id invalide"}), 400
+        try:
+            done = db.set_images_folder(ids, folder_id)
+        except ValueError as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+        return jsonify({"ok": True, "done": done, "errors": 0})
+    if action == "purge":
+        purged = 0
+        for raw in ids:
+            try:
+                fname = db.purge_image(int(raw), force=False)
+            except PermissionError:
+                continue  # favoris protégés : on les saute
+            except Exception:
+                continue
+            if fname:
+                _unlink_files([fname])
+                purged += 1
+        return jsonify({"ok": True, "done": purged, "errors": 0})
+    if action == "restore":
+        for raw in ids:
+            try:
+                if db.restore_image(int(raw)):
+                    ok_count += 1
+            except Exception:
+                errors += 1
+        return jsonify({"ok": True, "done": ok_count, "errors": errors})
+    return jsonify({"ok": False, "error": "action inconnue"}), 400
+
+
+@app.route("/api/folders", methods=["GET"])
+def api_list_folders():
+    return jsonify({"ok": True, "folders": db.list_folders()})
+
+
+@app.route("/api/folders", methods=["POST"])
+def api_create_folder():
+    data = request.get_json(force=True)
+    try:
+        fid = db.create_folder(data.get("name"))
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    return jsonify({"ok": True, "id": fid})
+
+
+@app.route("/api/folders/<int:folder_id>", methods=["POST"])
+def api_rename_folder(folder_id):
+    data = request.get_json(force=True)
+    try:
+        ok = db.rename_folder(folder_id, data.get("name"))
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    return jsonify({"ok": ok})
+
+
+@app.route("/api/folders/<int:folder_id>/delete", methods=["POST"])
+def api_delete_folder(folder_id):
+    return jsonify({"ok": db.delete_folder(folder_id)})
+
+
+@app.route("/api/generation-errors", methods=["GET"])
+def api_generation_errors():
+    limit = request.args.get("limit", "50")
+    try:
+        limit = max(1, min(200, int(limit)))
+    except ValueError:
+        limit = 50
+    return jsonify({"ok": True,
+                    "errors": db.list_generation_errors(limit),
+                    "count": db.count_generation_errors()})
+
+
+@app.route("/api/generation-errors/clear", methods=["POST"])
+def api_generation_errors_clear():
+    return jsonify({"ok": True, "cleared": db.clear_generation_errors()})
 
 
 # --------------------------------------------------------------------------- #
@@ -1775,6 +1959,10 @@ def api_image(img_id):
         "quant": row["quant"], "prompt": row["prompt"], "negative": row["negative"],
         "steps": row["steps"], "cfg": row["cfg"], "seed": row["seed"],
         "width": row["width"], "height": row["height"],
+        "sampler": row.get("sampler"), "created": row.get("created"),
+        "gen_time": row.get("gen_time"), "filename": row.get("filename"),
+        "folder_id": row.get("folder_id"), "favorite": row.get("favorite"),
+        "url": url_for('serve_output', filename=row["filename"]),
         "source_images": sources,
     }})
 

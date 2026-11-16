@@ -2,15 +2,46 @@
 {% block title %}Historique · Local Image Studio{% endblock %}
 
 {% block content %}
+{%- macro murl(model=model_filter or None, fav=fav_only, trash=trash, folder=folder_id, quality=quality or None, ratio=ratio_filter or None) -%}
+{{ url_for('history', model=model, q=(search_query or None), fav='1' if fav else None, trash='1' if trash else None, folder=folder, quality=quality, ratio=ratio) }}
+{%- endmacro -%}
 <section class="panel">
   <div class="panel-head">
-    <h2>Historique</h2>
+    <h2>{{ 'Corbeille' if trash else 'Historique' }}</h2>
     <div class="filters">
-      <a class="chip {% if not model_filter %}active{% endif %}" href="{{ url_for('history') }}">Tous</a>
+      <a class="chip {% if not model_filter %}active{% endif %}" href="{{ murl(model=None) }}">Tous</a>
       {% for mid, m in models.items() %}
-      <a class="chip {% if model_filter==mid %}active{% endif %}" href="{{ url_for('history', model=mid) }}">{{ m.name }}</a>
+      <a class="chip {% if model_filter==mid %}active{% endif %}" href="{{ murl(model=mid) }}">{{ m.name }}</a>
       {% endfor %}
     </div>
+  </div>
+
+  <!-- Onglets : Historique / Corbeille + journal d'erreurs -->
+  <div class="hist-tabs" role="tablist">
+    <a class="chip {% if not trash %}active{% endif %}" role="tab" href="{{ murl(trash=False) }}">🖼️ Historique</a>
+    <a class="chip {% if trash %}active{% endif %}" role="tab" href="{{ murl(trash=True) }}">🗑️ Corbeille{% if trash_count %} <span class="badge">{{ trash_count }}</span>{% endif %}</a>
+    <button type="button" class="chip chip-btn" id="errors-open" title="Journal des échecs de génération et de post-traitement (les erreurs ne laissent pas d'image en base)">⚠️ Erreurs <span class="badge" id="errors-count">{{ error_count }}</span></button>
+    {% if trash %}
+    <button type="button" class="btn small danger-outline" id="empty-trash" title="Supprime définitivement toutes les images de la corbeille (les favoris ⭐ sont conservés)">🗑️ Vider la corbeille</button>
+    {% endif %}
+  </div>
+
+  <!-- Dossiers -->
+  <div class="folder-bar" id="folder-bar" aria-label="Dossiers">
+    <a class="chip chip-sm {% if not folder_id %}active{% endif %}" href="{{ murl(folder=None) }}">📁 Tous les dossiers</a>
+    {% for f in folders %}
+    <a class="chip chip-sm folder-chip {% if folder_id == f.id %}active{% endif %}"
+       href="{{ murl(folder=f.id) }}"
+       data-folder-id="{{ f.id }}" data-folder-name="{{ f.name|e }}">📁 {{ f.name }} <span class="muted">{{ f.count }}</span></a>
+    {% endfor %}
+    <form id="folder-create-form" class="folder-create" autocomplete="off">
+      <input type="text" id="folder-create-input" maxlength="60" placeholder="➕ Nouveau dossier…" aria-label="Nom du nouveau dossier">
+      <button type="submit" class="chip chip-sm chip-btn" title="Créer le dossier">Créer</button>
+    </form>
+    {% if folder_id %}
+    <button type="button" class="chip chip-sm chip-btn" id="folder-rename" title="Renommer ce dossier">✏️ Renommer</button>
+    <button type="button" class="chip chip-sm chip-btn chip-danger" id="folder-delete" title="Supprimer ce dossier (les images retournent à la racine, elles ne sont pas supprimées)">🗑️ Supprimer ce dossier</button>
+    {% endif %}
   </div>
 
   <div class="history-toolbar">
@@ -23,6 +54,23 @@
             id="history-fav-filter" title="Afficher uniquement vos images favorites ⭐">
       ⭐ Favoris uniquement
     </button>
+    <label class="history-sort-wrap" title="Résolution de l'image">
+      <span class="sr-only">Résolution</span>
+      <select id="quality-filter" class="history-sort" aria-label="Filtrer par résolution">
+        <option value="" {% if not quality %}selected{% endif %}>📐 Toutes résolutions</option>
+        <option value="hd" {% if quality == 'hd' %}selected{% endif %}>HD (≥ 1280 px)</option>
+        <option value="sd" {% if quality == 'sd' %}selected{% endif %}>SD (&lt; 1280 px)</option>
+      </select>
+    </label>
+    <label class="history-sort-wrap" title="Format / ratio d'image">
+      <span class="sr-only">Ratio</span>
+      <select id="ratio-filter" class="history-sort" aria-label="Filtrer par ratio">
+        <option value="" {% if not ratio_filter %}selected{% endif %}>🖼️ Tous les ratios</option>
+        {% for name, _wh in ratios.items() %}
+        <option value="{{ name }}" {% if ratio_filter == name %}selected{% endif %}>{{ name }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <label class="history-sort-wrap" title="Réordonne les cartes affichées (sans recharger la page)">
       <span class="sr-only">Trier</span>
       <select id="history-sort" class="history-sort" aria-label="Trier l'historique">
@@ -33,16 +81,51 @@
         <option value="pixels">📐 Dimensions croissantes</option>
       </select>
     </label>
+    <button type="button" class="btn small ghost" id="save-search-btn"
+            title="Enregistre la combinaison actuelle de filtres (modèle, recherche, favoris, résolution, ratio, dossier) sous un nom">💾 Enregistrer la recherche</button>
     {% if repair_ready %}
     <span class="muted small upscale-hint" title="Cliquez « 🙂 Réparer » sur une image pour re-détailler automatiquement visages et mains. La version réparée est ajoutée à l'historique.">🙂 réparation prête</span>
     {% else %}
     <a class="muted small upscale-hint" href="{{ url_for('models_page') }}"
        title="Installez un détecteur ADetailer (quelques Mo) pour activer le bouton « 🙂 Réparer » sur chaque image">💡 Installer le détecteur de visages/mains →</a>
     {% endif %}
+    <label class="select-all-wrap" title="Sélectionne / désélectionne toutes les cartes visibles">
+      <input type="checkbox" id="select-all"> Tout sélectionner
+    </label>
     <span class="muted small" id="history-visible-count"></span>
   </div>
 
-  <p class="muted">{{ count }} image(s) au total · enregistrées dans <code>output/</code> · 300 entrées les plus récentes affichées · les images ⭐ sont protégées contre la suppression</p>
+  <!-- Recherches enregistrées -->
+  <div class="saved-searches" id="saved-searches" hidden></div>
+
+  <!-- Barre d'actions groupées -->
+  <div class="bulk-bar" id="bulk-bar" hidden>
+    <span class="bulk-count" id="bulk-count">0 sélectionnée(s)</span>
+    {% if trash %}
+    <button type="button" class="btn small" id="bulk-restore">♻️ Restaurer</button>
+    <button type="button" class="btn small danger-outline" id="bulk-purge">❌ Supprimer définitivement</button>
+    {% else %}
+    <button type="button" class="btn small" id="bulk-fav">⭐ Favoriser</button>
+    <button type="button" class="btn small ghost" id="bulk-unfav">☆ Retirer ⭐</button>
+    <label class="bulk-folder-wrap" title="Déplace la sélection dans un dossier (ou à la racine)">
+      📁 Déplacer vers :
+      <select id="bulk-folder">
+        <option value="__none__">— Choisir… —</option>
+        <option value="">📁 Racine (aucun dossier)</option>
+        {% for f in folders %}
+        <option value="{{ f.id }}">📁 {{ f.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="button" class="btn small danger-outline" id="bulk-delete">🗑️ Mettre à la corbeille</button>
+    {% endif %}
+  </div>
+
+  {% if trash %}
+  <p class="muted">🗑️ Corbeille : {{ images|length }} image(s) en attente · les images en corbeille sont définitivement supprimées automatiquement après 30 jours · les images ⭐ sont protégées</p>
+  {% else %}
+  <p class="muted">{{ count }} image(s) au total · enregistrées dans <code>output/</code> · 300 entrées les plus récentes affichées · les images ⭐ sont protégées contre la suppression · « Supprimer » déplace dans la corbeille</p>
+  {% endif %}
 
   <!-- Bandeau de suivi en direct des opérations auxiliaires (🔍⬆️🙂🩹) -->
   <div id="aux-banner" class="banner" hidden>
@@ -66,6 +149,8 @@
     <div class="card {% if im.favorite %}is-favorite{% endif %}"
          data-id="{{ im.id }}"
          data-favorite="{{ '1' if im.favorite else '0' }}"
+         data-created="{{ im.created }}"
+         data-folder="{{ im.folder_id if im.folder_id is not none else '' }}"
          data-search="{{ (im.prompt ~ ' ' ~ im.model_name ~ ' ' ~ im.quant ~ ' ' ~ im.seed ~ ' ' ~ im.width ~ 'x' ~ im.height)|lower|e }}"
          data-model="{{ im.model_name|lower|e }}"
          data-seed="{{ im.seed if im.seed is not none else 0 }}"
@@ -74,6 +159,11 @@
          data-label="{{ im.model_name }} · seed {{ im.seed }}"
          data-sources='{{ sources | tojson }}'>
       <div class="thumb" style="background-image:url('{{ url_for('serve_output', filename=im.filename) }}')">
+        <label class="select-box" title="Sélectionner cette image">
+          <input type="checkbox" class="card-select" data-id="{{ im.id }}" aria-label="Sélectionner l'image {{ im.id }}">
+        </label>
+        <button type="button" class="details-btn" data-id="{{ im.id }}"
+                title="Voir le prompt complet et les paramètres (seed, étapes, CFG, échantillonneur…)">ℹ️</button>
         <button type="button" class="fav-btn {% if im.favorite %}active{% endif %}"
                 data-id="{{ im.id }}"
                 title="{{ 'Retirer des favoris (déverrouiller la suppression)' if im.favorite else 'Ajouter aux favoris ⭐ (protège contre la suppression)' }}">
@@ -102,6 +192,7 @@
                   data-sources='{{ sources | tojson }}'>{{ 'Rééditer' if editable and sources else 'Réutiliser' }}</button>
           <button type="button" class="link copy-prompt"
                   title="📋 Copier le prompt de cette image dans le presse-papier">📋 Copier le prompt</button>
+          {% if not trash %}
           {% if upscaler_ready %}
           <button type="button" class="link postprocess-link" data-id="{{ im.id }}"
                   data-url="{{ url_for('serve_output', filename=im.filename) }}"
@@ -124,16 +215,27 @@
           {% endif %}
           {% if im.model in vary_models and (im.width or 0) <= 1536 and (im.height or 0) <= 1536 %}
           <button type="button" class="link vary-link" data-id="{{ im.id }}" data-mode="subtle"
-                  title="🔀 Variation subtile (img2img, force 0,35, nouvelle graine) : re-génère l'image (img2img, force 0,35, nouvelle graine) — la variante est ajoutée à l'historique">🔀 Subtil</button>
+                  title="🔀 Variation subtile (img2img, force 0,35, nouvelle graine) — la variante est ajoutée à l'historique">🔀 Subtil</button>
           <button type="button" class="link vary-link" data-id="{{ im.id }}" data-mode="strong"
-                  title="🔀 Variation forte (img2img, force 0,75, nouvelle graine) : re-génère l'image (img2img, force 0,75, nouvelle graine) — la variante est ajoutée à l'historique">🔀 Fort</button>
+                  title="🔀 Variation forte (img2img, force 0,75, nouvelle graine) — la variante est ajoutée à l'historique">🔀 Fort</button>
           {% endif %}
+          {% endif %}
+          {% if trash %}
+          <button type="button" class="link restore-link" data-id="{{ im.id }}"
+                  title="♻️ Restaure cette image dans l'historique">♻️ Restaurer</button>
+          <button type="button" class="link danger purge-link {% if im.favorite %}locked{% endif %}" data-id="{{ im.id }}"
+                  title="{{ 'Image protégée en Favori ⭐' if im.favorite else 'Supprime définitivement (double clic de sécurité) — irréversible' }}">
+            {{ '🔒 Favori' if im.favorite else 'Supprimer définitivement' }}
+          </button>
+          {% else %}
           <button class="link danger del {% if im.favorite %}locked{% endif %}"
                   data-id="{{ im.id }}"
-                  title="{{ 'Image protégée en Favori ⭐ — cliquez sur l’étoile pour déverrouiller' if im.favorite else 'Supprimer (double clic de sécurité)' }}">
+                  title="{{ 'Image protégée en Favori ⭐ — cliquez sur l’étoile pour déverrouiller' if im.favorite else 'Met à la corbeille (double clic de sécurité) — restaurable 30 jours' }}">
             {{ '🔒 Favori' if im.favorite else 'Supprimer' }}
           </button>
+          {% endif %}
         </div>
+        {% if not trash %}
         <div class="card-edit-actions">
           <button type="button" class="btn small use-in-edit" data-mode="canvas"
                   data-id="{{ im.id }}" data-filename="{{ im.filename }}"
@@ -146,16 +248,77 @@
             ＋ Réf.
           </button>
         </div>
+        {% endif %}
       </div>
     </div>
     {% endfor %}
   </div>
   {% else %}
   <div class="empty">
+    {% if trash %}
+    <p>🗑️ La corbeille est vide.</p>
+    <a class="btn primary" href="{{ murl(trash=False) }}">← Retour à l'historique</a>
+    {% else %}
     <p>Aucune image pour le moment.</p>
     <a class="btn primary" href="{{ url_for('generate') }}">← Générer une image</a>
+    {% endif %}
   </div>
   {% endif %}
+<!-- Panneau de détail d'une image (prompt complet + paramètres + actions) -->
+<div id="detail-overlay" class="detail-overlay" hidden></div>
+<aside id="detail-panel" class="detail-panel" role="dialog" aria-modal="true" aria-label="Détails de l'image" aria-hidden="true" hidden>
+  <div class="detail-head">
+    <h3>Détails de l'image</h3>
+    <button type="button" class="icon-btn" id="detail-close" aria-label="Fermer le panneau">✕</button>
+  </div>
+  <img id="detail-img" class="detail-img" alt="">
+  <dl class="detail-meta">
+    <div><dt>Modèle</dt><dd id="d-model">—</dd></div>
+    <div><dt>Quant</dt><dd id="d-quant">—</dd></div>
+    <div><dt>Graine</dt><dd id="d-seed">—</dd></div>
+    <div><dt>Étapes</dt><dd id="d-steps">—</dd></div>
+    <div><dt>CFG</dt><dd id="d-cfg">—</dd></div>
+    <div><dt>Échantillonneur</dt><dd id="d-sampler">—</dd></div>
+    <div><dt>Dimensions</dt><dd id="d-size">—</dd></div>
+    <div><dt>Temps de gén.</dt><dd id="d-time">—</dd></div>
+    <div><dt>Créée le</dt><dd id="d-created">—</dd></div>
+    <div><dt>Dossier</dt><dd id="d-folder">—</dd></div>
+  </dl>
+  <div class="detail-prompt-block">
+    <div class="detail-label">Prompt
+      <button type="button" class="link" id="detail-copy-prompt">📋 Copier</button>
+    </div>
+    <p id="d-prompt" class="detail-prompt"></p>
+  </div>
+  <div class="detail-prompt-block" id="detail-negative-wrap" hidden>
+    <div class="detail-label">Prompt négatif</div>
+    <p id="d-negative" class="detail-prompt negative"></p>
+  </div>
+  <div class="detail-actions">
+    <button type="button" class="btn primary" id="detail-reuse">🔁 Réutiliser ce prompt</button>
+    <div class="detail-vary">
+      <button type="button" class="btn small" id="detail-vary-subtle" title="Variation img2img légère (force 0,35)">🔀 Variante subtile</button>
+      <button type="button" class="btn small" id="detail-vary-strong" title="Variation img2img marquée (force 0,75)">🔀 Variante forte</button>
+    </div>
+    <a class="btn small ghost" id="detail-download" download>⬇️ Télécharger</a>
+  </div>
+</aside>
+
+<!-- Journal des erreurs (modal) -->
+<div id="errors-modal" class="errors-modal" role="dialog" aria-modal="true" aria-labelledby="errors-title" hidden>
+  <div class="errors-panel">
+    <div class="detail-head">
+      <h3 id="errors-title">⚠️ Journal des erreurs</h3>
+      <button type="button" class="icon-btn" id="errors-close" aria-label="Fermer">✕</button>
+    </div>
+    <p class="muted small">Les échecs de génération et de post-traitement sont journalisés ici — ils ne laissent pas d'image en base. Purge automatique après 30 jours.</p>
+    <div id="errors-list" class="errors-list"><p class="muted">Chargement…</p></div>
+    <div class="errors-foot">
+      <button type="button" class="btn small danger-outline" id="errors-clear">🧹 Effacer le journal</button>
+      <button type="button" class="btn small ghost" id="errors-close-2">Fermer</button>
+    </div>
+  </div>
+</div>
 </section>
 
 <script src="{{ url_for('static', filename='quality.js', v=static_v) }}"></script>
@@ -391,6 +554,14 @@ function applyHistoryFilter() {
     card.hidden = !show;
     if (show) visible++;
   });
+  // Masquer les groupes de date sans carte visible
+  document.querySelectorAll('.date-group').forEach(group => {
+    const cards = [...group.querySelectorAll('.card')];
+    const anyVisible = cards.some(c => !c.hidden);
+    group.hidden = !anyVisible;
+    const counter = group.querySelector('.date-group-count');
+    if (counter) counter.textContent = cards.filter(c => !c.hidden).length;
+  });
   if (visibleCountEl) {
     visibleCountEl.textContent = (q || favOnlyFilter)
       ? `${visible} / ${cards.length} affichée(s)`
@@ -398,25 +569,8 @@ function applyHistoryFilter() {
   }
 }
 
-// --- Tri de la galerie ---
+// --- Tri de la galerie : géré dans le second bloc (par groupe de date) ---
 const sortSelect = document.getElementById('history-sort');
-const galleryEl = document.getElementById('history-gallery');
-const originalCardOrder = galleryEl ? [...galleryEl.querySelectorAll('.card')] : [];
-sortSelect?.addEventListener('change', () => {
-  if (!galleryEl) return;
-  const mode = sortSelect.value;
-  const cards = [...galleryEl.querySelectorAll('.card')];
-  const byNum = (k) => (a, b) => (parseFloat(a.dataset[k]) || 0) - (parseFloat(b.dataset[k]) || 0);
-  let sorted;
-  if (mode === 'recent')   sorted = originalCardOrder;
-  else if (mode === 'oldest') sorted = [...originalCardOrder].reverse();
-  else if (mode === 'model')  sorted = [...cards].sort((a, b) => (a.dataset.model || '').localeCompare(b.dataset.model || '', 'fr'));
-  else if (mode === 'seed')   sorted = [...cards].sort(byNum('seed'));
-  else if (mode === 'pixels') sorted = [...cards].sort(byNum('pixels'));
-  else sorted = cards;
-  sorted.forEach(card => galleryEl.appendChild(card));
-  applyHistoryFilter();
-});
 
 searchInput?.addEventListener('input', applyHistoryFilter);
 favFilterBtn?.addEventListener('click', () => {
@@ -711,5 +865,471 @@ document.querySelectorAll('.vary-link').forEach(b => {
     }
   });
 });
+</script>
+
+<script>
+// ============================================================================
+//  Historique pro — groupes par date, sélection multiple, corbeille, dossiers,
+//  recherches enregistrées, panneau de détail, journal d'erreurs
+// ============================================================================
+// ---------- Regroupement par date (Aujourd'hui / Hier / Cette semaine / Ce mois-ci / Plus ancien) ----------
+(function groupByDate() {
+  const gallery = document.getElementById('history-gallery');
+  if (!gallery) return;
+  const cards = [...gallery.querySelectorAll('.card')];
+  if (!cards.length) return;
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startYesterday = new Date(startToday); startYesterday.setDate(startYesterday.getDate() - 1);
+  const startWeek = new Date(startToday); startWeek.setDate(startWeek.getDate() - 6);
+  const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const bucketOf = (t) => (t >= startToday ? 'today'
+    : t >= startYesterday ? 'yesterday'
+    : t >= startWeek ? 'week'
+    : t >= startMonth ? 'month' : 'older');
+  const META = [
+    ['today', "Aujourd'hui"], ['yesterday', 'Hier'], ['week', 'Cette semaine'],
+    ['month', 'Ce mois-ci'], ['older', 'Plus ancien'],
+  ];
+  const buckets = { today: [], yesterday: [], week: [], month: [], older: [] };
+  cards.forEach(card => {
+    const t = new Date(card.dataset.created || 0);
+    buckets[bucketOf(isNaN(t) ? new Date(0) : t)].push(card);
+  });
+  const frag = document.createDocumentFragment();
+  META.forEach(([key, label]) => {
+    const items = buckets[key];
+    if (!items.length) return;
+    const section = document.createElement('section');
+    section.className = 'date-group';
+    section.innerHTML = `<h3 class="date-group-title">${label} <span class="date-group-count">${items.length}</span></h3>`;
+    const sub = document.createElement('div');
+    sub.className = 'gallery';
+    items.forEach(c => sub.appendChild(c));
+    section.appendChild(sub);
+    frag.appendChild(section);
+  });
+  gallery.replaceWith(frag);
+  // window.__lisDateGroups = true; (le tri réutilise les sous-galeries)
+})();
+
+// ---------- Sélection multiple + barre d'actions groupées ----------
+const selectAllBox = document.getElementById('select-all');
+const bulkBar = document.getElementById('bulk-bar');
+const bulkCount = document.getElementById('bulk-count');
+
+function selectedIds() {
+  return [...document.querySelectorAll('.card-select:checked')].map(cb => Number(cb.dataset.id));
+}
+function updateBulkBar() {
+  const n = selectedIds().length;
+  if (bulkBar) bulkBar.hidden = n === 0;
+  if (bulkCount) bulkCount.textContent = `${n} sélectionnée(s)`;
+  if (selectAllBox) {
+    const visible = [...document.querySelectorAll('.card-select')].filter(cb => !cb.closest('.card').hidden);
+    selectAllBox.checked = visible.length > 0 && visible.every(cb => cb.checked);
+    selectAllBox.indeterminate = !selectAllBox.checked && visible.some(cb => cb.checked);
+  }
+}
+document.querySelectorAll('.card-select').forEach(cb => cb.addEventListener('change', updateBulkBar));
+selectAllBox?.addEventListener('change', () => {
+  const visible = [...document.querySelectorAll('.card-select')].filter(cb => !cb.closest('.card').hidden);
+  visible.forEach(cb => { cb.checked = selectAllBox.checked; });
+  updateBulkBar();
+});
+
+async function bulkAction(payload) {
+  try {
+    const r = await fetch('/api/images/bulk', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!j.ok) { if (window.showToast) window.showToast('❌ ' + (j.error || 'Action impossible.')); return null; }
+    return j;
+  } catch (e) {
+    if (window.showToast) window.showToast('❌ Erreur réseau.');
+    return null;
+  }
+}
+document.getElementById('bulk-delete')?.addEventListener('click', async () => {
+  const ids = selectedIds(); if (!ids.length) return;
+  const j = await bulkAction({ action: 'delete', ids });
+  if (j) { if (window.showToast) window.showToast(`🗑️ ${j.done} image(s) placées en corbeille.`); setTimeout(() => location.reload(), 400); }
+});
+document.getElementById('bulk-restore')?.addEventListener('click', async () => {
+  const ids = selectedIds(); if (!ids.length) return;
+  const j = await bulkAction({ action: 'restore', ids });
+  if (j) { if (window.showToast) window.showToast(`♻️ ${j.done} image(s) restaurées.`); setTimeout(() => location.reload(), 400); }
+});
+document.getElementById('bulk-purge')?.addEventListener('click', async () => {
+  const ids = selectedIds(); if (!ids.length) return;
+  if (!confirm(`Supprimer définitivement ${ids.length} image(s) ? Les favoris ⭐ seront conservés. Cette action est irréversible.`)) return;
+  const j = await bulkAction({ action: 'purge', ids });
+  if (j) { if (window.showToast) window.showToast(`❌ ${j.done} image(s) supprimées définitivement.`); setTimeout(() => location.reload(), 400); }
+});
+document.getElementById('bulk-fav')?.addEventListener('click', async () => {
+  const ids = selectedIds(); if (!ids.length) return;
+  const j = await bulkAction({ action: 'favorite', ids });
+  if (j) setTimeout(() => location.reload(), 300);
+});
+document.getElementById('bulk-unfav')?.addEventListener('click', async () => {
+  const ids = selectedIds(); if (!ids.length) return;
+  const j = await bulkAction({ action: 'unfavorite', ids });
+  if (j) setTimeout(() => location.reload(), 300);
+});
+document.getElementById('bulk-folder')?.addEventListener('change', async (ev) => {
+  const val = ev.target.value;
+  if (val === '__none__') return;
+  const ids = selectedIds(); if (!ids.length) { ev.target.value = '__none__'; return; }
+  const folder_id = val === '' ? null : Number(val);
+  const j = await bulkAction({ action: 'folder', ids, folder_id });
+  if (j) { if (window.showToast) window.showToast(`📁 ${j.done} image(s) déplacées.`); setTimeout(() => location.reload(), 400); }
+  ev.target.value = '__none__';
+});
+
+// ---------- Corbeille : vider ----------
+document.getElementById('empty-trash')?.addEventListener('click', async () => {
+  if (!confirm('Vider définitivement la corbeille ? Les favoris ⭐ seront conservés. Cette action est irréversible.')) return;
+  try {
+    const r = await fetch('/api/empty-trash', { method: 'POST' });
+    const j = await r.json();
+    if (window.showToast) window.showToast(j.ok ? '🗑️ Corbeille vidée.' : '❌ Échec.');
+    setTimeout(() => location.reload(), 400);
+  } catch (e) { if (window.showToast) window.showToast('❌ Erreur réseau.'); }
+});
+
+// ---------- Corbeille : restaurer / purger par carte ----------
+document.querySelectorAll('.restore-link').forEach(b => b.addEventListener('click', async () => {
+  b.disabled = true;
+  try {
+    const r = await fetch('/api/restore-image', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: b.dataset.id }),
+    });
+    const j = await r.json();
+    if (j.ok) { const card = b.closest('.card'); card?.remove(); if (window.showToast) window.showToast('♻️ Image restaurée.'); if (typeof applyHistoryFilter === 'function') applyHistoryFilter(); }
+    else b.disabled = false;
+  } catch (e) { b.disabled = false; }
+}));
+document.querySelectorAll('.purge-link').forEach(b => {
+  let resetTimer = null;
+  b.addEventListener('click', async () => {
+    const card = b.closest('.card');
+    if (b.classList.contains('locked') || card?.dataset.favorite === '1') {
+      if (window.showToast) window.showToast('⭐ Cette image est protégée dans vos Favoris.');
+      return;
+    }
+    if (b.dataset.confirming !== '1') {
+      b.dataset.confirming = '1'; const orig = b.textContent;
+      b.dataset.orig = orig; b.textContent = '⚠️ Confirmer ?';
+      if (resetTimer) clearTimeout(resetTimer);
+      resetTimer = setTimeout(() => { b.dataset.confirming = ''; b.textContent = orig; }, 3500);
+      return;
+    }
+    if (resetTimer) clearTimeout(resetTimer);
+    b.disabled = true; b.textContent = '…';
+    try {
+      const r = await fetch('/api/purge-image', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: b.dataset.id }),
+      });
+      const j = await r.json();
+      if (j.ok) { card?.remove(); if (window.showToast) window.showToast('❌ Image supprimée définitivement.'); if (typeof applyHistoryFilter === 'function') applyHistoryFilter(); }
+      else { b.disabled = false; b.dataset.confirming = ''; b.textContent = b.dataset.orig || 'Supprimer définitivement'; alert(j.error || 'Suppression refusée.'); }
+    } catch (e) { b.disabled = false; b.textContent = b.dataset.orig || 'Supprimer définitivement'; }
+  });
+});
+
+// ---------- Filtres qualité / ratio (navigation serveur) ----------
+const qualityFilter = document.getElementById('quality-filter');
+const ratioFilter = document.getElementById('ratio-filter');
+function navWith(key, value) {
+  const params = new URLSearchParams(window.location.search);
+  if (value) params.set(key, value); else params.delete(key);
+  const q = (document.getElementById('history-search')?.value || '').trim();
+  if (q) params.set('q', q); else params.delete('q');
+  window.location.search = params.toString();
+}
+qualityFilter?.addEventListener('change', () => navWith('quality', qualityFilter.value));
+ratioFilter?.addEventListener('change', () => navWith('ratio', ratioFilter.value));
+
+// ---------- Recherches enregistrées (localStorage) ----------
+const SAVED_KEY = 'lis_hist_saved_searches';
+const savedWrap = document.getElementById('saved-searches');
+const saveBtn = document.getElementById('save-search-btn');
+function readSaved() {
+  try { return JSON.parse(localStorage.getItem(SAVED_KEY) || '[]'); } catch (e) { return []; }
+}
+function writeSaved(list) { localStorage.setItem(SAVED_KEY, JSON.stringify(list.slice(0, 12))); }
+function renderSaved() {
+  if (!savedWrap) return;
+  const list = readSaved();
+  savedWrap.innerHTML = '';
+  if (!list.length) { savedWrap.hidden = true; return; }
+  savedWrap.hidden = false;
+  const label = document.createElement('span');
+  label.className = 'muted small saved-label';
+  label.textContent = '🔖 Recherches enregistrées :';
+  savedWrap.appendChild(label);
+  list.forEach((entry, idx) => {
+    const chip = document.createElement('span');
+    chip.className = 'saved-chip';
+    const go = document.createElement('button');
+    go.type = 'button'; go.className = 'saved-chip-go'; go.textContent = entry.name;
+    go.title = 'Appliquer cette recherche';
+    go.addEventListener('click', () => { window.location.search = entry.qs ? '?' + entry.qs : ''; });
+    const rm = document.createElement('button');
+    rm.type = 'button'; rm.className = 'saved-chip-del'; rm.textContent = '×'; rm.title = 'Supprimer cette recherche enregistrée';
+    rm.setAttribute('aria-label', 'Supprimer ' + entry.name);
+    rm.addEventListener('click', () => { const l = readSaved(); l.splice(idx, 1); writeSaved(l); renderSaved(); });
+    chip.appendChild(go); chip.appendChild(rm);
+    savedWrap.appendChild(chip);
+  });
+}
+saveBtn?.addEventListener('click', () => {
+  if (!savedWrap) return;
+  if (savedWrap.querySelector('.saved-inline-form')) return; // déjà ouverte
+  savedWrap.hidden = false;
+  const form = document.createElement('span');
+  form.className = 'saved-inline-form';
+  const input = document.createElement('input');
+  input.type = 'text'; input.maxLength = 60; input.placeholder = 'Nom de la recherche…';
+  input.setAttribute('aria-label', 'Nom de la recherche enregistrée');
+  const ok = document.createElement('button');
+  ok.type = 'button'; ok.className = 'chip chip-sm chip-btn'; ok.textContent = 'Enregistrer';
+  const cancel = document.createElement('button');
+  cancel.type = 'button'; cancel.className = 'chip chip-sm chip-btn'; cancel.textContent = 'Annuler';
+  const finish = (save) => {
+    const name = input.value.trim();
+    if (save && name) {
+      const qs = window.location.search.replace(/^\?/, '');
+      const list = readSaved().filter(e => e.name !== name);
+      list.unshift({ name, qs });
+      writeSaved(list);
+      if (window.showToast) window.showToast(`🔖 « ${name} » enregistrée.`);
+    }
+    form.remove(); renderSaved();
+  };
+  ok.addEventListener('click', () => finish(true));
+  cancel.addEventListener('click', () => finish(false));
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); });
+  form.appendChild(input); form.appendChild(ok); form.appendChild(cancel);
+  savedWrap.appendChild(form);
+  input.focus();
+});
+renderSaved();
+
+// ---------- Dossiers : créer / renommer / supprimer ----------
+const folderForm = document.getElementById('folder-create-form');
+const folderInput = document.getElementById('folder-create-input');
+async function postFolder(url, payload) {
+  try {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}) });
+    return await r.json();
+  } catch (e) { return { ok: false, error: 'Erreur réseau.' }; }
+}
+folderForm?.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const name = (folderInput?.value || '').trim();
+  if (!name) return;
+  const j = await postFolder('/api/folders', { name });
+  if (j.ok) { setTimeout(() => location.reload(), 200); }
+  else alert(j.error || 'Création impossible.');
+});
+document.getElementById('folder-rename')?.addEventListener('click', async () => {
+  const chip = document.querySelector('.folder-chip.active');
+  const id = chip?.dataset.folderId || new URLSearchParams(location.search).get('folder');
+  const current = chip?.dataset.folderName || '';
+  const name = prompt('Nouveau nom du dossier :', current);
+  if (name === null) return;
+  const j = await postFolder('/api/folders/' + id, { name });
+  if (j.ok) setTimeout(() => location.reload(), 200);
+  else alert(j.error || 'Renommage impossible.');
+});
+document.getElementById('folder-delete')?.addEventListener('click', async () => {
+  const chip = document.querySelector('.folder-chip.active');
+  const id = chip?.dataset.folderId || new URLSearchParams(location.search).get('folder');
+  if (!confirm('Supprimer ce dossier ? Les images qu’il contient retournent à la racine (elles ne sont pas supprimées).')) return;
+  const j = await postFolder('/api/folders/' + id + '/delete', {});
+  if (j.ok) { const params = new URLSearchParams(location.search); params.delete('folder'); window.location.search = params.toString(); }
+  else alert(j.error || 'Suppression impossible.');
+});
+
+// ---------- Panneau de détail d'une image ----------
+const detailPanel = document.getElementById('detail-panel');
+const detailOverlay = document.getElementById('detail-overlay');
+const detailImg = document.getElementById('detail-img');
+let detailLastFocus = null;
+let detailCurrent = null;
+const folderNameById = {};
+document.querySelectorAll('.folder-chip').forEach(c => { folderNameById[c.dataset.folderId] = c.dataset.folderName; });
+
+function setText(id, value) { const el = document.getElementById(id); if (el) el.textContent = (value === null || value === undefined || value === '') ? '—' : value; }
+function fmtCreated(iso) {
+  const t = new Date(iso);
+  return isNaN(t) ? String(iso || '—') : t.toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' });
+}
+async function openDetail(id) {
+  try {
+    const r = await fetch('/api/image/' + id);
+    const j = await r.json();
+    if (!j.ok) { if (window.showToast) window.showToast('❌ Image introuvable.'); return; }
+    const im = j.image;
+    detailCurrent = im;
+    detailLastFocus = document.activeElement;
+    if (detailImg) { detailImg.src = im.url; detailImg.alt = (im.prompt || '').slice(0, 120); }
+    setText('d-model', im.model_name);
+    setText('d-quant', im.quant);
+    setText('d-seed', im.seed);
+    setText('d-steps', im.steps);
+    setText('d-cfg', im.cfg);
+    setText('d-sampler', im.sampler);
+    setText('d-size', im.width && im.height ? `${im.width}×${im.height}` : '—');
+    setText('d-time', im.gen_time ? `${im.gen_time}s` : '—');
+    setText('d-created', fmtCreated(im.created));
+    setText('d-folder', im.folder_id ? (folderNameById[String(im.folder_id)] || ('Dossier #' + im.folder_id)) : 'Racine');
+    setText('d-prompt', im.prompt);
+    const negWrap = document.getElementById('detail-negative-wrap');
+    if (im.negative) { setText('d-negative', im.negative); negWrap.hidden = false; } else { negWrap.hidden = true; }
+    const dl = document.getElementById('detail-download');
+    if (dl) { dl.href = im.url; dl.setAttribute('download', im.filename || ''); }
+    // Boutons Variante : activés seulement si la carte propose la variation img2img
+    const card = document.querySelector(`.card[data-id="${id}"]`);
+    const vSubtle = document.getElementById('detail-vary-subtle');
+    const vStrong = document.getElementById('detail-vary-strong');
+    [vSubtle, vStrong].forEach(btn => {
+      const mode = btn.id.endsWith('subtle') ? 'subtle' : 'strong';
+      const src = card?.querySelector(`.vary-link[data-mode="${mode}"]`);
+      btn.disabled = !src;
+      btn.title = src ? btn.title : 'Variation indisponible pour ce modèle (img2img non pris en charge ou image trop grande)';
+    });
+    detailPanel.hidden = false;
+    detailPanel.setAttribute('aria-hidden', 'false');
+    detailOverlay.hidden = false;
+    document.body.classList.add('detail-open');
+    document.getElementById('detail-close')?.focus();
+  } catch (e) {
+    if (window.showToast) window.showToast('❌ Impossible de charger le détail.');
+  }
+}
+function closeDetail() {
+  detailPanel.hidden = true;
+  detailPanel.setAttribute('aria-hidden', 'true');
+  detailOverlay.hidden = true;
+  document.body.classList.remove('detail-open');
+  if (detailLastFocus && detailLastFocus.focus) detailLastFocus.focus();
+}
+document.querySelectorAll('.details-btn').forEach(b => b.addEventListener('click', () => openDetail(b.dataset.id)));
+document.getElementById('detail-close')?.addEventListener('click', closeDetail);
+detailOverlay?.addEventListener('click', closeDetail);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (!detailPanel.hidden) closeDetail();
+    const em = document.getElementById('errors-modal'); if (em && !em.hidden) em.hidden = true;
+  }
+});
+document.getElementById('detail-copy-prompt')?.addEventListener('click', async () => {
+  const text = detailCurrent?.prompt || '';
+  try { await navigator.clipboard.writeText(text); if (window.showToast) window.showToast('📋 Prompt copié.'); }
+  catch (e) {
+    const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta);
+    ta.select(); try { document.execCommand('copy'); } catch (_) {}
+    ta.remove(); if (window.showToast) window.showToast('📋 Prompt copié.');
+  }
+});
+document.getElementById('detail-reuse')?.addEventListener('click', () => {
+  if (!detailCurrent) return;
+  const card = document.querySelector(`.card[data-id="${detailCurrent.id}"]`);
+  const reuseBtn = card?.querySelector('.reuse');
+  if (reuseBtn) { reuseBtn.click(); return; }
+  sessionStorage.setItem('reuse', JSON.stringify({
+    model: detailCurrent.model, prompt: detailCurrent.prompt, neg: detailCurrent.negative,
+    w: detailCurrent.width, h: detailCurrent.height, steps: detailCurrent.steps,
+    cfg: detailCurrent.cfg, seed: detailCurrent.seed, sources: '[]',
+  }));
+  window.location.href = "{{ url_for('generate') }}";
+});
+document.getElementById('detail-vary-subtle')?.addEventListener('click', () => {
+  const card = document.querySelector(`.card[data-id="${detailCurrent?.id}"]`);
+  card?.querySelector('.vary-link[data-mode="subtle"]')?.click();
+  closeDetail();
+});
+document.getElementById('detail-vary-strong')?.addEventListener('click', () => {
+  const card = document.querySelector(`.card[data-id="${detailCurrent?.id}"]`);
+  card?.querySelector('.vary-link[data-mode="strong"]')?.click();
+  closeDetail();
+});
+
+// ---------- Journal des erreurs (modal) ----------
+const errorsModal = document.getElementById('errors-modal');
+const errorsList = document.getElementById('errors-list');
+const errorsCountEl = document.getElementById('errors-count');
+const KIND_LABEL = { gen: 'Génération', vary: 'Variation', upscale: 'Agrandissement', repair: 'Réparation', restore_x2: 'Restauration ×2', pid: 'PiD ×4' };
+async function loadErrors() {
+  if (!errorsList) return;
+  errorsList.innerHTML = '<p class="muted">Chargement…</p>';
+  try {
+    const r = await fetch('/api/generation-errors?limit=50');
+    const j = await r.json();
+    if (errorsCountEl) errorsCountEl.textContent = j.count || 0;
+    if (!j.errors || !j.errors.length) { errorsList.innerHTML = '<p class="muted">Aucune erreur enregistrée. 🎉</p>'; return; }
+    errorsList.innerHTML = '';
+    j.errors.forEach(e => {
+      const row = document.createElement('div');
+      row.className = 'error-row';
+      const when = fmtCreated(e.created);
+      row.innerHTML = `<div class="error-row-head"><span class="error-kind">${KIND_LABEL[e.kind] || e.kind || 'Erreur'}</span>`
+        + `<span class="error-model">${escapeHtml(e.model_name || '—')}</span>`
+        + `<span class="error-date">${escapeHtml(when)}</span></div>`
+        + (e.prompt ? `<div class="error-prompt" title="${escapeHtml(e.prompt)}">${escapeHtml(truncate(e.prompt, 140))}</div>` : '')
+        + `<div class="error-msg">${escapeHtml(truncate(e.error || '', 300))}</div>`;
+      errorsList.appendChild(row);
+    });
+  } catch (e) {
+    errorsList.innerHTML = '<p class="muted">Erreur de chargement du journal.</p>';
+  }
+}
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function truncate(str, n) { str = String(str); return str.length > n ? str.slice(0, n - 1) + '…' : str; }
+document.getElementById('errors-open')?.addEventListener('click', () => { errorsModal.hidden = false; loadErrors(); });
+document.getElementById('errors-close')?.addEventListener('click', () => { errorsModal.hidden = true; });
+document.getElementById('errors-close-2')?.addEventListener('click', () => { errorsModal.hidden = true; });
+errorsModal?.addEventListener('click', (e) => { if (e.target === errorsModal) errorsModal.hidden = true; });
+document.getElementById('errors-clear')?.addEventListener('click', async () => {
+  if (!confirm('Effacer tout le journal des erreurs ?')) return;
+  try {
+    const r = await fetch('/api/generation-errors/clear', { method: 'POST' });
+    const j = await r.json();
+    if (j.ok) { if (errorsCountEl) errorsCountEl.textContent = '0'; loadErrors(); }
+  } catch (e) { /* silencieux */ }
+});
+
+// ---------- Tri : agir à l'intérieur des groupes de date ----------
+// (le sélecteur de tri existant ré-appende les cartes de #history-gallery ;
+//  après regroupement, on trie dans chaque sous-galerie)
+if (sortSelect) {
+  sortSelect.addEventListener('change', () => {
+    const mode = sortSelect.value;
+    const byNum = (k) => (a, b) => (parseFloat(a.dataset[k]) || 0) - (parseFloat(b.dataset[k]) || 0);
+    document.querySelectorAll('.date-group .gallery').forEach(sub => {
+      const cards = [...sub.querySelectorAll('.card')];
+      let sorted;
+      if (mode === 'oldest') sorted = [...cards].reverse();
+      else if (mode === 'model') sorted = [...cards].sort((a, b) => (a.dataset.model || '').localeCompare(b.dataset.model || '', 'fr'));
+      else if (mode === 'seed') sorted = [...cards].sort(byNum('seed'));
+      else if (mode === 'pixels') sorted = [...cards].sort(byNum('pixels'));
+      else sorted = null; // 'recent' : ordre du serveur = déjà le plus récent
+      if (sorted) sorted.forEach(c => sub.appendChild(c));
+    });
+    applyHistoryFilter();
+  });
+}
+
+// Ré-appliquer le filtre maintenant que les groupes existent
+applyHistoryFilter();
+updateBulkBar();
 </script>
 {% endblock %}

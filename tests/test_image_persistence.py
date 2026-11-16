@@ -42,15 +42,19 @@ class ImagePersistenceTests(unittest.TestCase):
                             1, 64, 64, 1, 1, 'sampler', filename, 1,
                             source_images=sources)
 
-    def test_shared_legacy_output_not_removed_until_last_entry(self):
+    def test_shared_legacy_output_removed_only_after_last_purge(self):
         path = self.output / 'shared.png'
         path.write_bytes(b'image')
         a = self.add_image(path.name)
         b = self.add_image(path.name)
         self.client.post('/api/delete-image', json={'id': a})
-        self.assertTrue(path.exists())
+        self.assertTrue(path.exists())   # corbeille : fichier conservé (restaurable)
         self.client.post('/api/delete-image', json={'id': b})
-        self.assertFalse(path.exists())
+        self.assertTrue(path.exists())   # toujours en corbeille
+        self.client.post('/api/purge-image', json={'id': a})
+        self.assertTrue(path.exists())   # b référence encore le fichier → conservé
+        self.client.post('/api/purge-image', json={'id': b})
+        self.assertFalse(path.exists())  # dernier enregistrement purgé → fichier orphelin supprimé
 
     def test_source_used_by_history_is_not_deleted(self):
         source = self.sources / 'canvas.png'
@@ -76,6 +80,8 @@ class ImagePersistenceTests(unittest.TestCase):
         source = self.root / response.json['filename']
         self.assertEqual(source.read_bytes(), generated.read_bytes())
         self.client.post('/api/delete-image', json={'id': image_id})
+        self.assertTrue(generated.exists())   # corbeille : conservé, restaurable
+        self.client.post('/api/purge-image', json={'id': image_id})
         self.assertFalse(generated.exists())
         self.assertTrue(source.exists())
 
@@ -162,8 +168,11 @@ class ImagePersistenceTests(unittest.TestCase):
         self.assertTrue(copied_file.exists())
         self.assertEqual(copied_file.read_bytes(), b'png-bytes-123')
 
-        # Supprimer l'image de l'historique ne supprime pas la copie dans source_images/
+        # Mettre l'image en corbeille ne supprime pas la copie dans source_images/
         self.client.post('/api/delete-image', json={'id': image_id})
+        self.assertTrue(generated.exists())   # corbeille : fichier conservé
+        self.assertTrue(copied_file.exists())
+        self.client.post('/api/purge-image', json={'id': image_id})
         self.assertFalse(generated.exists())
         self.assertTrue(copied_file.exists())
 
@@ -196,10 +205,24 @@ class ImagePersistenceTests(unittest.TestCase):
         self.assertTrue(r_del_blocked.json.get('protected'))
         self.assertTrue(img_file.exists())
 
-        # Retirer des favoris puis supprimer -> autorisé (200)
+        # Retirer des favoris puis supprimer -> autorisé (200), mais en corbeille (restaurable)
         self.client.post('/api/toggle-favorite', json={'id': img_id, 'favorite': False})
         r_del_ok = self.client.post('/api/delete-image', json={'id': img_id})
         self.assertEqual(r_del_ok.status_code, 200)
+        self.assertTrue(img_file.exists())
+        self.assertTrue(db.get_image(img_id)['deleted_at'])
+        # Les images en corbeille n'apparaissent plus dans la vue normale
+        self.assertEqual(db.list_images(search_query='fav-bytes'), [])
+        self.assertEqual(db.count_images(), 0)
+        # Restauration
+        r_restore = self.client.post('/api/restore-image', json={'id': img_id})
+        self.assertTrue(r_restore.json['ok'])
+        self.assertIsNone(db.get_image(img_id)['deleted_at'])
+        self.assertEqual(db.count_images(), 1)
+        # Suppression définitive depuis la corbeille
+        self.client.post('/api/delete-image', json={'id': img_id})
+        r_purge = self.client.post('/api/purge-image', json={'id': img_id})
+        self.assertTrue(r_purge.json['ok'])
         self.assertFalse(img_file.exists())
 
     def test_inpaint_and_generation_queue(self):

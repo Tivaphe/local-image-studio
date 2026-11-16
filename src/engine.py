@@ -168,6 +168,21 @@ def install_engine(progress_cb=None):
     return find_sd_cli()
 
 
+def _journal_erreur(p, err, kind="gen"):
+    """Journalise un échec de génération dans generation_errors (best effort)."""
+    try:
+        import db
+        from registry import MODELS as _MODELS
+        model_id = (p or {}).get("model_id") or (p or {}).get("model") or ""
+        m = ((p or {}).get("model_name")
+             or (_MODELS.get(model_id) or {}).get("name")
+             or model_id
+             or kind)
+        db.log_generation_error(m, (p or {}).get("prompt", ""), err, kind=kind)
+    except Exception:
+        pass
+
+
 def engine_ready() -> bool:
     return find_sd_cli() is not None
 
@@ -1469,6 +1484,7 @@ class TaskManager:
                               "batch_id": batch_id, "cancelled": False,
                               "stats": stats})
         except Exception as e:
+            _journal_erreur(p, e, kind=("vary" if result_type == "vary" else "gen"))
             self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
                       result={"type": result_type, "images": [], "error": str(e), "cancelled": False})
 
@@ -1585,6 +1601,7 @@ class TaskManager:
             self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
                       result={"type": "upscale", "images": [], "error": str(e),
                               "cancelled": False})
+            _journal_erreur(p, e, kind="upscale")
 
     # --- Reparation visages/mains autonome (mode -M adetailer) ---
     def _run_repair(self, p):
@@ -1757,6 +1774,7 @@ class TaskManager:
             self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
                       result={"type": "repair", "images": [], "error": str(e),
                               "cancelled": False})
+            _journal_erreur(p, e, kind="repair")
 
     # --- Restauration ×2 par diffusion (mode -M vid_upscale, SeedVR2) ---
     def _run_seedvr2(self, p):
@@ -1879,6 +1897,7 @@ class TaskManager:
             self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
                       result={"type": "restore_x2", "images": [], "error": str(e),
                               "cancelled": False})
+            _journal_erreur(p, e, kind="restore_x2")
 
     def _run_pid(self, p):
         try:
@@ -2058,6 +2077,7 @@ class TaskManager:
             self._set(error=str(e), log=f"Erreur: {e}", done=True, busy=False,
                       result={"type": "pid", "images": [], "error": str(e),
                               "cancelled": False})
+            _journal_erreur(p, e, kind="pid")
 
 
 # instance globale
