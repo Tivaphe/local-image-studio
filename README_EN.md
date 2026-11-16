@@ -301,6 +301,28 @@ installed version and offers an update.
 
 ---
 
+## 🧠 « Thinking » mode (preview before generating)
+
+Writing a good prompt is often harder than the generation itself? Enable **🧠 Thinking** on the
+**Generate** and **Edit** pages (button next to « Generate », **OFF** by default, remembered in the
+browser): your prompt first goes through a **local reasoning model**, which writes the final English
+version — generation only starts after your confirmation.
+
+**Generate**: the text field first goes through a **text** reasoning model (collapsible reasoning +
+**editable** final prompt). **Edit**: a **vision** model reads the source image + your instruction
+(« put a red beanie on », « same subject and composition, except… ») and writes the adapted edit prompt.
+
+**Nothing is generated until you click « Generate with this prompt »** (mandatory preview,
+cancellable, never silently injected). Latency depends on the model: tens of seconds on GPU (less for
+4B on an RTX 2000 Ada, far more for 27B models) — the modal shows a timer and **Cancel** kills the subprocess.
+
+**Which model?** The list = installed captioners (Models page → « 🧠 Image captioners »). Pick it in
+**Settings → « 🧠 Thinking model »** (default: same as the captioner). **Qwen3.5 / Qwen3-VL / Bonsai-2**
+families reason (`<think>` blocks → « 💭 See the model's reasoning »); **LFM3-VL answers without
+reasoning** (mode still works, no collapsible panel). **The same selection is applied to the
+« Translate FR→EN » and « ✨ Enrich » buttons** (GPU via llama.cpp; falls back to the Qwen3-4B CPU
+enricher when unavailable). No extra weights shipped.
+
 ## ⚠️ Gated models
 
 Some models require a **free Hugging Face token**:

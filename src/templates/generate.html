@@ -238,6 +238,7 @@
 
     <div class="actions">
       <button id="generate-btn" class="btn primary big">✨ Générer</button>
+      <button id="thinking-toggle" type="button" class="btn ghost" aria-pressed="false" title="Activez pour laisser un modèle local raisonner sur votre prompt avant la génération (aperçu obligatoire, modèle choisi dans Paramètres)">🧠 Thinking</button>
       <button id="cancel-btn" class="btn danger" hidden>Annuler</button>
     </div>
 
@@ -293,5 +294,7 @@ window.RATIOS = {{ ratios | tojson }};
 window.PAGE = "generate";
 </script>
 <script src="{{ url_for('static', filename='quality.js', v=static_v) }}"></script>
+{% include "thinking_modal.html" %}
+<script src="{{ url_for('static', filename='thinking.js', v=static_v) }}"></script>
 <script src="{{ url_for('static', filename='generate.js', v=static_v) }}"></script>
 {% endblock %}

@@ -48,6 +48,7 @@ from registry import (MODELS, DEPS, RATIOS, DEFAULT_NEGATIVE, input_modes,
 import metadata as _pngmeta
 import gpu_info
 import uuid
+import thinking
 try:
     import prompt_enhancer
     _ENHANCER_OK = True
@@ -1700,6 +1701,10 @@ def api_settings():
         if "captioner_model" in data:
             cm = str(data.get("captioner_model") or "").strip()
             patch["captioner_model"] = cm if cm in CAPTIONER_MODELS else ""
+        # Modèle thinking (Générer/Édition + Traduction FR→EN + Enrichissement)
+        if "thinking_model" in data:
+            tm = str(data.get("thinking_model") or "").strip()
+            patch["thinking_model"] = tm if tm in CAPTIONER_MODELS else ""
         # Prompt de légende (français/anglais) — envoyé tel quel au VLM
         if "image_caption_prompt" in data:
             cp = str(data.get("image_caption_prompt") or "").strip()
@@ -1710,6 +1715,7 @@ def api_settings():
                         "open_browser": bool(st.get("open_browser", True)),
                         "preview_interval": int(st.get("preview_interval", 3)),
                         "captioner_model": st.get("captioner_model", ""),
+                        "thinking_model": st.get("thinking_model", ""),
                         "image_caption_prompt": (st.get("image_caption_prompt") or "").strip()
                                                 or CAPTION_DEFAULT_PROMPT})
     st = load_settings()
@@ -1717,6 +1723,7 @@ def api_settings():
                     "open_browser": bool(st.get("open_browser", True)),
                     "preview_interval": int(st.get("preview_interval", 3)),
                     "captioner_model": st.get("captioner_model", ""),
+                    "thinking_model": st.get("thinking_model", ""),
                     "image_caption_prompt": (st.get("image_caption_prompt") or "").strip()
                                             or CAPTION_DEFAULT_PROMPT,
                     "default_caption_prompt": CAPTION_DEFAULT_PROMPT})
@@ -1726,11 +1733,56 @@ def api_settings():
 # --------------------------------------------------------------------------- #
 #  API : enrichissement de prompt (LLM)
 # --------------------------------------------------------------------------- #
+@app.route("/api/think", methods=["POST"])
+def api_think():
+    """Étape « 🧠 Thinking » : le prompt passe d'abord par un modèle de raisonnement.
+
+    Entrées : {kind: "generate"|"edit"|"translate"|"enrich", text: str, image?: rel_path}.
+    Sortie : {ok, prompt, reasoning, model_id, model_name, backend, elapsed, degraded}.
+    L'utilisateur relit et confirme toujours avant génération (modale côté UI).
+    """
+    data = request.get_json(force=True)
+    kind = str(data.get("kind") or "").strip().lower()
+    text = str(data.get("text") or "").strip()
+    image = str(data.get("image") or "").strip() or None
+    if kind not in thinking.TASK_SYSTEMS:
+        return jsonify({"ok": False, "error": "kind invalide (generate/edit/translate/enrich)."}), 400
+    if not text:
+        return jsonify({"ok": False, "error": "Le texte est vide."}), 400
+    if len(text) > 8000:
+        return jsonify({"ok": False, "error": "Texte trop long (8000 caractères max)."}), 400
+    try:
+        out = thinking.run_think(kind, text, image_rel=image, settings=load_settings())
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 503
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Erreur thinking : {e}"}), 500
+    return jsonify({"ok": True, **out})
+
+
+@app.route("/api/think-cancel", methods=["POST"])
+def api_think_cancel():
+    """Tue le sous-processus du thinking en cours (bouton « Annuler » de la modale)."""
+    return jsonify({"ok": thinking.cancel_current()})
+
+
 @app.route("/api/enhancer-status")
 def api_enhancer_status():
-    if not _ENHANCER_OK:
-        return jsonify({"downloaded": False, "unavailable": True})
-    return jsonify({"downloaded": prompt_enhancer.enhancer_available()})
+    # Disponibilité réelle = llama.cpp (modèle thinking/légendeur) OU enrichisseur CPU Qwen3-4B
+    llama_ok = False
+    try:
+        src, _info = engine.llama_available()
+        llama_ok = bool(src)
+    except Exception:
+        llama_ok = False
+    cpu_ok = bool(_ENHANCER_OK and prompt_enhancer.enhancer_available())
+    if _ENHANCER_OK or llama_ok:
+        return jsonify({"downloaded": bool(cpu_ok) or llama_ok,
+                        "llama_ok": llama_ok,
+                        "cpu_ok": cpu_ok})
+    return jsonify({"downloaded": False, "unavailable": True})
 
 @app.route("/api/download-enhancer", methods=["POST"])
 def api_download_enhancer():
@@ -1751,14 +1803,23 @@ def api_enrich():
     mode = data.get("mode", "enrich")
     if not user_prompt:
         return jsonify({"ok": False, "error": "Prompt vide."}), 400
-    if not _ENHANCER_OK or not prompt_enhancer.enhancer_available():
-        return jsonify({"ok": False,
-                        "error": "Le modele d'enrichissement n'est pas telecharge. Allez dans Parametres."}), 400
+    # Priorité : modèle thinking/légendeur via llama.cpp (meilleure qualité, GPU) ;
+    # repli sur l'enrichisseur CPU si llama.cpp indisponible ou en échec.
     try:
-        result = prompt_enhancer.enrich_prompt(user_prompt, mode=mode)
-        return jsonify({"ok": True, "prompt": result})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        out = thinking.run_think("enrich", user_prompt,
+                                 settings=load_settings(),
+                                 max_tokens=thinking.TEXT_MAX_TOKENS)
+        return jsonify({"ok": True, "prompt": out["prompt"], "backend": out.get("backend")})
+    except Exception as llama_err:
+        if not _ENHANCER_OK or not prompt_enhancer.enhancer_available():
+            return jsonify({"ok": False,
+                            "error": f"Enrichissement indisponible ({llama_err}). "
+                                     "Installez un légendeur (Modèles → 🧠 Légendeurs) ou Z-Image / FLUX.2-klein-4B."}), 400
+        try:
+            result = prompt_enhancer.enrich_prompt(user_prompt, mode=mode)
+            return jsonify({"ok": True, "prompt": result, "backend": "llama-cpp-python (CPU)"})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
 
 
 
@@ -2016,13 +2077,23 @@ def api_translate():
     user_prompt = (data.get("prompt") or "").strip()
     if not user_prompt:
         return jsonify({"ok": False, "error": "Prompt vide."}), 400
-    if not _ENHANCER_OK or not prompt_enhancer.enhancer_available():
-        return jsonify({"ok": False, "error": "Traduction indisponible. Telechargez Z-Image ou FLUX.2-klein-4B."}), 400
+    # Priorité : modèle thinking/légendeur via llama.cpp (meilleure qualité, GPU) ;
+    # repli sur l'enrichisseur CPU si llama.cpp indisponible ou en échec.
     try:
-        result = prompt_enhancer.translate_prompt(user_prompt)
-        return jsonify({"ok": True, "prompt": result})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        out = thinking.run_think("translate", user_prompt,
+                                 settings=load_settings(),
+                                 max_tokens=thinking.TEXT_MAX_TOKENS)
+        return jsonify({"ok": True, "prompt": out["prompt"], "backend": out.get("backend")})
+    except Exception as llama_err:
+        if not _ENHANCER_OK or not prompt_enhancer.enhancer_available():
+            return jsonify({"ok": False,
+                            "error": f"Traduction indisponible ({llama_err}). "
+                                     "Installez un légendeur (Modèles → 🧠 Légendeurs) ou Z-Image / FLUX.2-klein-4B."}), 400
+        try:
+            result = prompt_enhancer.translate_prompt(user_prompt)
+            return jsonify({"ok": True, "prompt": result, "backend": "llama-cpp-python (CPU)"})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # --------------------------------------------------------------------------- #

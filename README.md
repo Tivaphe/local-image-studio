@@ -314,6 +314,30 @@ fausses *sans erreur* : la page Modèles vérifie la version installée et propo
 
 ---
 
+## 🧠 Mode « Thinking » (aperçu avant génération)
+
+Rédiger un bon prompt est souvent plus difficile que la génération elle-même ? Activez
+**🧠 Thinking** sur les pages **Générer** et **Édition** (bouton à côté de « Générer », **OFF** par
+défaut, état mémorisé côté navigateur) : votre prompt passe d'abord par un **modèle de raisonnement
+local**, qui rédige la version finale en anglais — ensuite seulement la génération se lance.
+
+**Générer** : le champ passe en premier par un modèle **texte** (raisonnement repliable + prompt
+final **éditable**). **Édition** : un modèle de **vision** lit l'image source + votre instruction
+(« mets un bonnet rouge », « même sujet et composition, sauf… ») et rédige le prompt d'édition adapté.
+
+**Dans les deux cas, rien n'est généré tant que vous n'avez pas cliqué « Générer avec ce prompt »**
+(aperçu obligatoire, annulable — jamais d'injection silencieuse). Le délai dépend du modèle :
+plusieurs dizaines de secondes sur GPU (moins sur RTX 2000 Ada pour les 4B, beaucoup plus sur les
+modèles 27B) — la modale affiche un minuteur et un bouton **Annuler** tue le sous-processus.
+
+**Quel modèle ?** La liste = légendeurs installés (page Modèles → « 🧠 Légendeurs d'image »).
+Réglez-le dans **Paramètres → « 🧠 Modèle « thinking » »** (défaut : identique au légendeur). Les
+familles **Qwen3.5 / Qwen3-VL / Bonsai-2** raisonnent (blocs `<think>` → « 💭 Voir le raisonnement du
+modèle ») ; **LFM3-VL répond sans raisonnement** (le mode reste utilisable, sans panneau à dérouler).
+**La même sélection est appliquée aux boutons « Traduction FR→EN » et « ✨ Enrichir »** (GPU via
+llama.cpp ; à défaut, repli automatique sur l'enrichisseur CPU Qwen3-4B). Aucune pondération
+supplémentaire n'est embarquée.
+
 ## 📥 Métadonnées intégrées dans chaque PNG
 
 Chaque image générée porte désormais un bloc de métadonnées (prompt, seed, modèle…).

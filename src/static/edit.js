@@ -2409,6 +2409,23 @@ $('#generate-btn').addEventListener('click', async () => {
     return;
   }
 
+  // 🧠 Thinking (optionnel, OFF par défaut) — le VLM voit l'image source + l'instruction
+  if (window.LisThinking) {
+    const intercepted = await window.LisThinking.maybeIntercept({
+      kind: 'edit',
+      text: prompt,
+      image: (canvas && canvas.path) ? canvas.path : null,
+      onAccept: (finalPrompt) => {
+        window.__lisThinkingSkip = true;
+        const ta = $('#prompt');
+        ta.value = finalPrompt;
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        $('#generate-btn').click();
+      },
+    });
+    if (intercepted) return;
+  }
+
   const images = orderedImages();
   const limit = maxImages();
   if (images.length > limit) { showGenError(`${limit} images maximum avec ce modèle.`); return; }
@@ -2847,7 +2864,8 @@ async function doLlm(mode) {
     const j = await r.json();
     if (!j.ok) { status.textContent = ''; alert(j.error || 'Erreur'); return; }
     el.value = j.prompt;
-    status.textContent = mode === 'translate' ? 'traduit en anglais' : 'instruction enrichie — modifiable';
+    const via = j.backend ? (' · ' + j.backend) : '';
+    status.textContent = (mode === 'translate' ? 'traduit en anglais' : 'instruction enrichie — modifiable') + via;
     saveEditDraft();
   } catch (e) { status.textContent = ''; alert('Erreur: ' + e.message); }
   finally { btn.disabled = false; btn.textContent = original; }

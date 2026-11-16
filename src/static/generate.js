@@ -1067,6 +1067,23 @@ $('#generate-btn').addEventListener('click', async () => {
     return;
   }
 
+  // 🧠 Thinking (optionnel, OFF par défaut) — aperçu + confirmation avant génération
+  if (window.LisThinking) {
+    const intercepted = await window.LisThinking.maybeIntercept({
+      kind: 'generate',
+      text: ($('#prompt')?.value || '').trim(),
+      image: null,
+      onAccept: (finalPrompt) => {
+        window.__lisThinkingSkip = true;
+        const ta = $('#prompt');
+        ta.value = finalPrompt;
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        $('#generate-btn').click();
+      },
+    });
+    if (intercepted) return;
+  }
+
   const body = finalizeGenerationPayload(model_id);
 
   const r = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -1515,7 +1532,7 @@ async function doTranslate() {
     const j = await r.json();
     if (!j.ok) { status.textContent = ''; alert(j.error || 'Erreur'); return; }
     promptEl.value = j.prompt;
-    status.textContent = 'traduit en anglais';
+    status.textContent = j.backend ? ('traduit en anglais · ' + j.backend) : 'traduit en anglais';
     saveGenDraft();
   } catch (e) { status.textContent = ''; alert(e.message); }
   finally { btn.disabled = false; btn.textContent = '🌐 Traduire EN'; }

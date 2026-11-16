@@ -349,6 +349,7 @@
 
     <div class="actions">
       <button id="generate-btn" class="btn primary big">✂️ Lancer l'édition</button>
+      <button id="thinking-toggle" type="button" class="btn ghost" aria-pressed="false" title="Activez pour laisser un modèle de vision local raisonner sur votre image et votre instruction avant l'édition (aperçu obligatoire, modèle choisi dans Paramètres)">🧠 Thinking</button>
       <button id="cancel-btn" class="btn danger" hidden>Annuler</button>
     </div>
 
@@ -414,5 +415,7 @@ window.RATIOS = {{ ratios | tojson }};
 window.PAGE = "edit";
 </script>
 <script src="{{ url_for('static', filename='quality.js', v=static_v) }}"></script>
+{% include "thinking_modal.html" %}
+<script src="{{ url_for('static', filename='thinking.js', v=static_v) }}"></script>
 <script src="{{ url_for('static', filename='edit.js', v=static_v) }}"></script>
 {% endblock %}

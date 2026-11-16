@@ -53,14 +53,30 @@
       (les légendeurs non installés n'apparaissent pas ici).</small>
   </label>
 
+  <label class="field">
+    <span>🧠 Modèle « thinking » (Générer / Édition / Traduction / Enrichissement)</span>
+    <select id="thinking_model">
+      <option value="">(identique au légendeur d'image par défaut)</option>
+    </select>
+    <small class="muted">
+      Utilisé quand vous activez le bouton <strong>🧠 Thinking</strong> sur Générer / Édition — le prompt
+      passe d'abord par ce modèle (raisonnement visible, aperçu avant génération). Les familles
+      « thinking » (Qwen3.5, Qwen3-VL, Bonsai-2) raisonnent ; LFM3-VL répond sans raisonnement.
+      <strong>La même sélection est appliquée aux boutons « Traduire FR→EN » et « ✨ Enrichir »</strong>
+      (avec repli sur l'enrichisseur CPU Qwen3-4B si aucun légendeur n'est installé).
+      Liste = légendeurs installés.
+    </small>
+  </label>
+
   <button id="save-settings" class="btn primary">Enregistrer</button>
   <p id="set-msg" class="muted"></p>
 
   <hr>
   <h3>Enrichissement de prompt</h3>
   <p class="muted">
-    Réutilise <strong>Qwen3-4B</strong> (déjà téléchargé avec Z-Image ou FLUX.2-klein-4B) pour enrichir
-    ou reformuler vos prompts. Aucun téléchargement supplémentaire. Tourne sur CPU.
+    Enrichit ou reformule vos prompts. Utilise d'abord le <strong>modèle thinking</strong> choisi ci-dessus
+    (GPU, llama.cpp) ; à défaut, <strong>Qwen3-4B</strong> (déjà téléchargé avec Z-Image ou FLUX.2-klein-4B)
+    tourne sur CPU. Aucun téléchargement supplémentaire.
   </p>
   <div class="enhancer-row">
     <span id="enhancer-state" class="badge badge-warn">vérification…</span>
@@ -84,14 +100,15 @@ document.getElementById('save-settings').addEventListener('click', async ()=>{
   const previewInterval = document.getElementById('preview_interval').value;
   const captionPrompt = document.getElementById('image_caption_prompt').value;
   const captionerModel = document.getElementById('captioner_model').value;
-  const r = await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hf_token:tok, open_browser:openBrowser, preview_interval: previewInterval, image_caption_prompt: captionPrompt, captioner_model: captionerModel})});
+  const thinkingModel = document.getElementById('thinking_model').value;
+  const r = await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hf_token:tok, open_browser:openBrowser, preview_interval: previewInterval, image_caption_prompt: captionPrompt, captioner_model: captionerModel, thinking_model: thinkingModel})});
   const j = await r.json();
   let msg = j.token_set ? 'Token enregistré ✓' : 'Token vidé.';
   msg += openBrowser
     ? ' Chrome s’ouvrira au prochain démarrage.'
     : ' Ouverture automatique du navigateur désactivée.';
   msg += ` Aperçu : une image toutes les ${j.preview_interval ?? previewInterval} étape(s).`;
-  msg += ' Légende d’image enregistrée ✓';
+  msg += ' Légende d’image enregistrée ✓ Thinking ✓';
   document.getElementById('set-msg').textContent = msg;
 });
 
@@ -111,6 +128,22 @@ const CAPTION_PROMPT = document.getElementById('image_caption_prompt');
       CAPTION_SELECT.appendChild(o);
     }
     CAPTION_SELECT.value = saved;
+    // même catalogue pour le sélecteur thinking
+    const THINK_SELECT = document.getElementById('thinking_model');
+    let savedThinking = '';
+    try {
+      const rs = await fetch('/api/settings');
+      const js = await rs.json();
+      savedThinking = js.thinking_model || '';
+    } catch (e) { /* défaut conservé */ }
+    for (const c of (j.captioners || [])) {
+      if (!c.ready) continue;
+      const o = document.createElement('option');
+      o.value = c.id;
+      o.textContent = c.name + (c.recommended ? ' ⭐' : '') + (c.license_warn ? ' ⚠️ licence custom' : '') + (c.uncensored ? ' 🔓' : '');
+      THINK_SELECT.appendChild(o);
+    }
+    THINK_SELECT.value = savedThinking;
   } catch (e) { /* la liste reste sur « automatique » */ }
 })();
 document.getElementById('restore-caption-prompt').addEventListener('click', async ()=>{
@@ -128,7 +161,7 @@ async function refreshEnhancer(){
     const j = await r.json();
     const el = document.getElementById('enhancer-state');
     if (j.downloaded) {
-      el.textContent = 'disponible ✓ (Qwen3-4B)';
+      el.textContent = j.llama_ok ? 'disponible ✓ (llama.cpp, modèle choisi)' : 'disponible ✓ (Qwen3-4B CPU)';
       el.className = 'badge badge-ok';
     } else {
       el.textContent = 'indisponible';

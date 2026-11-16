@@ -794,3 +794,17 @@ body.detail-open{overflow:hidden}
 .error-prompt{color:var(--muted);font-size:12px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .error-msg{font-size:12.5px;word-break:break-word}
 .errors-foot{display:flex;justify-content:space-between;gap:8px}
+
+/* ===== 🧠 Thinking ===== */
+#thinking-toggle.active{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#fff}
+.thinking-elapsed{font-variant-numeric:tabular-nums;color:var(--muted);font-size:14px;font-weight:600}
+.thinking-loading{display:flex;align-items:center;gap:12px;padding:18px 4px}
+.thinking-spinner{width:26px;height:26px;border-radius:50%;border:3px solid var(--border);border-top-color:var(--accent);animation:th-spin 0.9s linear infinite}
+@keyframes th-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){.thinking-spinner{animation:none}}
+.thinking-reasoning{border:1px solid var(--border);border-radius:10px;background:var(--panel2);padding:8px 10px}
+.thinking-reasoning summary{cursor:pointer;color:var(--muted);font-size:13px}
+.thinking-reasoning pre{white-space:pre-wrap;word-break:break-word;max-height:180px;overflow:auto;font-size:12px;color:var(--muted);margin:8px 0 0}
+.thinking-final{width:100%;box-sizing:border-box;resize:vertical;min-height:90px}
+.thinking-panel{max-width:620px}
+body.thinking-open{overflow:hidden}
