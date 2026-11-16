@@ -31,9 +31,9 @@ let lastGeneratedImages = [];
 let uploadedImageServerUrl = null;
 let uploadedImageName = '';
 
-// ===== Style Midjourney (approximations expliquées) =====
+// ===== Style créatif (approximations expliquées) =====
 // Styles rapides : chaque chip bascule un suffixe visible dans le prompt.
-const MJ_STYLE_CHIPS = [
+const CR_STYLE_CHIPS = [
   { id: 'cine',    label: '🎬 Cinéma',      suffix: 'cinematic still, dramatic lighting, film grain' },
   { id: 'photo',   label: '📷 Photo',       suffix: 'photograph, 85mm lens, natural light, high detail' },
   { id: 'oil',     label: '🖼️ Huile',       suffix: 'oil painting, rich brushstrokes, gallery piece' },
@@ -47,9 +47,9 @@ const MJ_STYLE_CHIPS = [
   { id: 'neon',    label: '💡 Néon',        suffix: 'neon glow, vibrant saturated colors, dark background' },
   { id: 'noir',    label: '🕶️ Noir',        suffix: 'film noir, high contrast black and white, hard shadows' },
 ];
-let mjActiveChips = new Set();
+let crActiveChips = new Set();
 
-function mjPromptAddSuffix(suffix) {
+function crPromptAddSuffix(suffix) {
   const ta = $('#prompt');
   if (!ta) return;
   const cur = ta.value.trim();
@@ -57,7 +57,7 @@ function mjPromptAddSuffix(suffix) {
   ta.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-function mjPromptRemoveSuffix(suffix) {
+function crPromptRemoveSuffix(suffix) {
   const ta = $('#prompt');
   if (!ta) return;
   const cur = ta.value;
@@ -72,39 +72,39 @@ function mjPromptRemoveSuffix(suffix) {
   }
 }
 
-function mjToggleChip(chip) {
+function crToggleChip(chip) {
   const ta = $('#prompt');
-  if (mjActiveChips.has(chip.id)) {
-    mjActiveChips.delete(chip.id);
-    mjPromptRemoveSuffix(chip.suffix);
+  if (crActiveChips.has(chip.id)) {
+    crActiveChips.delete(chip.id);
+    crPromptRemoveSuffix(chip.suffix);
   } else {
-    mjActiveChips.add(chip.id);
-    mjPromptAddSuffix(chip.suffix);
+    crActiveChips.add(chip.id);
+    crPromptAddSuffix(chip.suffix);
   }
-  $$('.mj-chip').forEach(b => b.classList.toggle('active', mjActiveChips.has(b.dataset.chip)));
+  $$('.cr-chip').forEach(b => b.classList.toggle('active', crActiveChips.has(b.dataset.chip)));
 }
 
-function mjInitChips() {
-  const box = $('#mj-style-chips');
+function crInitChips() {
+  const box = $('#cr-style-chips');
   if (!box) return;
-  box.innerHTML = MJ_STYLE_CHIPS.map(chip =>
-    `<button type="button" class="mj-chip" data-chip="${chip.id}" title="Ajoute au prompt : ${chip.suffix}">${chip.label}</button>`
+  box.innerHTML = CR_STYLE_CHIPS.map(chip =>
+    `<button type="button" class="cr-chip" data-chip="${chip.id}" title="Ajoute au prompt : ${chip.suffix}">${chip.label}</button>`
   ).join('');
-  box.querySelectorAll('.mj-chip').forEach(btn => {
+  box.querySelectorAll('.cr-chip').forEach(btn => {
     btn.addEventListener('click', () => {
-      const chip = MJ_STYLE_CHIPS.find(c => c.id === btn.dataset.chip);
-      if (chip) mjToggleChip(chip);
+      const chip = CR_STYLE_CHIPS.find(c => c.id === btn.dataset.chip);
+      if (chip) crToggleChip(chip);
     });
   });
   // Ré-hydrate l'état visuel des chips depuis le prompt restauré
   const promptText = $('#prompt')?.value || '';
-  for (const chip of MJ_STYLE_CHIPS) {
-    if (promptText.includes(chip.suffix)) mjActiveChips.add(chip.id);
+  for (const chip of CR_STYLE_CHIPS) {
+    if (promptText.includes(chip.suffix)) crActiveChips.add(chip.id);
   }
-  box.querySelectorAll('.mj-chip').forEach(b => b.classList.toggle('active', mjActiveChips.has(b.dataset.chip)));
+  box.querySelectorAll('.cr-chip').forEach(b => b.classList.toggle('active', crActiveChips.has(b.dataset.chip)));
 }
 
-// Stylisation : 0-1000, 100 = présélection inchangée (≈ "stylize" MJ).
+// Stylisation : 0-1000, 100 = présélection inchangée.
 let stylizeBase = null;      // { steps, cfg } capturés à la dernière présélection / édition manuelle
 let stylizeApplying = false; // évite de recapturer pendant l'écriture par le slider
 
@@ -117,25 +117,25 @@ function captureStylizeBase() {
       cfg: isNaN(c) ? (stylizeBase ? stylizeBase.cfg : 4) : c,
     };
   }
-  const slider = $('#mj-stylize');
-  if (slider) { slider.value = 100; const v = $('#mj-stylize-val'); if (v) v.textContent = '100'; }
+  const slider = $('#cr-stylize');
+  if (slider) { slider.value = 100; const v = $('#cr-stylize-val'); if (v) v.textContent = '100'; }
 }
 
-function mjClamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+function crClamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 
-function mjInitStylize() {
-  const slider = $('#mj-stylize');
+function crInitStylize() {
+  const slider = $('#cr-stylize');
   if (!slider) return;
   slider.addEventListener('input', () => {
     const v = parseInt(slider.value, 10) || 0;
-    const val = $('#mj-stylize-val'); if (val) val.textContent = String(v);
+    const val = $('#cr-stylize-val'); if (val) val.textContent = String(v);
     const base = stylizeBase || {
       steps: parseFloat($('#steps')?.value) || 20,
       cfg: parseFloat($('#cfg')?.value) || 4,
     };
     const delta = (v - 100) / 100;   // 0 au neutre
-    const steps = mjClamp(Math.round(base.steps * (1 + delta * 0.30)), 1, 50);
-    const cfg = mjClamp(base.cfg * (1 + delta * 0.30), 0.5, 15);
+    const steps = crClamp(Math.round(base.steps * (1 + delta * 0.30)), 1, 50);
+    const cfg = crClamp(base.cfg * (1 + delta * 0.30), 0.5, 15);
     stylizeApplying = true;
     if ($('#steps')) $('#steps').value = steps;
     if ($('#cfg')) $('#cfg').value = (Math.round(cfg * 10) / 10).toFixed(1);
@@ -147,26 +147,26 @@ function mjInitStylize() {
   });
 }
 
-// Weirdness : 0-3000, règle échantillonneur + planificateur de la section Qualité (≈ "weird" MJ).
+// Excentricité : 0-3000, règle échantillonneur + planificateur de la section Qualité.
 let weirdApplying = false;
-const MJ_WEIRD_BANDS = [
+const CR_WEIRD_BANDS = [
   { max: 0,    sampler: null,       scheduler: null,          label: 'réglages Qualité inchangés (reprise tels quels)' },
   { max: 999,  sampler: 'euler_a',  scheduler: 'karras',      label: "Euler A + Karras — grain organique créatif" },
   { max: 1999, sampler: 'dpm++2m',  scheduler: 'beta',        label: 'DPM++ 2M + Beta — matières denses' },
   { max: 3000, sampler: 'lcm',      scheduler: 'sgm_uniform', label: 'LCM + SGM Uniform — ultra-courts, très chaotique' },
 ];
 
-function mjInitWeird() {
-  const slider = $('#mj-weird');
+function crInitWeird() {
+  const slider = $('#cr-weird');
   if (!slider) return;
   const apply = v => {
-    const band = MJ_WEIRD_BANDS.find(b => v <= b.max) || MJ_WEIRD_BANDS[MJ_WEIRD_BANDS.length - 1];
+    const band = CR_WEIRD_BANDS.find(b => v <= b.max) || CR_WEIRD_BANDS[CR_WEIRD_BANDS.length - 1];
     weirdApplying = true;
     const s = $('#q-sampler'); if (s && band.sampler) s.value = band.sampler;
     const sc = $('#q-scheduler'); if (sc && band.scheduler) sc.value = band.scheduler;
     weirdApplying = false;
-    const d = $('#mj-weird-desc'); if (d) d.textContent = band.label;
-    const val = $('#mj-weird-val'); if (val) val.textContent = String(v);
+    const d = $('#cr-weird-desc'); if (d) d.textContent = band.label;
+    const val = $('#cr-weird-val'); if (val) val.textContent = String(v);
   };
   slider.addEventListener('input', () => {
     apply(parseInt(slider.value, 10) || 0);
@@ -180,12 +180,12 @@ function mjInitWeird() {
   });
 }
 
-// Chaos : 0-100, graines indépendantes dans le lot (≈ "chaos" MJ).
-function mjInitChaos() {
-  const slider = $('#mj-chaos');
+// Chaos : 0-100, graines indépendantes dans le lot .
+function crInitChaos() {
+  const slider = $('#cr-chaos');
   if (!slider) return;
   slider.addEventListener('input', () => {
-    const val = $('#mj-chaos-val'); if (val) val.textContent = slider.value;
+    const val = $('#cr-chaos-val'); if (val) val.textContent = slider.value;
     if (typeof saveGenDraft === 'function') saveGenDraft();
   });
 }
@@ -208,7 +208,7 @@ function saveGenDraft() {
       strength: $('#strength')?.value || '0.75',
       currentRatio,
       ratioBeforeOriginal,
-      chaos: $('#mj-chaos')?.value || '0',
+      chaos: $('#cr-chaos')?.value || '0',
       sourceImage: uploadedImagePath ? {
         path: uploadedImagePath,
         url: uploadedImageServerUrl || `/source-images/${uploadedImagePath.split('/').pop()}`,
@@ -259,9 +259,9 @@ async function restoreGenDraft() {
     // Les sliders Stylisation/Weirdness ne sont pas persistés tels quels : les contrôles
     // sous-jacents (étapes/CFG/échantillonneur/planificateur) le sont déjà. On les ramène
     // à leur état neutre et captureStylizeBase() réajuste la base relative à la présélection.
-    if ($('#mj-stylize')) { $('#mj-stylize').value = 100; const v = $('#mj-stylize-val'); if (v) v.textContent = '100'; }
-    if ($('#mj-weird')) { $('#mj-weird').value = 0; const v = $('#mj-weird-val'); if (v) v.textContent = '0'; const d = $('#mj-weird-desc'); if (d) d.textContent = 'réglages Qualité inchangés (reprise tels quels)'; }
-    if (draft.chaos && $('#mj-chaos')) { $('#mj-chaos').value = draft.chaos; const v = $('#mj-chaos-val'); if (v) v.textContent = draft.chaos; }
+    if ($('#cr-stylize')) { $('#cr-stylize').value = 100; const v = $('#cr-stylize-val'); if (v) v.textContent = '100'; }
+    if ($('#cr-weird')) { $('#cr-weird').value = 0; const v = $('#cr-weird-val'); if (v) v.textContent = '0'; const d = $('#cr-weird-desc'); if (d) d.textContent = 'réglages Qualité inchangés (reprise tels quels)'; }
+    if (draft.chaos && $('#cr-chaos')) { $('#cr-chaos').value = draft.chaos; const v = $('#cr-chaos-val'); if (v) v.textContent = draft.chaos; }
     if (draft.seed !== undefined && draft.seed !== null) $('#seed').value = draft.seed;
     if (draft.batch && $('#batch')) {
       $('#batch').value = draft.batch;
@@ -490,10 +490,10 @@ async function loadModels() {
   buildRatiosApply();
   onModelChange();
   await restoreGenDraft();
-  mjInitChips();
-  mjInitStylize();
-  mjInitWeird();
-  mjInitChaos();
+  crInitChips();
+  crInitStylize();
+  crInitWeird();
+  crInitChaos();
   captureStylizeBase();
 
   // reuse depuis l'historique
@@ -1024,7 +1024,7 @@ function finalizeGenerationPayload(model_id) {
     cfg: $('#cfg').value,
     seed: $('#seed').value || null,
     batch: $('#batch').value,
-    chaos: $('#mj-chaos') ? (parseInt($('#mj-chaos').value, 10) || 0) : 0,
+    chaos: $('#cr-chaos') ? (parseInt($('#cr-chaos').value, 10) || 0) : 0,
     input_mode: canInit ? 'init' : null,
     ref_images: uploadedImagePath ? [uploadedImagePath] : [],
     lora_dir: $('#lora-dir').value || null,
@@ -1367,7 +1367,7 @@ function showResults(images) {
 
 // ---------- Agrandissement ×4 : affichage du résultat dans la grille ----------
 function auxResultBadge(img) {
-  if (img.vary) return { text: '🔀 VARIANTE', title: 'Variation façon Midjourney (img2img + nouvelle graine), enregistrée dans l\'historique', label: 'Variante' };
+  if (img.vary) return { text: '🔀 VARIANTE', title: 'Re-génération en img2img avec nouvelle graine, enregistrée dans l\'historique', label: 'Variante' };
   if (img.repaired) return { text: '🙂 RÉPARÉE', title: 'Visages & mains re-détaillés (ADetailer), enregistrée dans l\'historique', label: 'Image réparée' };
   if ((img.scale || 4) === 2 && /restore/.test(img.filename || '')) return { text: '🩹 RESTAURÉE ×2', title: 'Restaurée ×2 par diffusion (SeedVR2), enregistrée dans l\'historique', label: 'Image restaurée ×2' };
   if (/^pid_/.test(img.filename || '')) return { text: '⬆️ PID ×4', title: 'Super-résolution générative (NVIDIA PiD, sortie 4096px), enregistrée dans l\'historique', label: 'Image PiD ×4' };

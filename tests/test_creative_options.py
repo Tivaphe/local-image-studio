@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests des options façon Midjourney (styles 1-clic, Stylisation/Weird/Chaos,
+"""Tests des options créatives (styles 1-clic, Stylisation/Excentricité/Chaos,
 live preview interval dans Paramètres, tri/filtre dropdowns) — câblage et plomberie serveur."""
 import sys
 import tempfile
@@ -107,18 +107,18 @@ class MjApiTests(unittest.TestCase):
 class MjUiWiringTests(unittest.TestCase):
     def test_generate_html_has_mj_controls(self):
         html = (_REPO / "src/templates/generate.html").read_text(encoding="utf-8")
-        for token in ("mj-style-chips", "mj-stylize", "mj-weird", "mj-chaos",
-                      "mj-stylize-val", "mj-weird-val", "mj-chaos-val",
-                      "mj-weird-desc", "gen-panel"):
+        for token in ("cr-style-chips", "cr-stylize", "cr-weird", "cr-chaos",
+                      "cr-stylize-val", "cr-weird-val", "cr-chaos-val",
+                      "cr-weird-desc", "gen-panel"):
             self.assertIn(token, html, token)
 
     def test_generate_js_has_mj_logic(self):
         js = (_REPO / "src/static/generate.js").read_text(encoding="utf-8")
-        for token in ("MJ_STYLE_CHIPS", "mjInitChips", "mjInitStylize", "mjInitWeird", "mjInitChaos",
+        for token in ("CR_STYLE_CHIPS", "crInitChips", "crInitStylize", "crInitWeird", "crInitChaos",
                       "captureStylizeBase", "stylizeBase", "chaos:"):
             self.assertIn(token, js, token)
         # le payload final inclut bien la clé chaos
-        self.assertIn("chaos: $('#mj-chaos')", js)
+        self.assertIn("chaos: $('#cr-chaos')", js)
 
     def test_engine_implements_chaos(self):
         src = (_REPO / "src/engine.py").read_text(encoding="utf-8")
@@ -155,7 +155,7 @@ class MjUiWiringTests(unittest.TestCase):
 
     def test_style_css_has_mj_styles(self):
         css = (_REPO / "src/static/style.css").read_text(encoding="utf-8")
-        for token in (".mj-chip", ".mj-box", ".mj-slider", ".gen-panel", ".history-sort", ".models-toolbar"):
+        for token in (".cr-chip", ".cr-box", ".cr-slider", ".gen-panel", ".history-sort", ".models-toolbar"):
             self.assertIn(token, css, token)
 
 

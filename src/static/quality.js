@@ -763,7 +763,7 @@
   };
 
   // ------------------------------------------------------------------ //
-  //  🔀 Variation façon Midjourney (POST /api/vary) : img2img + nouvelle graine
+  //  🔀 Variation img2img (POST /api/vary) : img2img + nouvelle graine
   // ------------------------------------------------------------------ //
   Q.startVary = async function ({ imageId = null, mode = "subtle" } = {}) {
     const body = { mode: mode === "strong" ? "strong" : "subtle" };

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests de la variation façon Midjourney (boutons « 🔀 Varier subtil / fort »)
+"""Tests de la variation img2img (boutons « 🔀 Varier subtil / fort »)
 et des nouveaux formats d'image (2:3, 4:5, 21:9, 9:21)."""
 import sys
 import tempfile

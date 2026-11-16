@@ -1027,7 +1027,7 @@ class TaskManager:
             batch = max(1, min(4, int(p["batch"])))
             batch_id = uuid.uuid4().hex  # identifiant unique, même pour deux lancements rapprochés
             seed = int(p["seed"]) if p.get("seed") not in (None, "") else int(time.time()) % 1000000
-            # Chaos (approximation « Midjourney ») : >0 → graines indépendantes par image,
+            # Chaos : >0 → graines indépendantes par image,
             # graine fixe ignorée. 0 → comportement historique (graines consécutives seed+i).
             try:
                 chaos = max(0, min(100, int(p.get("chaos") or 0)))

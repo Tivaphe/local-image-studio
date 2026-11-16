@@ -520,7 +520,7 @@ def api_upscale():
 
 @app.route("/api/vary", methods=["POST"])
 def api_vary():
-    """🔀 Variation façon Midjourney : re-génère l'image en img2img avec une nouvelle graine.
+    """🔀 Variation img2img : re-génère l'image en img2img avec une nouvelle graine.
 
     Deux modes : « subtle » (force 0,35, variation légère) et « strong » (force 0,75, libre).
     Nécessite un modèle capable d'img2img (SD 3.5, FLUX.1 Dev, Chroma…).

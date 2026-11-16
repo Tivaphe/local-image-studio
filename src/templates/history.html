@@ -124,9 +124,9 @@
           {% endif %}
           {% if im.model in vary_models and (im.width or 0) <= 1536 and (im.height or 0) <= 1536 %}
           <button type="button" class="link vary-link" data-id="{{ im.id }}" data-mode="subtle"
-                  title="🔀 Variation subtile façon Midjourney : re-génère l'image (img2img, force 0,35, nouvelle graine) — la variante est ajoutée à l'historique">🔀 Subtil</button>
+                  title="🔀 Variation subtile (img2img, force 0,35, nouvelle graine) : re-génère l'image (img2img, force 0,35, nouvelle graine) — la variante est ajoutée à l'historique">🔀 Subtil</button>
           <button type="button" class="link vary-link" data-id="{{ im.id }}" data-mode="strong"
-                  title="🔀 Variation forte façon Midjourney : re-génère l'image (img2img, force 0,75, nouvelle graine) — la variante est ajoutée à l'historique">🔀 Fort</button>
+                  title="🔀 Variation forte (img2img, force 0,75, nouvelle graine) : re-génère l'image (img2img, force 0,75, nouvelle graine) — la variante est ajoutée à l'historique">🔀 Fort</button>
           {% endif %}
           <button class="link danger del {% if im.favorite %}locked{% endif %}"
                   data-id="{{ im.id }}"

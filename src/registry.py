@@ -3806,7 +3806,7 @@ RATIOS = {
     "4:3":  (1152, 896),
     "9:16": (768, 1344),
     "16:9": (1344, 768),
-    # Formats additionnels façon Midjourney (--ar)
+    # Formats additionnels
     "2:3":  (832, 1248),
     "4:5":  (896, 1120),
     "21:9": (1536, 656),
