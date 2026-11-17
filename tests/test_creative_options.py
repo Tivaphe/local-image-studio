@@ -191,6 +191,30 @@ class ThemeTests(unittest.TestCase):
         self.assertIn("Thème clair", fr)
         self.assertIn("Light / dark theme", en)
 
+    def test_style_css_hidden_safeguard(self):
+        """L'attribut [hidden] doit l'emporter sur les display auteur (régression historique :
+        le panneau Détails restait ouvert en permanence, détail voir PR)."""
+        css = (_REPO / "src/static/style.css").read_text(encoding="utf-8")
+        self.assertIn("[hidden]{display:none !important}", css)
+        for garde in (".detail-panel[hidden]{display:none}",
+                      ".bulk-bar[hidden]{display:none}",
+                      ".saved-searches[hidden]{display:none}"):
+            self.assertIn(garde, css)
+
+    def test_lightbox_above_detail_panel_below_errors_modal(self):
+        """La visionneuse d'image doit passer au-dessus du panneau Détails (z-index 1201),
+        en dessous du journal d'erreurs (1300) ; les toasts au sommet (1500)."""
+        css = (_REPO / "src/static/style.css").read_text(encoding="utf-8")
+        import re
+        def z(sel):
+            m = re.search(re.escape(sel) + r"[^{]*\{[^}]*z-index:(\d+)", css.replace("\n", " "))
+            return int(m.group(1)) if m else None
+        lb, dp, em, toast = z(".lightbox"), z(".detail-panel"), z(".errors-modal"), z(".lis-toast")
+        self.assertIsNotNone(lb); self.assertIsNotNone(dp); self.assertIsNotNone(em); self.assertIsNotNone(toast)
+        self.assertGreater(lb, dp)
+        self.assertLess(lb, em)
+        self.assertGreater(toast, em)
+
     def test_screenshot_tooling_present(self):
         script = (_REPO / "scripts/take-screenshots.py").read_text(encoding="utf-8")
         self.assertIn("playwright", script)

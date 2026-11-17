@@ -239,7 +239,7 @@ small{color:var(--muted)}
 
 /* lightbox avec navigation instantanée (sans rechargement) */
 .lightbox{position:fixed;inset:0;background:rgba(8,9,13,.93);backdrop-filter:blur(8px);display:none;
-  flex-direction:column;justify-content:space-between;z-index:50;padding:16px 24px;user-select:none}
+  flex-direction:column;justify-content:space-between;z-index:1250;padding:16px 24px;user-select:none}
 .lightbox.show{display:flex}
 .lb-topbar{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;z-index:2}
 .lb-info{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -471,7 +471,7 @@ small{color:var(--muted)}
 .panel-title-row h2{margin:0}
 
 /* ===== Toast notification (Ctrl+V, File d'attente, Brouillon…) ===== */
-.lis-toast{position:fixed;bottom:22px;right:22px;z-index:220;display:flex;align-items:center;gap:10px;
+.lis-toast{position:fixed;bottom:22px;right:22px;z-index:1500;display:flex;align-items:center;gap:10px;
   background:#1c202c;border:1px solid var(--accent);color:#e8eaf0;padding:10px 14px;border-radius:10px;
   box-shadow:0 12px 32px rgba(0,0,0,.6);font-size:13px;opacity:0;transform:translateY(10px);
   pointer-events:none;transition:opacity .18s ease,transform .18s ease}
@@ -735,6 +735,7 @@ small{color:var(--muted)}
 .select-all-wrap{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--muted);cursor:pointer;user-select:none}
 .select-all-wrap input{accent-color:var(--accent);cursor:pointer}
 
+.saved-searches[hidden]{display:none}
 .saved-searches{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:8px 0 0}
 .saved-label{margin-right:2px}
 .saved-chip{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:16px;overflow:hidden}
@@ -746,6 +747,7 @@ small{color:var(--muted)}
 .saved-inline-form input{background:var(--panel2);border:1px solid var(--accent);color:var(--txt);border-radius:8px;padding:4px 9px;font-size:12px}
 .saved-inline-form input:focus{outline:none}
 
+.bulk-bar[hidden]{display:none}
 .bulk-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0;padding:10px 12px;border:1px solid var(--accent);border-radius:var(--radius);background:color-mix(in srgb, var(--accent) 10%, var(--panel))}
 .bulk-count{font-weight:700;font-size:13px}
 .bulk-folder-wrap{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--muted)}
@@ -764,6 +766,7 @@ small{color:var(--muted)}
 /* ===== Panneau de détail ===== */
 body.detail-open{overflow:hidden}
 .detail-overlay{position:fixed;inset:0;background:rgba(5,6,10,.6);backdrop-filter:blur(2px);z-index:1200}
+.detail-panel[hidden]{display:none}
 .detail-panel{position:fixed;top:0;right:0;bottom:0;width:430px;max-width:94vw;background:var(--panel);border-left:1px solid var(--border);z-index:1201;overflow-y:auto;padding:16px 18px;box-shadow:-12px 0 40px rgba(0,0,0,.45);display:flex;flex-direction:column;gap:12px}
 .detail-head{display:flex;justify-content:space-between;align-items:center}
 .detail-head h3{margin:0;font-size:17px}
@@ -794,6 +797,10 @@ body.detail-open{overflow:hidden}
 .error-prompt{color:var(--muted);font-size:12px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .error-msg{font-size:12.5px;word-break:break-word}
 .errors-foot{display:flex;justify-content:space-between;gap:8px}
+
+/* Filet de sécurité : l'attribut [hidden] doit toujours masquer, même si une règle
+   auteur fixe `display` (sinon la modale Détails restait affichée en permanence). */
+[hidden]{display:none !important}
 
 /* ===== 🧠 Thinking ===== */
 #thinking-toggle.active{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#fff}
