@@ -2,6 +2,11 @@
 Flask>=3.0
 huggingface_hub>=0.24
 
+# Metadonnees de generation dans les PNG (glisser-deposer pour restaurer
+# les reglages, injection dans les anciens PNG). Requis pour ces deux
+# fonctionnalites ; l'app demarre encore sans, mais ces outils seront desactives.
+Pillow>=10.0
+
 # Optional - for prompt enrichment & translation
 # If install fails (needs C++ build tools), the app still works without it.
 llama-cpp-python>=0.3.0

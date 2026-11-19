@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Local Image Studio{% endblock %}</title>
+  <script>
+  // Thème clair/sombre : applique la préférence avant le premier rendu (évite le flash)
+  (function () {
+    try {
+      var t = localStorage.getItem('lis-theme');
+      if (t !== 'light' && t !== 'dark') t = 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  })();
+  </script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=static_v) }}">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Aller au contenu</a>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◆</span> Local Image Studio
+    </div>
+    <nav class="nav">
+      <a href="{{ url_for('generate') }}" class="{% if request.endpoint=='generate' %}active{% endif %}">Générer</a>
+      <a href="{{ url_for('edit') }}" class="{% if request.endpoint=='edit' %}active{% endif %}">Édition</a>
+      <a href="{{ url_for('history') }}" class="{% if request.endpoint=='history' %}active{% endif %}">Historique</a>
+      <a href="{{ url_for('stats_page') }}" class="{% if request.endpoint=='stats_page' %}active{% endif %}">Stats</a>
+      <a href="{{ url_for('models_page') }}" class="{% if request.endpoint=='models_page' %}active{% endif %}">Modèles</a>
+      <a href="{{ url_for('styles_page') }}" class="{% if request.endpoint=='styles_page' %}active{% endif %}">Styles</a>
+      <a href="{{ url_for('settings_page') }}" class="{% if request.endpoint=='settings_page' %}active{% endif %}">Paramètres</a>
+    </nav>
+    <button type="button" id="theme-toggle" class="theme-toggle"
+            title="Basculer entre le thème sombre et le thème clair"
+            aria-label="Basculer entre le thème sombre et le thème clair">🌙</button>
+    <div id="engine-badge" class="badge badge-warn" title="État du moteur sd-cli">moteur…</div>
+  </header>
+
+  <main class="container" id="main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- ⬆ Remonter rapide (toutes les pages) -->
+  <button type="button" id="back-to-top" class="back-to-top" hidden
+          aria-label="Remonter en haut de la page" title="Remonter en haut de la page">↑</button>
+
+  <!-- ⚙️ Suivi global de l'opération en cours (toutes les pages, navigation comprise) -->
+  <div id="global-job" class="global-job" hidden role="status" aria-live="polite">
+    <span class="global-job-icon" aria-hidden="true">⚙️</span>
+    <span class="global-job-text" id="global-job-text">Opération en cours…</span>
+    <span class="global-job-bar" aria-hidden="true"><span id="global-job-fill"></span></span>
+    <a class="global-job-link" id="global-job-link" href="{{ url_for('history') }}" title="Les images produites sont enregistrées dans l'historique">Voir</a>
+    <button type="button" class="global-job-cancel" id="global-job-cancel" title="Annuler l'opération en cours" aria-label="Annuler l'opération en cours">✕</button>
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js', v=static_v) }}"></script>
+  <script src="{{ url_for('static', filename='caption.js', v=static_v) }}"></script>
+  {% include "_postprocess.html" %}
+  {% include "_pid_prompt.html" %}
+  {% include "_caption.html" %}
+  {% block scripts %}{% endblock %}
+</body>
+</html>

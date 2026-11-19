@@ -1,0 +1,35 @@
+{# Modale « 🧠 Thinking » partagée Générer / Édition (classes pp-modal comme les autres modales). #}
+<div class="pp-modal" id="thinking-modal" hidden role="dialog" aria-modal="true" aria-labelledby="thinking-title">
+  <div class="pp-backdrop" data-thinking-close></div>
+  <div class="pp-panel pid-prompt-panel thinking-panel">
+    <div class="pp-head">
+      <div>
+        <h3 id="thinking-title">🧠 Thinking… <span id="thinking-elapsed" class="thinking-elapsed">0s</span></h3>
+        <p class="muted small" id="thinking-sub">Un modèle local raisonne sur votre prompt (souvent en français) et rédige la version finale anglaise. Relisez et confirmez — rien n'est généré sans votre accord.</p>
+      </div>
+      <button type="button" class="link pp-close-x" id="thinking-close" aria-label="Annuler et fermer">✕</button>
+    </div>
+    <div class="pid-prompt-body">
+      <div class="thinking-loading" id="thinking-loading">
+        <div class="thinking-spinner" aria-hidden="true"></div>
+        <span class="muted">Raisonnement en cours… — plusieurs dizaines de secondes selon le modèle et le GPU.</span>
+      </div>
+
+      <details class="thinking-reasoning" id="thinking-reasoning-wrap" hidden>
+        <summary>💭 Voir le raisonnement du modèle</summary>
+        <pre id="thinking-reasoning"></pre>
+      </details>
+
+      <label class="pid-prompt-label" id="thinking-final-wrap" hidden for="thinking-final">Prompt final <span class="muted">(éditable)</span></label>
+      <textarea id="thinking-final" class="thinking-final" rows="5" spellcheck="false" hidden></textarea>
+
+      <p class="error" id="thinking-error" hidden></p>
+      <p class="muted small" id="thinking-backend" hidden></p>
+    </div>
+    <div class="pp-foot">
+      <button type="button" class="btn ghost" id="thinking-cancel">Annuler</button>
+      <button type="button" class="btn" id="thinking-copy" hidden>📋 Copier</button>
+      <button type="button" class="btn primary" id="thinking-go" hidden>✨ Générer avec ce prompt</button>
+    </div>
+  </div>
+</div>

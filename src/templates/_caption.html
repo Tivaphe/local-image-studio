@@ -1,0 +1,37 @@
+<!-- ===== 🔎 Image → Prompt (légende locale par VLM, partagée) ===== -->
+<div class="pp-modal" id="caption-modal" hidden role="dialog" aria-modal="true" aria-labelledby="caption-title">
+  <div class="pp-backdrop" data-caption-close></div>
+  <div class="pp-panel caption-panel">
+    <div class="pp-head">
+      <div>
+        <h3 id="caption-title">🔎 Image → Prompt</h3>
+        <p class="muted small">
+          Déposez une image que vous voulez <b>reproduire</b> : un VLM local rédige le prompt.
+          Personne ne reçoit l'image (hors téléchargement initial des poids). Le texte reste éditable.
+        </p>
+      </div>
+      <button type="button" class="link pp-close-x" data-caption-close aria-label="Fermer">✕</button>
+    </div>
+    <div class="caption-body">
+      <div class="caption-drop" id="caption-drop" tabindex="0" role="button"
+           aria-label="Choisir une image ou la déposer ici">
+        <input type="file" id="caption-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+        <span id="caption-drop-label">🖼️ Déposez une image ici,<br>ou cliquez pour en choisir une</span>
+        <img id="caption-preview" alt="" hidden>
+      </div>
+      <label class="caption-model-row" for="caption-model">
+        <span>Légendeur</span>
+        <select id="caption-model"></select>
+      </label>
+      <button type="button" class="btn primary" id="caption-generate" disabled>🧠 Générer le prompt</button>
+      <label class="pid-prompt-label" for="caption-result">Résultat <span class="muted">(éditable)</span></label>
+      <textarea id="caption-result" rows="5" placeholder="Le prompt rédigé par le VLM apparaîtra ici…"></textarea>
+      <p class="muted small" id="caption-status" role="status"></p>
+    </div>
+    <div class="pp-foot">
+      <button type="button" class="btn ghost" data-caption-close>Fermer</button>
+      <button type="button" class="btn" id="caption-copy">📋 Copier</button>
+      <button type="button" class="btn primary" id="caption-use">✅ Utiliser ce prompt</button>
+    </div>
+  </div>
+</div>

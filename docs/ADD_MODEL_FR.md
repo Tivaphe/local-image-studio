@@ -18,7 +18,7 @@ Les architectures actuellement supportées : `flux`, `flux2`, `flux3`, `sd3`, `z
 
 ---
 
-## Étape 2 : Ouvrir `registry.py`
+## Étape 2 : Ouvrir `src/registry.py`
 
 Cherchez le dictionnaire `MODELS` (vers la ligne 70). Ajoutez une nouvelle entrée
 en copiant le modèle d'un modèle existant qui a la **même architecture**.
@@ -78,7 +78,7 @@ en copiant le modèle d'un modèle existant qui a la **même architecture**.
 ## Étape 4 : Réutiliser les dépendances existantes
 
 Les VAE et encodeurs de texte sont **partagés** entre modèles. Regardez le
-dictionnaire `DEPS` dans `registry.py`. Si votre modèle utilise un encodeur
+dictionnaire `DEPS` dans `src/registry.py`. Si votre modèle utilise un encodeur
 déjà présent (ex: `clip_l`, `t5xxl`, `qwen3_4b`...), référencez-le simplement
 dans `"deps": [...]`. Il ne sera téléchargé qu'une fois.
 
@@ -133,7 +133,7 @@ connaissent pas l'architecture.
 | `ref` | `-r` / `--ref-image` | **Répétable une fois par image** (documenté comme « can be used multiple times »). C'est le mode des modèles d'édition sémantique : l'image n'est pas « débruitée », elle sert de contexte. |
 | `init` | `-i` / `--init-img` | Image de départ **unique** + `--strength` (img2img classique). |
 
-Un modèle déclare ce qu'il accepte dans `registry.py` :
+Un modèle déclare ce qu'il accepte dans `src/registry.py` :
 
 ```python
 "mon-modele-edit": {
@@ -168,10 +168,20 @@ Règles à connaître (vérifiées sur le moteur, `docs/edit.md` et
 - Un modèle **non** listé ici (FLUX.1 schnell, Z-Image, ERNIE, Ideogram 4, Iris-3B…)
   n'accepte pas de référence : le moteur ne lui fournira pas l'argument.
 - `--mask` (inpainting) n'a d'effet que sur des poids dédiés « inpaint »
-  (ex. FLUX.1-Fill-dev) : inutile de l'exposer pour les modèles du registre actuel.
+  (ex. FLUX.1-Fill-dev) : jamais transmis pour les modèles du registre actuel.
+  L'inpainting au pinceau montre le masque au modèle comme une **image de référence
+  supplémentaire** (`append_mask_ref`, `<imageN>` + instruction explicite « zone
+  blanche = seule zone modifiable ») — c'est le seul canal sans poids dédiés.
+- **mmproj vérifié avant génération.** `/api/generate` et `build_command` refusent
+  net (400 / RuntimeError) un modèle à références dont le `mmproj_dep` n'est pas
+  installé : sans encodeur de vision, le modèle est AVEUGLE et produit n'importe
+  quoi (typiquement « des textures partout »). Le bouton « Télécharger mmproj » de
+  l'onglet Édition reste le moyen de le corriger.
 
 Côté application, ces champs remontent dans `/api/models`, sont validés par
-`registry.check_images_input()` (nombre, mode, doublons) et aboutissent dans
+`registry.check_images_input()` (nombre, mode, doublons), validés par
+`registry.vision_mmproj_missing()` (mmproj présent pour l'édition à références) et
+aboutissent dans
 `registry.build_command(ref_images=[...], input_mode=…, ref_max_pixels=…)`.
 
 ---

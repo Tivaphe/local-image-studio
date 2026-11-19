@@ -23,6 +23,8 @@ bin/
 models/
 output/
 source_images/
+portraits/
+.preview_cache/
 *.zip
 *.part
 

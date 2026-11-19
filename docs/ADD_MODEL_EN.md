@@ -18,7 +18,7 @@ Supported architectures: `flux`, `flux2`, `flux3`, `sd3`, `zimage`, `ernie`, `id
 
 ---
 
-## Step 2: Open `registry.py`
+## Step 2: Open `src/registry.py`
 
 Find the `MODELS` dictionary (around line 70). Add a new entry by copying
 an existing model that has the **same architecture**.
@@ -78,7 +78,7 @@ an existing model that has the **same architecture**.
 ## Step 4: Reuse existing dependencies
 
 VAE and text encoders are **shared** between models. Check the `DEPS` dictionary
-in `registry.py`. If your model uses an existing encoder (e.g. `clip_l`, `t5xxl`...),
+in `src/registry.py`. If your model uses an existing encoder (e.g. `clip_l`, `t5xxl`...),
 just reference it in `"deps": [...]`. It will only be downloaded once.
 
 To add a **new** encoder, add it to `DEPS`:
@@ -132,7 +132,7 @@ architecture.
 | `ref` | `-r` / `--ref-image` | **Repeatable, once per image** (documented as “can be used multiple times”). This is the mode of semantic editing models: the image is not “denoised”, it is context. |
 | `init` | `-i` / `--init-img` | A **single** starting image + `--strength` (classic img2img). |
 
-A model declares what it accepts in `registry.py`:
+A model declares what it accepts in `src/registry.py`:
 
 ```python
 "my-edit-model": {
@@ -166,10 +166,19 @@ Rules worth knowing (checked against the engine, `docs/edit.md` and
 - A model **not** declared here (FLUX.1 schnell, Z-Image, ERNIE, Ideogram 4,
   Iris-3B…) accepts no reference: the app won't pass the argument.
 - `--mask` (inpainting) only works with dedicated “inpaint” weights
-  (e.g. FLUX.1-Fill-dev): no point exposing it for the current registry models.
+  (e.g. FLUX.1-Fill-dev): never passed for current registry models.
+  Brush inpainting shows the mask to the model as an **extra reference image**
+  (`append_mask_ref`, `<imageN>` + an explicit instruction “white area = the only
+  modifiable zone”) — the only channel without dedicated weights.
+- **The mmproj is checked before generation.** `/api/generate` and `build_command`
+  hard-fail (400 / RuntimeError) a reference-edit model whose `mmproj_dep` is not
+  installed: without the vision encoder the model is BLIND and produces garbage
+  (typically “textures everywhere”). The “Download mmproj” button on the Edit tab
+  remains the fix.
 
 On the app side these fields are served by `/api/models`, validated by
-`registry.check_images_input()` (count, mode, duplicates) and end up in
+`registry.check_images_input()` (count, mode, duplicates), checked by
+`registry.vision_mmproj_missing()` (mmproj present for reference edits) and end up in
 `registry.build_command(ref_images=[...], input_mode=…, ref_max_pixels=…)`.
 
 ---
