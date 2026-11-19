@@ -23,6 +23,7 @@ let MODELS = {};
 let editModels = {};
 let canvas = null;          // {path, url, name, width, height, objectUrl, imgEl}
 let refs = [];              // idem, dans l'ordre
+let lastRefsCount = 0;      // pour ouvrir le pli Références quand une référence est ajoutée
 let currentRatio = "1:1";
 let ratioBeforeOriginal = "1:1";
 let pollTimer = null;
@@ -1352,12 +1353,14 @@ function refreshAll() {
 function renderCanvas() {
   const ph = $('#canvas-placeholder'), pv = $('#canvas-preview');
   const tfBar = $('#canvas-transform-bar');
+  const toolsFold = $('#canvas-tools-fold');
   const restoreBtn = $('#tf-restore-orig');
   if (!canvas) {
     ph.classList.remove('hidden');
     pv.classList.add('hidden');
     $('#canvas-img').src = '';
     if (tfBar) tfBar.hidden = true;
+    if (toolsFold) toolsFold.hidden = true;   // pas d'outils sans image
     closeCropPanel();
     return;
   }
@@ -1366,6 +1369,7 @@ function renderCanvas() {
   $('#canvas-img').src = canvas.url;
   $('#canvas-name').textContent = `${canvas.name} (${canvas.width} × ${canvas.height})`;
   if (tfBar) tfBar.hidden = false;
+  if (toolsFold) toolsFold.hidden = false;    // une image est chargée → outils visibles
   if (restoreBtn) {
     restoreBtn.hidden = !originalCanvasBackup || originalCanvasBackup.path === canvas.path;
   }
@@ -1415,8 +1419,14 @@ function buildEditLightboxItems() {
 function renderRefs() {
   const grid = $('#ref-grid');
   grid.parentElement.classList.toggle('has-refs', refs.length > 0);
+  // une référence vient d'être ajoutée → dérouler le pli pour la montrer (jamais de fermeture forcée)
+  if (refs.length > lastRefsCount) {
+    const refsFold = $('#refs-fold');
+    if (refsFold && !refsFold.open) refsFold.open = true;
+  }
+  lastRefsCount = refs.length;
   const total = orderedImages().length;
-  $('#refs-count').textContent = `${refs.length} / ${Math.max(0, maxImages() - 1)} référence(s)`
+  $('#refs-count').textContent = `${refs.length} / ${Math.max(0, maxImages() - 1)}`
     + (total ? ` — ${total} image(s) au total` : '');
   $('#clear-refs-btn').hidden = refs.length === 0;
   grid.innerHTML = '';
@@ -3128,4 +3138,18 @@ $('#restore-png-input')?.addEventListener('change', e => {
       restoreFromPngFile(png);
     }
   }, true);
+})();
+// Au chargement : si une génération lancée avant la navigation est encore en cours,
+// on se rattache à elle (barre de progression + « Annuler » + file) au lieu d'afficher un écran inactif.
+(async function reattachToRunningJob() {
+  let j = null;
+  try { j = await (await fetch('/api/status')).json(); } catch (e) { return; }
+  if (!j || !j.busy) return;
+  currentBatchStamp = Date.now();
+  $('#generate-btn').textContent = '＋ Ajouter à la file d\'attente';
+  $('#cancel-btn').hidden = false;
+  $('#progress-wrap').hidden = false;
+  if (typeof j.progress === 'number') $('#progress-fill').style.width = Math.round(j.progress * 100) + '%';
+  $('#log').hidden = false;
+  if (!pollTimer) pollStatus();
 })();

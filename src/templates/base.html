@@ -43,6 +43,19 @@
     {% block content %}{% endblock %}
   </main>
 
+  <!-- ⬆ Remonter rapide (toutes les pages) -->
+  <button type="button" id="back-to-top" class="back-to-top" hidden
+          aria-label="Remonter en haut de la page" title="Remonter en haut de la page">↑</button>
+
+  <!-- ⚙️ Suivi global de l'opération en cours (toutes les pages, navigation comprise) -->
+  <div id="global-job" class="global-job" hidden role="status" aria-live="polite">
+    <span class="global-job-icon" aria-hidden="true">⚙️</span>
+    <span class="global-job-text" id="global-job-text">Opération en cours…</span>
+    <span class="global-job-bar" aria-hidden="true"><span id="global-job-fill"></span></span>
+    <a class="global-job-link" id="global-job-link" href="{{ url_for('history') }}" title="Les images produites sont enregistrées dans l'historique">Voir</a>
+    <button type="button" class="global-job-cancel" id="global-job-cancel" title="Annuler l'opération en cours" aria-label="Annuler l'opération en cours">✕</button>
+  </div>
+
   <script src="{{ url_for('static', filename='app.js', v=static_v) }}"></script>
   <script src="{{ url_for('static', filename='caption.js', v=static_v) }}"></script>
   {% include "_postprocess.html" %}

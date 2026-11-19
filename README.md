@@ -378,6 +378,10 @@ Certains modèles nécessitent un **token Hugging Face gratuit** :
 | ⚔️ **Duel / Comparaison** | Même prompt en 2 seeds consécutifs, ou sur 2 modèles |
 | 📡 **Aperçu en direct** | L'image se construit à l'écran pendant l'échantillonnage |
 | 🌗 **Thème clair / sombre** | Bascule ☀️/🌙 dans la barre du haut — préféré de chacun, mémorisé dans le navigateur |
+| ⬆ **Remonter rapide** | Bouton « ↑ » en bas à droite sur **toutes les pages** (apparaît après un défilement de 240 px) | Barre flottante |
+| ⚙️ **Suivi global des opérations** | La génération tourne côté serveur : changer de page ne la coupe pas. Une pastille visible sur **toutes les pages** affiche la progression (%, étape, temps écoulé), permet d'annuler et signale la fin avec un lien vers l'historique. Les pages Générer / Édition se rattachent automatiquement à la génération en cours au chargement | Toutes les pages |
+| 🗂️ **Édition pliable** | « 🛠️ Outils du canvas — Transformer · Inpainting · Outpainting » et « ③ Images de référence » sont des **fenêtres déroulantes** (état mémorisé) ; la fiche Références affiche le compteur dans l'en-tête et se déroule quand vous ajoutez une image | Page Édition |
+| 📱 **Interface responsive** | Mise en page à une colonne sous 900 px, cibles tactiles, onglets et filtres défilants horizontalement sur mobile, grille plus large sur grands écrans (≥ 1500 px) | Toutes les pages |
 | 📥 **Réglages dans le PNG** | Glissez-déposez n'importe quel PNG généré : prompt, seed, modèle… restaurés |
 | ⬆️ **PiD ×4** | Super-résolution générative (FLUX.1 / FLUX.2 / Qwen-Image), 4 étapes, sortie 4096×4096 |
 | 🌐 **Traduction** | Traduit votre prompt (FR, ES…) vers l'anglais automatiquement |

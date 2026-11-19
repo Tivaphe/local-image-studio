@@ -348,6 +348,10 @@ Some models require a **free Hugging Face token**:
 | ⬆️ **PiD ×4** | Generative super-resolution (FLUX.1 / FLUX.2 / Qwen-Image), 4 steps, 4096×4096 output |
 | ✨ **Creative style options** | Quick style chips (visible prompt suffixes), Stylisation (0–1000, adjusts steps/CFG), Excentricité (0–3000, adjusts sampler/scheduler) and Chaos (0–100, independent seeds per image in a batch) — honest local approximations, all controls stay editable | Générer tab, section « ✨ Style créatif » |
 | 🌗 **Light / dark theme** | ☀️/🌙 toggle in the top bar — remembered in the browser | All pages |
+| ⬆ **Quick back-to-top** | « ↑ » button at the bottom-right of **every page** (appears after 240 px of scroll) | Floating button |
+| ⚙️ **Global job monitor** | Generation runs server-side: switching pages does not stop it. A pill visible on **every page** shows progress (%, step, elapsed time), lets you cancel and announces completion with a link to the history. Generate / Edit pages automatically re-attach to an in-flight generation on load | All pages |
+| 🗂️ **Collapsible edit sections** | « 🛠️ Canvas tools — Transformer · Inpainting · Outpainting » and « ③ Reference images » are now **dropdown sections** (state remembered); the References fold shows the counter in its header and opens when you add a picture | Edit page |
+| 📱 **Responsive UI** | Single-column layout below 900 px, horizontal-scrolling tabs/filters on mobile, wider grid on large screens (≥ 1500 px) | All pages |
 | 🌐 **Translation** | Translates your prompt (FR, ES…) to English |
 | ✨ **Enrichment** | An LLM enriches your prompt (style, lighting, composition…) |
 | 📊 **Statistics** | Generation time per model, most used model, etc. |

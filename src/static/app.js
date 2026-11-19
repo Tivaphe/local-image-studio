@@ -25,6 +25,110 @@ if (themeToggleBtn) {
   });
 }
 
+// ---------- ⬆ Remonter rapide (toutes les pages) ----------
+const backToTopBtn = $('#back-to-top');
+function updateBackToTop() {
+  if (!backToTopBtn) return;
+  backToTopBtn.hidden = window.scrollY < 240;
+}
+if (backToTopBtn) {
+  backToTopBtn.addEventListener('click', () => {
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+  });
+  window.addEventListener('scroll', updateBackToTop, { passive: true });
+  window.addEventListener('resize', updateBackToTop, { passive: true });
+  updateBackToTop();
+}
+
+// ---------- ⚙️ Suivi global de l'opération (toutes les pages) ----------
+// La génération tourne côté serveur (thread + sd-cli) : la navigation ne la coupe pas.
+// Cette pastille la rend visible et annulable depuis n'importe quelle page,
+// et signale la fin (avec lien vers l'historique) via un toast.
+(function initGlobalJob() {
+  const box = $('#global-job');
+  if (!box) return;
+  const textEl = $('#global-job-text');
+  const fillEl = $('#global-job-fill');
+  const cancelBtn = $('#global-job-cancel');
+  const linkEl = $('#global-job-link');
+  const KIND_LABEL = {
+    generate: 'Génération', vary: 'Variante', upscale: 'Agrandissement ×4',
+    repair: 'Réparation', restore_x2: 'Restauration ×2', pid: 'PiD ×4',
+    download: 'Téléchargement', engine: 'Moteur',
+  };
+  let seenBusy = false;          // a-t-on vu une tâche en cours pendant que cette page était ouverte ?
+  let lastToken = null;          // task_token de la tâche suivie (anti-toasts en double)
+  let toastedToken = null;       // token pour lequel on a déjà montré le toast de fin
+
+  const fmtJobTime = (s) => {
+    s = Math.max(0, Math.floor(Number(s) || 0));
+    const m = Math.floor(s / 60);
+    return m > 0 ? `${m}min ${String(s % 60).padStart(2, '0')}s` : `${s}s`;
+  };
+
+  async function tick() {
+    let j;
+    try {
+      const r = await fetch('/api/status');
+      j = await r.json();
+    } catch (e) { return; }   // serveur injoignable : on retentera
+
+    if (j && j.busy) {
+      seenBusy = true;
+      if (j.task_token) lastToken = j.task_token;
+      const kind = j.kind || 'generate';
+      const label = KIND_LABEL[kind] || 'Opération';
+      const pct = Math.round((j.progress || 0) * 100);
+      let txt = `${label} en cours… ${pct} %`;
+      if (j.total_steps > 0) txt += ` · étape ${j.step}/${j.total_steps}`;
+      if (j.elapsed) txt += ` · ${fmtJobTime(j.elapsed)}`;
+      box.hidden = false;
+      if (textEl) textEl.textContent = txt;
+      if (fillEl) fillEl.style.width = pct + '%';
+      if (cancelBtn) cancelBtn.hidden = (kind === 'download' || kind === 'engine');
+      return;
+    }
+
+    box.hidden = true;
+    if (!seenBusy) return;
+    // Transition « en cours » → terminée (observée pendant que cette page était ouverte)
+    seenBusy = false;
+    const token = lastToken;
+    lastToken = null;
+    if (!token || toastedToken === token || !window.showToast) return;
+    toastedToken = token;
+    const res = (j && j.result) || {};
+    if (res.cancelled) {
+      window.showToast('Opération annulée.');
+      return;
+    }
+    if (res.error) {
+      window.showToast('❌ ' + String(res.error).split('\n')[0].slice(0, 160));
+      return;
+    }
+    const n = Array.isArray(res.images) ? res.images.length : 0;
+    if (n > 0) {
+      window.showToast(
+        `✅ ${n > 1 ? n + ' images générées' : 'Image générée'} — retrouvables dans l'historique.`,
+        '🖼️ Historique',
+        () => { window.location.href = '/history'; },
+        9000
+      );
+    }
+  }
+
+  cancelBtn?.addEventListener('click', async () => {
+    try {
+      await fetch('/api/cancel', { method: 'POST' });
+      if (window.showToast) window.showToast('Annulation demandée…');
+    } catch (e) { /* on retente au prochain clic */ }
+  });
+
+  tick();
+  setInterval(tick, 2000);
+})();
+
 // Badge d'état du moteur (présent sur toutes les pages via la topbar)
 async function refreshEngineBadge() {
   const badge = $('#engine-badge');

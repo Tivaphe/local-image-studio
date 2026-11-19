@@ -215,6 +215,47 @@ class ThemeTests(unittest.TestCase):
         self.assertLess(lb, em)
         self.assertGreater(toast, em)
 
+    def test_base_html_has_global_job_and_back_to_top(self):
+        html = (_REPO / "src/templates/base.html").read_text(encoding="utf-8")
+        self.assertIn('id="back-to-top"', html)
+        self.assertIn('aria-label="Remonter en haut de la page"', html)
+        self.assertIn('id="global-job"', html)
+        self.assertIn('id="global-job-cancel"', html)
+        self.assertIn("url_for('history')", html)
+
+    def test_app_js_global_job_monitor_and_scroll_top(self):
+        js = (_REPO / "src/static/app.js").read_text(encoding="utf-8")
+        self.assertIn("backToTopBtn", js)
+        self.assertIn("updateBackToTop", js)
+        self.assertIn("initGlobalJob", js)
+        self.assertIn("/api/status", js)
+        self.assertIn("/api/cancel", js)
+        # état « busy observé » requis pour ne pas toaster sur chaque chargement
+        self.assertIn("seenBusy", js)
+
+    def test_pages_reattach_to_running_job_on_load(self):
+        for name in ("generate.js", "edit.js"):
+            js = (_REPO / "src/static" / name).read_text(encoding="utf-8")
+            self.assertIn("reattachToRunningJob", js, name)
+            self.assertIn("pollStatus()", js, name)
+
+    def test_edit_html_collapsible_folds(self):
+        html = (_REPO / "src/templates/edit.html").read_text(encoding="utf-8")
+        self.assertIn('id="canvas-tools-fold"', html)
+        self.assertIn('id="refs-fold"', html)
+        self.assertIn("lis_fold_tools", html)
+        self.assertIn("lis_fold_refs", html)
+        # les sections pliées utilisent bien <details>/<summary> natifs
+        self.assertIn("<details", html)
+        self.assertIn("</summary>", html)
+
+    def test_style_css_fold_and_global_job_and_responsive(self):
+        css = (_REPO / "src/static/style.css").read_text(encoding="utf-8")
+        for token in (".back-to-top{", ".global-job{", ".edit-fold{", ".edit-fold-summary",
+                      ".edit-fold-body", "prefers-reduced-motion", "@media (min-width:1500px)",
+                      "@media (max-width:900px)", "@media (max-width:560px)"):
+            self.assertIn(token, css)
+
     def test_screenshot_tooling_present(self):
         script = (_REPO / "scripts/take-screenshots.py").read_text(encoding="utf-8")
         self.assertIn("playwright", script)

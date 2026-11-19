@@ -72,6 +72,13 @@
       </div>
     </div>
 
+    <!-- 🛠️ Fenêtre déroulante : outils du canvas (Transformer / Inpainting / Outpainting) -->
+    <details class="edit-fold" id="canvas-tools-fold" hidden open>
+      <summary class="edit-fold-summary">
+        <span class="edit-fold-title">🛠️ Outils du canvas <em>— Transformer · Inpainting · Outpainting</em></span>
+        <span class="edit-fold-chevron" aria-hidden="true">▾</span>
+      </summary>
+      <div class="edit-fold-body">
     <!-- Barre de Recadrage & Rotation rapide (Crop / Flip) du Canvas -->
     <div id="canvas-transform-bar" class="canvas-transform-bar" hidden>
       <div class="transform-btns">
@@ -247,27 +254,53 @@
       </div>
     </div>
 
-    <!-- ③ Références -->
-    <div class="edit-step">
-      <span class="step-num">3</span><span class="step-title">Images de référence <em>(optionnel)</em></span>
-    </div>
-    <div class="refs-head">
-      <span class="muted small" id="refs-count">0 / 9 référence(s)</span>
-      <span class="refs-actions">
-        <button id="add-refs-btn" class="btn small ghost">＋ Ajouter</button>
-        <button id="clear-refs-btn" class="btn small ghost" hidden>Tout retirer</button>
-      </span>
-      <input type="file" id="refs-input" accept="image/png,image/jpeg,image/webp" multiple hidden>
-    </div>
-    <div class="dropzone dropzone-refs" id="refs-drop">
-      <div class="upload-placeholder">
-        <i class="icon">📚</i>
-        <span>Glissez ici un vêtement, un objet, un style…</span>
-        <small class="muted">Plusieurs fichiers d'un coup acceptés — l'ordre compte</small>
       </div>
-      <div class="ref-grid" id="ref-grid"></div>
-    </div>
-    <p class="hint" id="refs-order-hint"></p>
+    </details>
+
+    <!-- ③ Références — fenêtre déroulante (état mémorisé côté navigateur) -->
+    <details class="edit-fold" id="refs-fold">
+      <summary class="edit-fold-summary">
+        <span class="step-num">3</span>
+        <span class="edit-fold-title">Images de référence <em>(optionnel)</em></span>
+        <span class="edit-fold-count" id="refs-count">0 / 9</span>
+        <span class="edit-fold-chevron" aria-hidden="true">▾</span>
+      </summary>
+      <div class="edit-fold-body">
+        <div class="refs-head">
+          <span class="refs-actions">
+            <button id="add-refs-btn" class="btn small ghost">＋ Ajouter</button>
+            <button id="clear-refs-btn" class="btn small ghost" hidden>Tout retirer</button>
+          </span>
+          <input type="file" id="refs-input" accept="image/png,image/jpeg,image/webp" multiple hidden>
+        </div>
+        <div class="dropzone dropzone-refs" id="refs-drop">
+          <div class="upload-placeholder">
+            <i class="icon">📚</i>
+            <span>Glissez ici un vêtement, un objet, un style…</span>
+            <small class="muted">Plusieurs fichiers d'un coup acceptés — l'ordre compte</small>
+          </div>
+          <div class="ref-grid" id="ref-grid"></div>
+        </div>
+        <p class="hint" id="refs-order-hint"></p>
+      </div>
+    </details>
+    <script>
+    (function () {
+      function bindFold(id, key, defaultOpen) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        try {
+          var v = localStorage.getItem(key);
+          if (v === '1') el.open = true; else if (v === '0') el.open = false;
+        } catch (e) { el.open = defaultOpen; }
+        el.addEventListener('toggle', function () {
+          try { localStorage.setItem(key, el.open ? '1' : '0'); } catch (e) {}
+        });
+      }
+      bindFold('canvas-tools-fold', 'lis_fold_tools', true);
+      bindFold('refs-fold', 'lis_fold_refs', false);
+    })();
+    </script>
 
     <!-- ④ Instruction -->
     <div class="edit-step">

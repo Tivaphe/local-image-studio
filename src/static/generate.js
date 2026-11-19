@@ -1876,3 +1876,17 @@ $('#restore-png-input')?.addEventListener('change', e => {
 
 // Peupler le comparateur au chargement (après loadModels)
 setTimeout(populateCompareSelect, 1200);
+// Au chargement : si une génération lancée avant la navigation est encore en cours,
+// on se rattache à elle (barre de progression + « Annuler » + file) au lieu d'afficher un écran inactif.
+(async function reattachToRunningJob() {
+  let j = null;
+  try { j = await (await fetch('/api/status')).json(); } catch (e) { return; }
+  if (!j || !j.busy) return;
+  currentBatchStamp = Date.now();
+  $('#generate-btn').textContent = "＋ Ajouter à la file d'attente";
+  $('#cancel-btn').hidden = false;
+  $('#progress-wrap').hidden = false;
+  if (typeof j.progress === 'number') $('#progress-fill').style.width = Math.round(j.progress * 100) + '%';
+  $('#log').hidden = false;
+  if (!pollTimer) pollStatus();
+})();
